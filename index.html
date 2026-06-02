@@ -357,20 +357,13 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   <div style="position:absolute;top:16px;right:16px;cursor:pointer;font-size:12px;color:rgba(245,240,232,.3);font-family:monospace" onclick="resetConfig()">⚙️ Config</div>
   <div class="login-sub">Sistema de gestión comercial</div>
   <div class="login-card">
-    <div class="login-tabs">
-      <div class="login-tab on" onclick="setLoginTab('login',this)">Ingresar</div>
-      <div class="login-tab" onclick="setLoginTab('register',this)">Registrarse</div>
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:12px;color:rgba(245,240,232,.35);font-family:'DM Mono',monospace;letter-spacing:1px">Sistema privado · Solo acceso autorizado</div>
     </div>
     <div id="login-form">
       <input class="linp" id="l-email" type="email" placeholder="Email" autocomplete="email">
       <input class="linp" id="l-pass" type="password" placeholder="Contraseña" autocomplete="current-password">
       <button class="lbtn" id="l-btn" onclick="doLogin()">Ingresar →</button>
-    </div>
-    <div id="register-form" style="display:none">
-      <input class="linp" id="r-tienda" placeholder="Nombre de tu tienda" autocomplete="off">
-      <input class="linp" id="r-email" type="email" placeholder="Email" autocomplete="email">
-      <input class="linp" id="r-pass" type="password" placeholder="Contraseña (min. 6 caracteres)" autocomplete="new-password">
-      <button class="lbtn" id="r-btn" onclick="doRegister()">Crear cuenta →</button>
     </div>
     <div class="lerr" id="l-err"></div>
   </div>
@@ -455,6 +448,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="ntab" onclick="gp('pco',this)"><span>🚚</span>Compras</div>
       <div class="ntab" onclick="gp('pde',this)"><span>💸</span>Deudores</div>
       <div class="ntab" onclick="gp('pusu',this)"><span>👤</span>Usuarios</div>
+      <div class="ntab" id="admin-tab" style="display:none;background:rgba(201,79,26,.15)" onclick="gp('padmin',this)"><span>⚙️</span>Admin</div>
     </div>
   </div>
 
@@ -689,6 +683,22 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
   </div>
 
+  <!-- ADMIN PANEL -->
+  <div id="padmin" class="page" style="display:none">
+    <div class="hero" style="background:linear-gradient(135deg,#1a1a2e,#16213e)" data-bg="ADMIN">
+      <div class="hl">Panel de control</div>
+      <div class="ht">Administrador</div>
+      <div class="hs">Gestión de tiendas y accesos</div>
+    </div>
+    <div style="padding:14px 20px 0">
+      <button class="btn btn-rust btn-full" onclick="openModal('ov-nueva-tienda')">+ Crear nueva tienda</button>
+    </div>
+    <div class="slabel"><span class="slabel-t">Tiendas activas</span><span class="slabel-b" id="admin-count">0</span></div>
+    <div style="padding:0 20px;display:flex;flex-direction:column;gap:8px" id="admin-tiendas-list">
+      <div class="empty"><div class="spin"></div>Cargando tiendas...</div>
+    </div>
+  </div>
+
   <!-- USUARIOS -->
   <div id="pusu" class="page">
     <div class="hero h-purple" data-bg="USUARIOS">
@@ -741,6 +751,20 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <input class="inp" id="de-tel" type="tel" placeholder="+54 9 381...">
     </div>
     <button class="btn btn-rust btn-full" onclick="saveDeuda()">Registrar deuda</button>
+  </div>
+</div>
+
+<!-- MODAL NUEVA TIENDA (ADMIN) -->
+<div class="overlay" id="ov-nueva-tienda">
+  <div class="modal" style="position:relative">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-nueva-tienda')">✕</button>
+    <div class="modal-title">Nueva Tienda</div>
+    <div class="fgroup"><div class="flabel">Nombre de la tienda</div><input class="inp" id="nt-nombre" placeholder="Ej: Ropa de María"></div>
+    <div class="fgroup"><div class="flabel">Email del dueño</div><input class="inp" id="nt-email" type="email" placeholder="dueno@mail.com"></div>
+    <div class="fgroup"><div class="flabel">Contraseña temporal</div><input class="inp" id="nt-pass" type="password" placeholder="Mínimo 6 caracteres"></div>
+    <div class="fgroup"><div class="flabel">Teléfono (opcional)</div><input class="inp" id="nt-tel" type="tel" placeholder="+54 9 381..."></div>
+    <button class="btn btn-rust btn-full" onclick="crearTienda()">Crear tienda →</button>
   </div>
 </div>
 
@@ -802,6 +826,7 @@ function showApp() {
   document.getElementById('setup-view').style.display='none';
   document.getElementById('app').classList.add('show');
   document.getElementById('store-name').textContent = STORE?.name || USER?.email || '';
+  checkAdmin();
   initApp();
 }
 
@@ -1715,6 +1740,71 @@ function gp(id,el){
   if(id==='pcc')renderCaja();
   if(id==='pde')renderDeudas();
   if(id==='pusu'){loadUsuarios();}
+  if(id==='padmin'){loadAdminTiendas();}
+}
+
+// ══ ADMIN ══
+const ADMIN_EMAIL = 'bautilines@gmail.com'; // Tu email de admin
+
+async function checkAdmin(){
+  if(USER?.email === ADMIN_EMAIL){
+    document.getElementById('admin-tab').style.display='flex';
+    loadAdminTiendas();
+  }
+}
+
+async function loadAdminTiendas(){
+  try{
+    const {data,error} = await SB.from('tiendas').select('*').order('created_at',{ascending:false});
+    if(error) throw error;
+    const list = data || [];
+    document.getElementById('admin-count').textContent = list.length;
+    const el = document.getElementById('admin-tiendas-list');
+    if(!list.length){ el.innerHTML='<div class="empty">Sin tiendas creadas</div>'; return; }
+    el.innerHTML = list.map(t => `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div>
+            <div style="font-size:13px;font-weight:600">${t.name||'Sin nombre'}</div>
+            <div style="font-size:11px;color:var(--muted)">${t.email||''}</div>
+          </div>
+          <div style="font-size:10px;font-family:DM Mono,monospace;color:var(--muted)">${new Date(t.created_at).toLocaleDateString('es-AR')}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm btn-outline" onclick="verTienda('${t.id}','${t.name}')">👁️ Ver</button>
+          <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="desactivarTienda('${t.id}','${t.name}')">🔴 Desactivar</button>
+        </div>
+      </div>`).join('');
+  }catch(e){ console.error('loadAdminTiendas',e); }
+}
+
+async function crearTienda(){
+  const nombre = document.getElementById('nt-nombre').value.trim();
+  const email = document.getElementById('nt-email').value.trim();
+  const pass = document.getElementById('nt-pass').value;
+  if(!nombre||!email||!pass){ showToast('Completá todos los campos','err'); return; }
+  if(pass.length < 6){ showToast('Contraseña mínimo 6 caracteres','err'); return; }
+  try{
+    // Crear usuario en Supabase Auth
+    const {data,error} = await SB.auth.signUp({email, password:pass, options:{data:{tienda_name:nombre}}});
+    if(error) throw error;
+    showToast(`✅ Tienda "${nombre}" creada. Email: ${email}`,'ok');
+    closeModal('ov-nueva-tienda');
+    ['nt-nombre','nt-email','nt-pass','nt-tel'].forEach(id=>document.getElementById(id).value='');
+    setTimeout(()=>loadAdminTiendas(), 2000);
+  }catch(e){
+    showToast('❌ Error: '+e.message,'err');
+    console.error(e);
+  }
+}
+
+function verTienda(id, nombre){
+  showToast(`Tienda: ${nombre} (ID: ${id.slice(0,8)}...)`, 'ok');
+}
+
+async function desactivarTienda(id, nombre){
+  if(!confirm(`¿Desactivar la tienda "${nombre}"? El dueño no podrá ingresar.`)) return;
+  showToast('Función disponible en versión premium','ok');
 }
 
 // ══ TOAST ══
