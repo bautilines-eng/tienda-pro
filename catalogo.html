@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catálogo</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#12100e;--paper:#f8f5f0;--cream:#edeadf;--white:#fff;
+  --rust:#c94f1a;--pine:#1a5c38;--sky:#1a5ec9;--amber:#c97f1a;
+  --muted:rgba(18,16,14,.45);--border:rgba(18,16,14,.1);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;min-height:100vh;}
+
+/* HEADER */
+.header{background:var(--ink);padding:0;position:sticky;top:0;z-index:100}
+.header-inner{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.06)}
+.store-name{font-family:'Instrument Serif',serif;font-size:22px;color:#faf8f4}
+.store-tag{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.3);margin-top:2px}
+.wa-btn{display:inline-flex;align-items:center;gap:8px;background:#25d366;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;text-decoration:none;transition:opacity .15s}
+.wa-btn:active{opacity:.85}
+.wa-ico{font-size:16px}
+
+/* SEARCH + CATS */
+.search-bar{padding:14px 20px 0;background:var(--ink)}
+.search-inp{width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:11px 16px;font-size:14px;color:#faf8f4;font-family:'DM Sans',sans-serif;outline:none}
+.search-inp::placeholder{color:rgba(255,255,255,.3)}
+.cats{display:flex;gap:6px;padding:10px 20px 14px;background:var(--ink);overflow-x:auto;scrollbar-width:none}
+.cats::-webkit-scrollbar{display:none}
+.cat{padding:5px 13px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.4);background:transparent;transition:all .15s}
+.cat.on{background:var(--rust);border-color:var(--rust);color:#fff}
+
+/* HERO BANNER */
+.banner{background:linear-gradient(135deg,var(--rust),#a33a10);padding:28px 20px;position:relative;overflow:hidden}
+.banner::after{content:attr(data-name);position:absolute;right:-20px;top:50%;transform:translateY(-50%);font-family:'Instrument Serif',serif;font-size:80px;color:rgba(255,255,255,.06);white-space:nowrap;pointer-events:none}
+.banner-label{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:3px;color:rgba(255,255,255,.5);text-transform:uppercase;margin-bottom:6px}
+.banner-title{font-family:'Instrument Serif',serif;font-size:32px;color:#fff;line-height:1;margin-bottom:4px}
+.banner-sub{font-size:13px;color:rgba(255,255,255,.5)}
+
+/* STATS BAR */
+.stats-bar{display:flex;gap:0;background:var(--white);border-bottom:1px solid var(--border)}
+.stat{flex:1;padding:12px;text-align:center;border-right:1px solid var(--border)}
+.stat:last-child{border-right:none}
+.stat-v{font-family:'Instrument Serif',serif;font-size:20px;color:var(--rust);line-height:1;margin-bottom:2px}
+.stat-l{font-size:9px;color:var(--muted);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.5px}
+
+/* PRODUCTS */
+.section-label{padding:14px 20px 8px;display:flex;align-items:center;justify-content:space-between}
+.sl-t{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
+.sl-count{background:var(--ink);color:var(--paper);font-size:9px;font-family:'DM Mono',monospace;padding:2px 8px;border-radius:20px}
+
+.products{padding:0 20px;display:flex;flex-direction:column;gap:10px;padding-bottom:120px}
+
+.prod-card{background:var(--white);border:1.5px solid var(--border);border-radius:14px;padding:14px;display:flex;gap:12px;align-items:center;transition:border-color .15s;cursor:pointer}
+.prod-card:hover{border-color:rgba(18,16,14,.2)}
+.prod-card.selected{border-color:var(--rust);background:rgba(201,79,26,.04)}
+
+.prod-em{width:48px;height:48px;border-radius:12px;background:var(--cream);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+.prod-card.selected .prod-em{background:rgba(201,79,26,.12)}
+
+.prod-info{flex:1;min-width:0}
+.prod-name{font-size:14px;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prod-cat{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.prod-price{font-family:'Instrument Serif',serif;font-size:20px;color:var(--rust);line-height:1}
+.prod-stock{font-size:10px;font-weight:600;margin-top:3px}
+.stock-ok{color:var(--pine)}.stock-low{color:var(--amber)}.stock-out{color:red}
+
+.prod-add{width:36px;height:36px;border-radius:50%;background:var(--rust);color:#fff;border:none;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .1s}
+.prod-add:active{transform:scale(.85)}
+.prod-add.added{background:var(--pine)}
+
+/* CART */
+.cart-bar{position:fixed;bottom:0;left:0;right:0;background:var(--ink);padding:14px 20px 20px;display:none;flex-direction:column;gap:10px;z-index:200;border-radius:20px 20px 0 0}
+.cart-bar.show{display:flex}
+.cart-items{display:flex;gap:6px;flex-wrap:wrap;max-height:50px;overflow:hidden}
+.cart-chip{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.7);font-size:10px;padding:3px 8px;border-radius:20px;font-family:'DM Mono',monospace;white-space:nowrap}
+.cart-bot{display:flex;align-items:center;gap:12px}
+.cart-info{flex:1}
+.cart-total-l{font-size:10px;color:rgba(255,255,255,.3);margin-bottom:1px}
+.cart-total-v{font-family:'Instrument Serif',serif;font-size:26px;color:#faf8f4;line-height:1}
+.cart-wa{display:inline-flex;align-items:center;gap:8px;background:#25d366;color:#fff;border:none;border-radius:10px;padding:13px 20px;font-size:13px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .15s}
+.cart-wa:active{opacity:.85;transform:scale(.97)}
+.cart-clear{background:rgba(255,255,255,.08);color:rgba(255,255,255,.5);border:none;border-radius:8px;padding:8px 12px;font-size:11px;font-family:'DM Mono',monospace;cursor:pointer}
+
+/* EMPTY */
+.empty{text-align:center;padding:48px 20px;color:var(--muted);font-size:14px}
+.spin{width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--rust);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* FOOTER */
+.footer{background:var(--ink);padding:20px;text-align:center;margin-top:24px}
+.footer-brand{font-family:'Instrument Serif',serif;font-size:16px;color:rgba(255,255,255,.4)}
+.footer-brand span{color:var(--rust)}
+.footer-sub{font-size:10px;color:rgba(255,255,255,.18);font-family:'DM Mono',monospace;letter-spacing:1px;margin-top:4px}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-inner">
+    <div>
+      <div class="store-name" id="store-name">Cargando...</div>
+      <div class="store-tag">Catálogo oficial</div>
+    </div>
+    <a class="wa-btn" id="wa-contact" href="#" target="_blank">
+      <span class="wa-ico">💬</span> Consultar
+    </a>
+  </div>
+  <div class="search-bar">
+    <input class="search-inp" id="search" placeholder="🔍  Buscar producto..." oninput="filterProds()">
+  </div>
+  <div class="cats" id="cats"></div>
+</div>
+
+<!-- BANNER -->
+<div class="banner" id="banner" data-name="">
+  <div class="banner-label">Bienvenido al catálogo de</div>
+  <div class="banner-title" id="banner-title">Tienda</div>
+  <div class="banner-sub" id="banner-sub">Todos los precios en pesos argentinos</div>
+</div>
+
+<!-- STATS -->
+<div class="stats-bar">
+  <div class="stat"><div class="stat-v" id="stat-prods">0</div><div class="stat-l">Productos</div></div>
+  <div class="stat"><div class="stat-v" id="stat-cats">0</div><div class="stat-l">Categorías</div></div>
+  <div class="stat"><div class="stat-v" id="stat-stock">✓</div><div class="stat-l">En stock</div></div>
+</div>
+
+<!-- PRODUCTS -->
+<div class="section-label">
+  <span class="sl-t">Productos disponibles</span>
+  <span class="sl-count" id="prod-count">0</span>
+</div>
+<div class="products" id="products">
+  <div class="empty"><div class="spin"></div>Cargando catálogo...</div>
+</div>
+
+<!-- CART -->
+<div class="cart-bar" id="cart">
+  <div class="cart-items" id="cart-chips"></div>
+  <div class="cart-bot">
+    <div class="cart-info">
+      <div class="cart-total-l">Total del pedido</div>
+      <div class="cart-total-v" id="cart-total">$0</div>
+    </div>
+    <button class="cart-clear" onclick="clearCart()">Limpiar</button>
+    <button class="cart-wa" onclick="sendWhatsApp()">
+      <span>📲</span> Pedir por WhatsApp
+    </button>
+  </div>
+</div>
+
+<div class="footer">
+  <div class="footer-brand">Tienda <span>Pro</span></div>
+  <div class="footer-sub">Sistema de gestión comercial · 2026</div>
+</div>
+
+<script>
+// ── CONFIG ──
+// Leer tienda_id desde URL: ?tienda=ID
+const params = new URLSearchParams(window.location.search);
+const TIENDA_ID = params.get('tienda');
+const SB_URL = 'https://ieibxbrcvlrrnfchyooa.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImllaWJ4YnJjdmxycm5mY2h5b29hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5ODMzMDYsImV4cCI6MjA5NTU1OTMwNn0.DRYagMqkDT3qVcRl4gGp9NgXfAtTOXMwizfB3k5QtPQ';
+
+const SB = supabase.createClient(SB_URL, SB_KEY);
+
+let prods = [], filtered = [], cart = {}, activeCat = 'all', tienda = null;
+
+const EMOJ = {'Toallas':'🛁','Ropa de Cama':'🛏️','Cortinas':'🪟','Almohadas':'😴','Decoración':'🖼️','Protectores':'🛡️','Casa':'🏠','Electrodomésticos':'🔌','General':'📦'};
+function getEm(cat){ return EMOJ[cat] || '📦'; }
+
+// ── INIT ──
+window.onload = async () => {
+  if(!TIENDA_ID){ showError(); return; }
+  await loadTienda();
+  await loadProds();
+};
+
+async function loadTienda(){
+  try{
+    const {data} = await SB.from('tiendas').select('*').eq('id', TIENDA_ID).single();
+    tienda = data;
+    if(tienda){
+      document.getElementById('store-name').textContent = tienda.name || 'Tienda';
+      document.getElementById('banner-title').textContent = tienda.name || 'Tienda';
+      document.getElementById('banner').setAttribute('data-name', tienda.name || '');
+      document.title = `Catálogo · ${tienda.name}`;
+      // WhatsApp contact
+      if(tienda.telefono){
+        const num = tienda.telefono.replace(/\D/g,'');
+        document.getElementById('wa-contact').href = `https://wa.me/${num}?text=Hola! Vi tu catálogo y quiero consultar.`;
+      }
+    }
+  }catch(e){ console.error(e); }
+}
+
+async function loadProds(){
+  try{
+    const {data, error} = await SB.from('productos').select('*').eq('tienda_id', TIENDA_ID).gt('stock', 0).order('nombre');
+    if(error) throw error;
+    prods = data || [];
+    filtered = [...prods];
+    renderCats();
+    renderProds();
+    updateStats();
+  }catch(e){
+    document.getElementById('products').innerHTML = '<div class="empty">No se pudieron cargar los productos.</div>';
+  }
+}
+
+function updateStats(){
+  const cats = new Set(prods.map(p=>p.categoria).filter(Boolean));
+  document.getElementById('stat-prods').textContent = prods.length;
+  document.getElementById('stat-cats').textContent = cats.size;
+  document.getElementById('stat-stock').textContent = prods.filter(p=>p.stock>0).length;
+}
+
+function renderCats(){
+  const cats = ['all', ...new Set(prods.map(p=>p.categoria).filter(Boolean))];
+  document.getElementById('cats').innerHTML = cats.map(c =>
+    `<div class="cat ${c===activeCat?'on':''}" onclick="setCat('${c}',this)">${c==='all'?'Todos':c}</div>`
+  ).join('');
+}
+
+function setCat(c, el){
+  activeCat = c;
+  document.querySelectorAll('.cat').forEach(x=>x.classList.remove('on'));
+  el.classList.add('on');
+  filterProds();
+}
+
+function filterProds(){
+  const q = document.getElementById('search').value.toLowerCase();
+  filtered = prods.filter(p =>
+    (activeCat==='all' || p.categoria===activeCat) &&
+    (p.nombre?.toLowerCase().includes(q) || p.categoria?.toLowerCase().includes(q))
+  );
+  renderProds();
+}
+
+function renderProds(){
+  document.getElementById('prod-count').textContent = filtered.length;
+  const el = document.getElementById('products');
+  if(!filtered.length){ el.innerHTML='<div class="empty">Sin productos en esta categoría</div>'; return; }
+  el.innerHTML = filtered.map(p => {
+    const qty = cart[p.id]?.qty || 0;
+    const min = p.stock_minimo || 10;
+    const sc = p.stock === 0 ? 'stock-out' : p.stock < min ? 'stock-low' : 'stock-ok';
+    const st = p.stock === 0 ? '🔴 Sin stock' : p.stock < min ? `⚠️ Pocas unidades` : `✓ Disponible`;
+    return `<div class="prod-card ${qty>0?'selected':''}" id="pc-${p.id}" onclick="toggleProd('${p.id}')">
+      <div class="prod-em">${getEm(p.categoria)}</div>
+      <div class="prod-info">
+        <div class="prod-name">${p.nombre}</div>
+        <div class="prod-cat">${p.categoria||'General'}</div>
+        <div class="prod-price">$${(p.precio||0).toLocaleString('es-AR')}</div>
+        <div class="prod-stock ${sc}">${st}</div>
+      </div>
+      <button class="prod-add ${qty>0?'added':''}" id="btn-${p.id}" onclick="event.stopPropagation();addToCart('${p.id}')">
+        ${qty>0?`<span style="font-size:14px;font-weight:700">${qty}</span>`:'＋'}
+      </button>
+    </div>`;
+  }).join('');
+}
+
+function toggleProd(id){
+  if(cart[id]) removeFromCart(id);
+  else addToCart(id);
+}
+
+function addToCart(id){
+  const p = prods.find(x=>x.id==id);
+  if(!p || p.stock===0) return;
+  if(!cart[id]) cart[id] = {prod:p, qty:0};
+  cart[id].qty = Math.min(cart[id].qty+1, p.stock);
+  updateCartUI();
+  // Update card
+  const card = document.getElementById(`pc-${id}`);
+  const btn = document.getElementById(`btn-${id}`);
+  if(card) card.classList.add('selected');
+  if(btn){ btn.classList.add('added'); btn.innerHTML=`<span style="font-size:14px;font-weight:700">${cart[id].qty}</span>`; }
+}
+
+function removeFromCart(id){
+  delete cart[id];
+  updateCartUI();
+  const card = document.getElementById(`pc-${id}`);
+  const btn = document.getElementById(`btn-${id}`);
+  if(card) card.classList.remove('selected');
+  if(btn){ btn.classList.remove('added'); btn.innerHTML='＋'; }
+}
+
+function clearCart(){
+  Object.keys(cart).forEach(id => removeFromCart(id));
+  cart = {};
+  updateCartUI();
+}
+
+function updateCartUI(){
+  const items = Object.values(cart).filter(x=>x.qty>0);
+  const cartEl = document.getElementById('cart');
+  if(!items.length){ cartEl.classList.remove('show'); return; }
+  cartEl.classList.add('show');
+  const total = items.reduce((s,x)=>s+x.prod.precio*x.qty, 0);
+  document.getElementById('cart-total').textContent = `$${total.toLocaleString('es-AR')}`;
+  document.getElementById('cart-chips').innerHTML = items.map(x =>
+    `<div class="cart-chip">${getEm(x.prod.categoria)} ${x.prod.nombre.split(' ')[0]} ×${x.qty}</div>`
+  ).join('');
+}
+
+function sendWhatsApp(){
+  const items = Object.values(cart).filter(x=>x.qty>0);
+  if(!items.length) return;
+  const total = items.reduce((s,x)=>s+x.prod.precio*x.qty, 0);
+  let msg = `¡Hola ${tienda?.name||''}! Me gustaría hacer el siguiente pedido:\n\n`;
+  items.forEach(x => {
+    msg += `${getEm(x.prod.categoria)} *${x.prod.nombre}* × ${x.qty} = $${(x.prod.precio*x.qty).toLocaleString('es-AR')}\n`;
+  });
+  msg += `\n💰 *Total: $${total.toLocaleString('es-AR')}*\n\n¿Podemos coordinar la entrega?`;
+  
+  // Get store phone or use default
+  const phone = tienda?.telefono?.replace(/\D/g,'') || '';
+  const url = phone 
+    ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
+    : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+  window.open(url, '_blank');
+}
+
+function showError(){
+  document.getElementById('products').innerHTML = `
+    <div class="empty">
+      <div style="font-size:40px;margin-bottom:16px">🔗</div>
+      <div style="font-weight:600;margin-bottom:8px">Link inválido</div>
+      <div style="font-size:13px">Este catálogo necesita un ID de tienda válido.</div>
+    </div>`;
+}
+</script>
+</body>
+</html>
