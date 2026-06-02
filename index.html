@@ -448,6 +448,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="ntab" onclick="gp('pco',this)"><span>🚚</span>Compras</div>
       <div class="ntab" onclick="gp('pde',this)"><span>💸</span>Deudores</div>
       <div class="ntab" onclick="gp('pusu',this)"><span>👤</span>Usuarios</div>
+      <div class="ntab" onclick="gp('pfin',this)"><span>💰</span>Finanzas</div>
       <div class="ntab" id="admin-tab" style="display:none;background:rgba(201,79,26,.15)" onclick="gp('padmin',this)"><span>⚙️</span>Admin</div>
     </div>
   </div>
@@ -683,6 +684,95 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
   </div>
 
+  <!-- FINANZAS -->
+  <div id="pfin" class="page">
+    <div class="hero h-pine" data-bg="FINANZAS">
+      <div class="hl">Análisis financiero</div>
+      <div class="ht">Finanzas</div>
+      <div class="hs">Ingresos, egresos y balance real</div>
+    </div>
+    <div style="display:flex;gap:6px;padding:14px 20px 0;overflow-x:auto;scrollbar-width:none">
+      <div class="ps on" onclick="setFinPer('mes',this)">Este mes</div>
+      <div class="ps" onclick="setFinPer('semana',this)">Esta semana</div>
+      <div class="ps" onclick="setFinPer('todo',this)">Todo</div>
+    </div>
+
+    <!-- BALANCE PRINCIPAL -->
+    <div style="margin:14px 20px 0;background:var(--ink);border-radius:14px;padding:20px;position:relative;overflow:hidden">
+      <div style="position:absolute;right:-10px;top:50%;transform:translateY(-50%);font-family:Instrument Serif,serif;font-size:80px;color:rgba(255,255,255,.04);pointer-events:none">$</div>
+      <div style="font-family:DM Mono,monospace;font-size:9px;color:rgba(245,240,232,.3);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px" id="fin-periodo-label">Este mes</div>
+      <div style="font-family:Instrument Serif,serif;font-size:42px;line-height:1;margin-bottom:4px" id="fin-balance" style="color:var(--paper)">$0</div>
+      <div style="font-size:12px;color:rgba(245,240,232,.4)" id="fin-balance-label">Balance neto</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:16px">
+        <div style="background:rgba(30,92,56,.4);border:1px solid rgba(30,92,56,.6);border-radius:10px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:rgba(245,240,232,.4);margin-bottom:4px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:.5px">Ingresos</div>
+          <div style="font-family:DM Mono,monospace;font-size:14px;font-weight:500;color:#6fcf97" id="fin-ingresos">$0</div>
+        </div>
+        <div style="background:rgba(196,68,28,.25);border:1px solid rgba(196,68,28,.4);border-radius:10px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:rgba(245,240,232,.4);margin-bottom:4px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:.5px">Egresos</div>
+          <div style="font-family:DM Mono,monospace;font-size:14px;font-weight:500;color:#eb5757" id="fin-egresos">$0</div>
+        </div>
+        <div style="background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.3);border-radius:10px;padding:10px;text-align:center">
+          <div style="font-size:9px;color:rgba(245,240,232,.4);margin-bottom:4px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:.5px">Margen</div>
+          <div style="font-family:DM Mono,monospace;font-size:14px;font-weight:500;color:#f2c94c" id="fin-margen">0%</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 20px 0">
+      <div class="card">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:5px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:1px">Ventas totales</div>
+        <div style="font-family:Instrument Serif,serif;font-size:28px;color:var(--pine)" id="fin-ventas-total">0</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px" id="fin-ventas-count">transacciones</div>
+      </div>
+      <div class="card">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:5px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:1px">Ticket promedio</div>
+        <div style="font-family:Instrument Serif,serif;font-size:28px;color:var(--sky)" id="fin-ticket-prom">$0</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">por venta</div>
+      </div>
+      <div class="card">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:5px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:1px">Compras / Egresos</div>
+        <div style="font-family:Instrument Serif,serif;font-size:28px;color:var(--red)" id="fin-compras-total">$0</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px" id="fin-compras-count">registradas</div>
+      </div>
+      <div class="card">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:5px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:1px">Deudas pendientes</div>
+        <div style="font-family:Instrument Serif,serif;font-size:28px;color:var(--amber)" id="fin-deudas-total">$0</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px" id="fin-deudas-count">sin cobrar</div>
+      </div>
+    </div>
+
+    <!-- MÉTODOS DE PAGO -->
+    <div style="padding:14px 20px 0">
+      <div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Ingresos por método</div>
+      <div class="card" id="fin-metodos"></div>
+    </div>
+
+    <!-- TOP PRODUCTOS MÁS RENTABLES -->
+    <div style="padding:14px 20px 0">
+      <div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Productos más vendidos</div>
+      <div class="card" id="fin-top-prods"></div>
+    </div>
+
+    <!-- EVOLUCIÓN DIARIA -->
+    <div style="padding:14px 20px 0">
+      <div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Evolución últimos 7 días</div>
+      <div class="card">
+        <div style="display:flex;align-items:flex-end;gap:4px;height:80px" id="fin-chart"></div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:9px;color:var(--muted);font-family:DM Mono,monospace" id="fin-chart-labels"></div>
+      </div>
+    </div>
+
+    <!-- RESUMEN TEXTUAL -->
+    <div style="padding:14px 20px 24px">
+      <div class="card" style="background:var(--pine-l);border-color:var(--pine)">
+        <div style="font-size:13px;font-weight:600;color:var(--pine);margin-bottom:8px">📋 Resumen del período</div>
+        <div id="fin-resumen" style="font-size:13px;color:var(--ink);line-height:1.7"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ADMIN PANEL -->
   <div id="padmin" class="page">
     <div class="hero" style="background:linear-gradient(135deg,#1a1a2e,#16213e)" data-bg="ADMIN">
@@ -827,6 +917,10 @@ function showApp() {
   document.getElementById('app').classList.add('show');
   document.getElementById('store-name').textContent = STORE?.name || USER?.email || '';
   checkAdmin();
+  // Hide all pages, show only ventas
+  document.querySelectorAll('.page').forEach(p=>{p.style.display='none';p.classList.remove('on');});
+  const pv=document.getElementById('pv');
+  if(pv){pv.style.display='block';pv.classList.add('on');}
   initApp();
 }
 
@@ -1731,16 +1825,157 @@ document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{
 
 // ══ NAV ══
 function gp(id,el){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.page').forEach(p=>{
+    p.classList.remove('on');
+    p.style.display='none';
+  });
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('on'));
-  document.getElementById(id).classList.add('on');
-  el.classList.add('on');
+  const pg=document.getElementById(id);
+  if(pg){
+    pg.classList.add('on');
+    pg.style.display='block';
+  }
+  if(el) el.classList.add('on');
   document.getElementById('cart').classList.remove('show');
   if(id==='pr')renderReportes();
   if(id==='pcc')renderCaja();
   if(id==='pde')renderDeudas();
-  if(id==='pusu'){loadUsuarios();}
-  if(id==='padmin'){loadAdminTiendas();}
+  if(id==='pusu')loadUsuarios();
+  if(id==='padmin')loadAdminTiendas();
+  if(id==='pfin')renderFinanzas();
+}
+
+// ══ FINANZAS ══
+let finPeriodo = 'mes';
+
+function setFinPer(p, el){
+  finPeriodo = p;
+  document.querySelectorAll('#pfin .ps').forEach(b=>b.classList.remove('on'));
+  el.classList.add('on');
+  renderFinanzas();
+}
+
+function renderFinanzas(){
+  const now = new Date();
+  let cutoff;
+  if(finPeriodo === 'mes'){
+    cutoff = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    document.getElementById('fin-periodo-label').textContent = now.toLocaleDateString('es-AR',{month:'long',year:'numeric'}).toUpperCase();
+  } else if(finPeriodo === 'semana'){
+    cutoff = new Date(Date.now()-7*86400000).toISOString().split('T')[0];
+    document.getElementById('fin-periodo-label').textContent = 'ÚLTIMOS 7 DÍAS';
+  } else {
+    cutoff = '2000-01-01';
+    document.getElementById('fin-periodo-label').textContent = 'TODO EL TIEMPO';
+  }
+
+  // Ventas filtradas
+  const ventasFilt = finPeriodo==='todo' ? sales : sales.filter(s=>s.fecha>=cutoff);
+  const totalIngresos = ventasFilt.reduce((s,v)=>s+(v.total||0),0);
+  const countVentas = ventasFilt.length;
+  const ticketProm = countVentas ? Math.round(totalIngresos/countVentas) : 0;
+
+  // Compras filtradas
+  const comprasFilt = finPeriodo==='todo' ? compras : compras.filter(c=>c.fecha>=cutoff);
+  const totalEgresos = comprasFilt.reduce((s,c)=>s+(c.precio_unitario||0)*(c.cantidad||0),0);
+  const countCompras = comprasFilt.length;
+
+  // Deudas pendientes
+  const deudasPend = deudas.filter(d=>d.estado!=='pagado');
+  const totalDeudas = deudasPend.reduce((s,d)=>s+(d.monto||0),0);
+
+  // Balance y margen
+  const balance = totalIngresos - totalEgresos;
+  const margen = totalIngresos ? Math.round(balance/totalIngresos*100) : 0;
+
+  // Update UI
+  const balEl = document.getElementById('fin-balance');
+  balEl.textContent = `$${balance.toLocaleString('es-AR')}`;
+  balEl.style.color = balance >= 0 ? '#6fcf97' : '#eb5757';
+  document.getElementById('fin-balance-label').textContent = balance >= 0 ? '✅ Ganancia neta' : '⚠️ Pérdida neta';
+  document.getElementById('fin-ingresos').textContent = `$${totalIngresos.toLocaleString('es-AR')}`;
+  document.getElementById('fin-egresos').textContent = `$${totalEgresos.toLocaleString('es-AR')}`;
+  document.getElementById('fin-margen').textContent = `${margen}%`;
+  document.getElementById('fin-ventas-total').textContent = `$${totalIngresos.toLocaleString('es-AR')}`;
+  document.getElementById('fin-ventas-count').textContent = `${countVentas} transacciones`;
+  document.getElementById('fin-ticket-prom').textContent = `$${ticketProm.toLocaleString('es-AR')}`;
+  document.getElementById('fin-compras-total').textContent = `$${totalEgresos.toLocaleString('es-AR')}`;
+  document.getElementById('fin-compras-count').textContent = `${countCompras} compras registradas`;
+  document.getElementById('fin-deudas-total').textContent = `$${totalDeudas.toLocaleString('es-AR')}`;
+  document.getElementById('fin-deudas-count').textContent = `${deudasPend.length} sin cobrar`;
+
+  // Métodos de pago
+  const byM = {};
+  ventasFilt.forEach(s=>{ if(s.metodo_pago) byM[s.metodo_pago]=(byM[s.metodo_pago]||0)+(s.total||0); });
+  const metEl = document.getElementById('fin-metodos');
+  const metIcos = {Efectivo:'💵',Transferencia:'🏦',Tarjeta:'💳'};
+  metEl.innerHTML = Object.entries(byM).sort((a,b)=>b[1]-a[1]).map(([m,t])=>{
+    const pct = totalIngresos ? Math.round(t/totalIngresos*100) : 0;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(18,16,14,.06)">
+      <span style="font-size:18px">${metIcos[m]||'💰'}</span>
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:500;margin-bottom:4px">${m}</div>
+        <div style="height:5px;background:var(--cream);border-radius:3px"><div style="height:5px;border-radius:3px;background:var(--pine);width:${pct}%"></div></div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:DM Mono,monospace;font-size:12px;font-weight:600">$${t.toLocaleString('es-AR')}</div>
+        <div style="font-size:10px;color:var(--muted)">${pct}%</div>
+      </div>
+    </div>`;
+  }).join('') || '<div class="empty" style="padding:12px 0">Sin ventas en este período</div>';
+
+  // Top productos
+  const ps = {};
+  ventasFilt.forEach(s=>{
+    const items = typeof s.items==='string'?JSON.parse(s.items||'[]'):s.items||[];
+    items.forEach(i=>{ if(!ps[i.nombre])ps[i.nombre]={qty:0,total:0,em:i.emoji||'📦'}; ps[i.nombre].qty+=i.cantidad; ps[i.nombre].total+=(i.subtotal||i.precio*i.cantidad); });
+  });
+  const tp = Object.entries(ps).sort((a,b)=>b[1].total-a[1].total).slice(0,5);
+  const maxT = tp[0]?tp[0][1].total:1;
+  document.getElementById('fin-top-prods').innerHTML = tp.length ? tp.map(([n,d],i)=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(18,16,14,.06)">
+      <span style="font-family:DM Mono,monospace;font-size:11px;color:var(--muted);width:16px">${i+1}</span>
+      <span style="font-size:16px">${d.em}</span>
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:500;margin-bottom:4px">${n.split(' ').slice(0,3).join(' ')}</div>
+        <div style="height:4px;background:var(--cream);border-radius:2px"><div style="height:4px;border-radius:2px;background:var(--rust);width:${Math.round(d.total/maxT*100)}%"></div></div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:DM Mono,monospace;font-size:11px;font-weight:600">$${d.total.toLocaleString('es-AR')}</div>
+        <div style="font-size:10px;color:var(--muted)">${d.qty} uds</div>
+      </div>
+    </div>`).join('') : '<div class="empty" style="padding:12px 0">Sin ventas en este período</div>';
+
+  // Chart últimos 7 días
+  const days = 7;
+  const dayData = Array(days).fill(0);
+  const dayLabels = [];
+  for(let i=0;i<days;i++){
+    const d = new Date(Date.now()-(days-1-i)*86400000);
+    dayLabels.push(d.toLocaleDateString('es-AR',{weekday:'short'}).slice(0,2).toUpperCase());
+    const dStr = d.toISOString().split('T')[0];
+    dayData[i] = sales.filter(s=>s.fecha===dStr).reduce((s,v)=>s+(v.total||0),0);
+  }
+  const maxD = Math.max(...dayData,1);
+  document.getElementById('fin-chart').innerHTML = dayData.map((v,i)=>{
+    const h = Math.round(v/maxD*100);
+    const isT = i===days-1;
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+      <div style="width:100%;border-radius:3px 3px 0 0;min-height:3px;height:${Math.max(h,3)}%;background:${isT?'var(--rust)':v>0?'var(--pine)':'var(--cream)'}"></div>
+    </div>`;
+  }).join('');
+  document.getElementById('fin-chart-labels').innerHTML = dayLabels.map(l=>`<span>${l}</span>`).join('');
+
+  // Resumen textual
+  const dias = finPeriodo==='mes'?new Date().getDate():finPeriodo==='semana'?7:365;
+  const promDia = dias ? Math.round(totalIngresos/dias) : 0;
+  document.getElementById('fin-resumen').innerHTML = `
+    En este período registraste <strong>${countVentas} ventas</strong> por un total de <strong>$${totalIngresos.toLocaleString('es-AR')}</strong>.<br>
+    Tus compras y egresos fueron de <strong>$${totalEgresos.toLocaleString('es-AR')}</strong>, dejando una <strong>${balance>=0?'ganancia':'pérdida'} neta de $${Math.abs(balance).toLocaleString('es-AR')}</strong>.<br>
+    ${totalDeudas>0?`Tenés <strong>$${totalDeudas.toLocaleString('es-AR')} pendientes de cobro</strong> en deudas.<br>`:''}
+    Tu método de pago más usado fue <strong>${Object.entries(byM).sort((a,b)=>b[1]-a[1])[0]?.[0]||'—'}</strong> con ${Object.entries(byM).sort((a,b)=>b[1]-a[1])[0]?Math.round(Object.entries(byM).sort((a,b)=>b[1]-a[1])[0][1]/totalIngresos*100):0}% del total.<br>
+    Promedio diario de ingresos: <strong>$${promDia.toLocaleString('es-AR')}</strong>.
+  `;
 }
 
 // ══ ADMIN ══
