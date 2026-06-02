@@ -461,6 +461,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="hs">Seleccioná productos y cantidades</div>
     </div>
     <div id="v-alert"></div>
+    <div style="padding:10px 20px 0">
+      <button class="btn btn-outline btn-full" onclick="verCatalogo()" style="font-size:12px;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.6);background:rgba(255,255,255,.05)">🔗 Ver catálogo público · Compartir por WhatsApp</button>
+    </div>
     <div style="padding:14px 20px 0">
       <div class="flabel" style="margin-bottom:8px">Método de pago</div>
       <div class="msel">
@@ -2040,6 +2043,19 @@ function verTienda(id, nombre){
 async function desactivarTienda(id, nombre){
   if(!confirm(`¿Desactivar la tienda "${nombre}"? El dueño no podrá ingresar.`)) return;
   showToast('Función disponible en versión premium','ok');
+}
+
+// ══ CATÁLOGO PÚBLICO ══
+function verCatalogo(){
+  if(!STORE?.id){ showToast('Iniciá sesión primero','err'); return; }
+  const url = `https://sistema-tiendapro.com/catalogo.html?tienda=${STORE.id}`;
+  const msg = `🛍️ ¡Mirá nuestro catálogo online!\n${url}\n\nTodos los precios actualizados.`;
+  // Copy to clipboard
+  navigator.clipboard?.writeText(url).then(()=>{
+    showToast('✅ Link del catálogo copiado','ok');
+  }).catch(()=>{
+    prompt('Copiá este link para compartir:', url);
+  });
 }
 
 // ══ TOAST ══
