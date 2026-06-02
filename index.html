@@ -1,4 +1,4 @@
-github.com/bautilines-eng/tienda-pro/edit/main/index.html<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -684,7 +684,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 
   <!-- ADMIN PANEL -->
-  <div id="padmin" class="page" style="display:none">
+  <div id="padmin" class="page">
     <div class="hero" style="background:linear-gradient(135deg,#1a1a2e,#16213e)" data-bg="ADMIN">
       <div class="hl">Panel de control</div>
       <div class="ht">Administrador</div>
@@ -1755,8 +1755,8 @@ async function checkAdmin(){
 
 async function loadAdminTiendas(){
   try{
-    const {data,error} = await SB.from('tiendas').select('*').order('created_at',{ascending:false});
-    if(error) throw error;
+    const {data,error} = await SB.from('tiendas').select('*').order('created_at',{ascending:false}).limit(100);
+    if(error){ console.error('admin error',error); document.getElementById('admin-tiendas-list').innerHTML='<div class="card"><div style="font-size:13px;font-weight:600">Panel Admin activo</div><div style="font-size:12px;color:var(--muted);margin-top:6px">Email: '+USER?.email+'</div><div style="font-size:12px;color:var(--muted);margin-top:4px">Usá el botón + para crear tiendas.</div></div>'; document.getElementById('admin-count').textContent='?'; return; }
     const list = data || [];
     document.getElementById('admin-count').textContent = list.length;
     const el = document.getElementById('admin-tiendas-list');
