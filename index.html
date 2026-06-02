@@ -449,6 +449,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="ntab" onclick="gp('pde',this)"><span>💸</span>Deudores</div>
       <div class="ntab" onclick="gp('pusu',this)"><span>👤</span>Usuarios</div>
       <div class="ntab" onclick="gp('pfin',this)"><span>💰</span>Finanzas</div>
+      <div class="ntab" onclick="gp('pcfg',this)"><span>⚙️</span>Mi Tienda</div>
       <div class="ntab" id="admin-tab" style="display:none;background:rgba(201,79,26,.15)" onclick="gp('padmin',this)"><span>⚙️</span>Admin</div>
     </div>
   </div>
@@ -461,9 +462,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="hs">Seleccioná productos y cantidades</div>
     </div>
     <div id="v-alert"></div>
-    <div style="padding:10px 20px 0">
-      <button class="btn btn-outline btn-full" onclick="verCatalogo()" style="font-size:12px;border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.6);background:rgba(255,255,255,.05)">🔗 Ver catálogo público · Compartir por WhatsApp</button>
-    </div>
+
     <div style="padding:14px 20px 0">
       <div class="flabel" style="margin-bottom:8px">Método de pago</div>
       <div class="msel">
@@ -684,6 +683,45 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <div style="padding:0 20px;display:flex;flex-direction:column;gap:8px" id="de-list">
       <div class="empty">Sin deudas registradas</div>
+    </div>
+  </div>
+
+  <!-- CONFIGURACION MI TIENDA -->
+  <div id="pcfg" class="page">
+    <div class="hero h-ink" data-bg="CONFIG">
+      <div class="hl">Configuración</div>
+      <div class="ht">Mi Tienda</div>
+      <div class="hs">Editá los datos de tu negocio</div>
+    </div>
+    <div style="padding:14px 20px 0">
+      <div class="card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:16px">🏪 Datos de la tienda</div>
+        <div class="fgroup"><div class="flabel">Nombre de la tienda</div><input class="inp" id="cfg-nombre" placeholder="Ej: Ropa de María"></div>
+        <div class="fgroup"><div class="flabel">Teléfono / WhatsApp</div><input class="inp" id="cfg-telefono" type="tel" placeholder="+54 9 381 123 4567"></div>
+        <div class="fgroup"><div class="flabel">Email de contacto</div><input class="inp" id="cfg-email" type="email" placeholder="tienda@mail.com"></div>
+        <div class="fgroup"><div class="flabel">Descripción / Slogan</div><input class="inp" id="cfg-desc" placeholder="Ej: La mejor ropa de cama de Santiago"></div>
+        <button class="btn btn-ink btn-full" onclick="guardarConfig()">Guardar cambios</button>
+      </div>
+    </div>
+
+    <div style="padding:14px 20px 0">
+      <div class="card" style="background:var(--pine-l);border-color:var(--pine)">
+        <div style="font-size:13px;font-weight:600;color:var(--pine);margin-bottom:10px">🔗 Catálogo público de tu tienda</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">Compartí este link por WhatsApp para que tus clientes vean tus productos y hagan pedidos directamente.</div>
+        <div id="cfg-link" style="background:var(--cream);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:11px;font-family:DM Mono,monospace;color:var(--ink);word-break:break-all;margin-bottom:12px">Cargando...</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-pine btn-full" onclick="copiarLink()">📋 Copiar link</button>
+          <button class="btn btn-full" style="background:#25d366;color:#fff" onclick="compartirWhatsApp()">💬 Compartir por WhatsApp</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:14px 20px 24px">
+      <div class="card" style="background:var(--red-l);border-color:var(--red)">
+        <div style="font-size:13px;font-weight:600;color:var(--red);margin-bottom:8px">⚠️ Zona de peligro</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Cerrá sesión de tu cuenta</div>
+        <button class="btn btn-full" style="background:var(--red);color:#fff" onclick="doLogout()">Cerrar sesión</button>
+      </div>
     </div>
   </div>
 
@@ -1846,6 +1884,46 @@ function gp(id,el){
   if(id==='pusu')loadUsuarios();
   if(id==='padmin')loadAdminTiendas();
   if(id==='pfin')renderFinanzas();
+  if(id==='pcfg')loadConfig();
+}
+
+// ══ CONFIGURACIÓN MI TIENDA ══
+function loadConfig(){
+  if(!STORE) return;
+  document.getElementById('cfg-nombre').value = STORE.name || '';
+  document.getElementById('cfg-telefono').value = STORE.telefono || '';
+  document.getElementById('cfg-email').value = STORE.email || '';
+  document.getElementById('cfg-desc').value = STORE.descripcion || '';
+  const link = `https://sistema-tiendapro.com/catalogo.html?tienda=${STORE.id}`;
+  document.getElementById('cfg-link').textContent = link;
+}
+
+async function guardarConfig(){
+  const nombre = document.getElementById('cfg-nombre').value.trim();
+  const telefono = document.getElementById('cfg-telefono').value.trim();
+  const email = document.getElementById('cfg-email').value.trim();
+  const descripcion = document.getElementById('cfg-desc').value.trim();
+  if(!nombre){ showToast('El nombre no puede estar vacío','err'); return; }
+  try{
+    const {error} = await SB.from('tiendas').update({name:nombre,telefono,email,descripcion}).eq('id',STORE.id);
+    if(error) throw error;
+    STORE = {...STORE, name:nombre, telefono, email, descripcion};
+    document.getElementById('store-name').textContent = nombre;
+    showToast('✅ Datos actualizados','ok');
+  }catch(e){ showToast('❌ Error al guardar','err'); console.error(e); }
+}
+
+function copiarLink(){
+  if(!STORE?.id){ showToast('Iniciá sesión primero','err'); return; }
+  const url = `https://sistema-tiendapro.com/catalogo.html?tienda=${STORE.id}`;
+  navigator.clipboard?.writeText(url).then(()=>showToast('✅ Link copiado','ok')).catch(()=>{ prompt('Copiá este link:',url); });
+}
+
+function compartirWhatsApp(){
+  if(!STORE?.id){ showToast('Iniciá sesión primero','err'); return; }
+  const url = `https://sistema-tiendapro.com/catalogo.html?tienda=${STORE.id}`;
+  const msg = `🛍️ ¡Mirá el catálogo de *${STORE.name}*!\n\n${url}\n\nTodos los precios actualizados. ¡Hacé tu pedido directamente!`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
 }
 
 // ══ FINANZAS ══
