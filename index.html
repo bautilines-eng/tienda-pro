@@ -1015,8 +1015,21 @@ async function doRegister(){
 }
 
 async function loadStore(){
-  const {data}=await SB.from('tiendas').select('*').eq('user_id',USER.id).single();
-  STORE=data;
+  try{
+    const {data,error}=await SB.from('tiendas').select('*').eq('user_id',USER.id).single();
+    if(data){ STORE=data; return; }
+    // Si no existe tienda, crearla automáticamente
+    const {data:nueva,error:err2}=await SB.from('tiendas').insert({
+      user_id:USER.id,
+      name: USER.user_metadata?.tienda_name || USER.email?.split('@')[0] || 'Mi Tienda',
+      email: USER.email
+    }).select().single();
+    if(nueva) STORE=nueva;
+    else STORE=null;
+  }catch(e){
+    console.error('loadStore error',e);
+    STORE=null;
+  }
 }
 
 async function doLogout(){
@@ -1888,8 +1901,9 @@ function gp(id,el){
 }
 
 // ══ CONFIGURACIÓN MI TIENDA ══
-function loadConfig(){
-  if(!STORE) return;
+async function loadConfig(){
+  if(!STORE){ await loadStore(); }
+  if(!STORE){ showToast('No se pudo cargar la tienda','err'); return; }
   document.getElementById('cfg-nombre').value = STORE.name || '';
   document.getElementById('cfg-telefono').value = STORE.telefono || '';
   document.getElementById('cfg-email').value = STORE.email || '';
@@ -1899,6 +1913,11 @@ function loadConfig(){
 }
 
 async function guardarConfig(){
+  if(!STORE){ 
+    // Try to reload store
+    await loadStore();
+    if(!STORE){ showToast('Error: no se pudo cargar la tienda. Recargá la página.','err'); return; }
+  }
   const nombre = document.getElementById('cfg-nombre').value.trim();
   const telefono = document.getElementById('cfg-telefono').value.trim();
   const email = document.getElementById('cfg-email').value.trim();
@@ -1913,13 +1932,15 @@ async function guardarConfig(){
   }catch(e){ showToast('❌ Error al guardar','err'); console.error(e); }
 }
 
-function copiarLink(){
+async function copiarLink(){
+  if(!STORE){ await loadStore(); }
   if(!STORE?.id){ showToast('Iniciá sesión primero','err'); return; }
   const url = `https://sistema-tiendapro.com/catalogo.html?tienda=${STORE.id}`;
   navigator.clipboard?.writeText(url).then(()=>showToast('✅ Link copiado','ok')).catch(()=>{ prompt('Copiá este link:',url); });
 }
 
-function compartirWhatsApp(){
+async function compartirWhatsApp(){
+  if(!STORE){ await loadStore(); }
   if(!STORE?.id){ showToast('Iniciá sesión primero','err'); return; }
   const url = `https://sistema-tiendapro.com/catalogo.html?tienda=${STORE.id}`;
   const msg = `🛍️ ¡Mirá el catálogo de *${STORE.name}*!\n\n${url}\n\nTodos los precios actualizados. ¡Hacé tu pedido directamente!`;
