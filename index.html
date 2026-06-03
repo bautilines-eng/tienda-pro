@@ -1178,13 +1178,13 @@ function renderDeudas(){
           ${d.telefono?`<div style="font-size:11px;color:var(--muted)">${d.telefono}</div>`:''}
         </div>
         <div style="text-align:right">
-          <div style="font-family:DM Mono,monospace;font-size:18px;font-weight:700;color:${vencida?'var(--red)':'var(--amber)'}">$\${(d.monto||0).toLocaleString('es-AR')}</div>
-          ${tieneAbonos?`<div style="font-size:10px;color:var(--muted)">de $\${montoOrig.toLocaleString('es-AR')} original</div>`:''}
+          <div style="font-family:DM Mono,monospace;font-size:18px;font-weight:700;color:${vencida?'var(--red)':'var(--amber)'}">$${(d.monto||0).toLocaleString('es-AR')}</div>
+          ${tieneAbonos?`<div style="font-size:10px;color:var(--muted)">de $${montoOrig.toLocaleString('es-AR')} original</div>`:''}
         </div>
       </div>
       ${tieneAbonos?`<div style="margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:3px">
-          <span>Abonado: $\${pagado.toLocaleString('es-AR')}</span><span>${pct}%</span>
+          <span>Abonado: ${pagado.toLocaleString('es-AR')}</span><span>${pct}%</span>
         </div>
         <div style="background:var(--cream);border-radius:4px;height:6px;overflow:hidden">
           <div style="background:var(--pine);height:100%;width:${pct}%;transition:width .3s"></div>
