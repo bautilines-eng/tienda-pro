@@ -686,7 +686,42 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
   </div>
 
-  <!-- CONFIGURACION MI TIENDA -->
+  <!-- MODAL REGISTRAR PAGO -->
+<div class="overlay" id="ov-registrar-pago">
+  <div class="sheet">
+    <div class="sheet-title">💰 Registrar Pago</div>
+    <input type="hidden" id="pago-deuda-id">
+    <div style="margin-bottom:12px;padding:10px 12px;background:var(--amber-l);border-radius:8px;border:1.5px solid var(--amber)">
+      <div style="font-size:11px;color:var(--muted)">Deudor</div>
+      <div style="font-size:14px;font-weight:600" id="pago-deuda-nombre"></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Saldo pendiente: <span style="font-weight:700;color:var(--amber)" id="pago-saldo"></span></div>
+    </div>
+    <div class="fgroup">
+      <div class="flabel">Monto a abonar ($) *</div>
+      <input class="inp" id="pago-monto" type="number" placeholder="Ingresá el monto del pago" min="1">
+    </div>
+    <div class="fgroup">
+      <div class="flabel">Nota (opcional)</div>
+      <input class="inp" id="pago-nota" placeholder="Ej: Abono en efectivo, transferencia...">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn btn-outline btn-full" onclick="closeModal('ov-registrar-pago')">Cancelar</button>
+      <button class="btn btn-full" style="background:#e65100;color:#fff" onclick="guardarPago()">Registrar pago</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL HISTORIAL DE PAGOS -->
+<div class="overlay" id="ov-historial-pagos">
+  <div class="sheet">
+    <div class="sheet-title">📋 Historial de Pagos</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Cliente: <strong id="hist-nombre"></strong></div>
+    <div id="hist-lista" style="max-height:350px;overflow-y:auto"></div>
+    <button class="btn btn-outline btn-full" style="margin-top:14px" onclick="closeModal('ov-historial-pagos')">Cerrar</button>
+  </div>
+</div>
+
+<!-- CONFIGURACION MI TIENDA -->
   <div id="pcfg" class="page">
     <div class="hero h-ink" data-bg="CONFIG">
       <div class="hl">Configuración</div>
@@ -1132,22 +1167,38 @@ function renderDeudas(){
   if(!pendientes.length){ el.innerHTML='<div class="empty">Sin deudas pendientes 🎉</div>'; return; }
   el.innerHTML = pendientes.map(d => {
     const vencida = d.fecha_limite && new Date(d.fecha_limite) < new Date();
+    const montoOrig = d.monto_original || d.monto;
+    const pagado = montoOrig - d.monto;
+    const pct = montoOrig > 0 ? Math.round((pagado/montoOrig)*100) : 0;
+    const tieneAbonos = pagado > 0;
     return `<div class="card" style="${vencida?'border-color:var(--red);background:var(--red-l)':''}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div>
           <div style="font-size:13px;font-weight:600">${d.nombre_cliente||'Sin nombre'}</div>
           ${d.telefono?`<div style="font-size:11px;color:var(--muted)">${d.telefono}</div>`:''}
         </div>
-        <div style="font-family:DM Mono,monospace;font-size:18px;font-weight:700;color:${vencida?'var(--red)':'var(--amber)'}">\$${(d.monto||0).toLocaleString('es-AR')}</div>
+        <div style="text-align:right">
+          <div style="font-family:DM Mono,monospace;font-size:18px;font-weight:700;color:${vencida?'var(--red)':'var(--amber)'}">$\${(d.monto||0).toLocaleString('es-AR')}</div>
+          ${tieneAbonos?`<div style="font-size:10px;color:var(--muted)">de $\${montoOrig.toLocaleString('es-AR')} original</div>`:''}
+        </div>
       </div>
+      ${tieneAbonos?`<div style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:3px">
+          <span>Abonado: $\${pagado.toLocaleString('es-AR')}</span><span>${pct}%</span>
+        </div>
+        <div style="background:var(--cream);border-radius:4px;height:6px;overflow:hidden">
+          <div style="background:var(--pine);height:100%;width:${pct}%;transition:width .3s"></div>
+        </div>
+      </div>`:''}
       ${d.descripcion?`<div style="font-size:12px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:var(--cream);border-radius:6px">${d.descripcion}</div>`:''}
-      <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
         <div style="font-size:11px;color:${vencida?'var(--red)':'var(--muted)'}">
           ${d.fecha_limite?`${vencida?'⚠️ Venció':'📅 Vence'}: ${new Date(d.fecha_limite).toLocaleDateString('es-AR')}`:'Sin fecha límite'}
         </div>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${d.telefono?`<a href="https://wa.me/${d.telefono.replace(/\D/g,'')}" target="_blank" class="btn btn-sm btn-outline">💬 WA</a>`:''}
-          <button class="btn btn-sm" style="background:var(--pine-l);color:var(--pine);border:1.5px solid var(--pine)" onclick="marcarPagado('${d.id}')">✅ Cobrado</button>
+          <button class="btn btn-sm" style="background:#fff3e0;color:#e65100;border:1.5px solid #e65100" onclick="abrirModalPago('${d.id}','${d.nombre_cliente||''}',${d.monto||0})">💰 Pago</button>
+          <button class="btn btn-sm" style="background:var(--pine-l);color:var(--pine);border:1.5px solid var(--pine)" onclick="verHistorialPagos('${d.id}','${d.nombre_cliente||''}')">📋 Historial</button>
           <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="eliminarDeuda('${d.id}')">🗑️</button>
         </div>
       </div>
@@ -1197,6 +1248,85 @@ async function eliminarDeuda(id){
     renderDeudas();
     showToast('✅ Deuda eliminada','ok');
   }catch(e){ showToast('❌ Error','err'); }
+}
+
+// ══ PAGOS PARCIALES ══
+let pagosHistorial = [];
+
+function abrirModalPago(id, nombre, saldo){
+  document.getElementById('pago-deuda-id').value = id;
+  document.getElementById('pago-deuda-nombre').textContent = nombre;
+  document.getElementById('pago-saldo').textContent = '$'+Number(saldo).toLocaleString('es-AR');
+  document.getElementById('pago-monto').value = '';
+  document.getElementById('pago-nota').value = '';
+  openModal('ov-registrar-pago');
+}
+
+async function guardarPago(){
+  const id = document.getElementById('pago-deuda-id').value;
+  const monto = parseFloat(document.getElementById('pago-monto').value);
+  const nota = document.getElementById('pago-nota').value.trim();
+  const deuda = deudas.find(d => d.id === id);
+  if(!deuda){ showToast('❌ Deuda no encontrada','err'); return; }
+  if(!monto || monto <= 0){ showToast('⚠️ Ingresá un monto válido','err'); return; }
+  if(monto > deuda.monto){ showToast('⚠️ El monto supera la deuda pendiente','err'); return; }
+  try{
+    const nuevoSaldo = Math.round((deuda.monto - monto)*100)/100;
+    const nuevoEstado = nuevoSaldo <= 0 ? 'pagado' : 'pendiente';
+    const montoOriginal = deuda.monto_original || deuda.monto;
+    // Actualizar deuda
+    await SB.from('deudas').update({
+      monto: nuevoSaldo,
+      estado: nuevoEstado,
+      monto_original: montoOriginal
+    }).eq('id', id);
+    // Registrar en historial
+    await SB.from('pagos_deuda').insert({
+      deuda_id: id,
+      tienda_id: STORE.id,
+      monto_abonado: monto,
+      saldo_restante: nuevoSaldo,
+      nota: nota || null
+    });
+    // Actualizar local
+    deuda.monto = nuevoSaldo;
+    deuda.estado = nuevoEstado;
+    deuda.monto_original = montoOriginal;
+    closeModal('ov-registrar-pago');
+    renderDeudas();
+    if(nuevoEstado === 'pagado'){
+      showToast('🎉 Deuda saldada por completo!','ok');
+    } else {
+      showToast(`✅ Pago de $${monto.toLocaleString('es-AR')} registrado. Saldo: $${nuevoSaldo.toLocaleString('es-AR')}`,'ok');
+    }
+  }catch(e){ console.error(e); showToast('❌ Error al registrar pago','err'); }
+}
+
+async function verHistorialPagos(deudaId, nombre){
+  try{
+    const {data, error} = await SB.from('pagos_deuda').select('*').eq('deuda_id', deudaId).order('created_at', {ascending:false});
+    if(error) throw error;
+    pagosHistorial = data || [];
+    document.getElementById('hist-nombre').textContent = nombre;
+    const lista = document.getElementById('hist-lista');
+    if(!pagosHistorial.length){
+      lista.innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">Sin pagos registrados aún</div>';
+    } else {
+      lista.innerHTML = pagosHistorial.map(p => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--cream)">
+          <div>
+            <div style="font-size:12px;font-weight:600;color:var(--pine)">+ $${Number(p.monto_abonado).toLocaleString('es-AR')}</div>
+            ${p.nota?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.nota}</div>`:''}
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:10px;color:var(--muted)">${new Date(p.created_at).toLocaleDateString('es-AR')}</div>
+            <div style="font-size:10px;color:var(--muted)">Saldo: $${Number(p.saldo_restante).toLocaleString('es-AR')}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+    openModal('ov-historial-pagos');
+  }catch(e){ showToast('❌ Error al cargar historial','err'); }
 }
 
 // ══ USUARIOS ══
