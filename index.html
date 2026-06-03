@@ -688,40 +688,98 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 
   <!-- MODAL REGISTRAR PAGO -->
 <div class="overlay" id="ov-registrar-pago">
-  <div class="sheet">
-    <div class="sheet-title">💰 Registrar Pago</div>
-    <input type="hidden" id="pago-deuda-id">
-    <div style="margin-bottom:12px;padding:10px 12px;background:var(--amber-l);border-radius:8px;border:1.5px solid var(--amber)">
-      <div style="font-size:11px;color:var(--muted)">Deudor</div>
-      <div style="font-size:14px;font-weight:600" id="pago-deuda-nombre"></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px">Saldo pendiente: <span style="font-weight:700;color:var(--amber)" id="pago-saldo"></span></div>
+  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#e65100 0%,#bf360c 100%);padding:24px 24px 20px;position:relative">
+      <div class="modal-handle" style="background:rgba(255,255,255,.35);margin-bottom:14px"></div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:44px;height:44px;background:rgba(255,255,255,.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px">💰</div>
+        <div>
+          <div style="font-family:'Instrument Serif',serif;font-size:20px;color:#fff;font-weight:400;line-height:1.1">Registrar Pago</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:2px">Abono parcial o total</div>
+        </div>
+        <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-registrar-pago')">✕</span>
+      </div>
     </div>
-    <div class="fgroup">
-      <div class="flabel">Monto a abonar ($) *</div>
-      <input class="inp" id="pago-monto" type="number" placeholder="Ingresá el monto del pago" min="1">
+    <!-- Deudor info card -->
+    <div style="margin:20px 20px 0;background:#fff8f0;border:1.5px solid #ffccbc;border-radius:14px;padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:11px;color:#bf360c;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Deudor</div>
+          <div style="font-size:16px;font-weight:700;color:#1a1a0e" id="pago-deuda-nombre"></div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:10px;color:#999;margin-bottom:2px">Saldo pendiente</div>
+          <div style="font-family:'DM Mono',monospace;font-size:22px;font-weight:700;color:#e65100" id="pago-saldo"></div>
+        </div>
+      </div>
     </div>
-    <div class="fgroup">
-      <div class="flabel">Nota (opcional)</div>
-      <input class="inp" id="pago-nota" placeholder="Ej: Abono en efectivo, transferencia...">
-    </div>
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <button class="btn btn-outline btn-full" onclick="closeModal('ov-registrar-pago')">Cancelar</button>
-      <button class="btn btn-full" style="background:#e65100;color:#fff" onclick="guardarPago()">Registrar pago</button>
+    <!-- Form -->
+    <div style="padding:20px">
+      <input type="hidden" id="pago-deuda-id">
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Monto a abonar *</div>
+        <div style="position:relative">
+          <div style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:16px;font-weight:700;color:#e65100;pointer-events:none">$</div>
+          <input class="inp" id="pago-monto" type="number" placeholder="0" min="1"
+            style="padding-left:28px;font-size:20px;font-weight:700;font-family:'DM Mono',monospace;border-color:#ffccbc;background:#fff8f0;color:#1a1a0e"
+            oninput="actualizarPreviewPago()">
+        </div>
+        <div id="pago-preview" style="display:none;margin-top:8px;padding:10px 12px;background:#e8f5e9;border-radius:8px;border:1.5px solid #a5d6a7">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:12px;color:#2e7d32;font-weight:600">✅ Saldo restante</span>
+            <span style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:#2e7d32" id="pago-resto"></span>
+          </div>
+        </div>
+      </div>
+      <div style="margin-bottom:20px">
+        <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Nota <span style="font-weight:400;text-transform:none;color:#aaa">(opcional)</span></div>
+        <input class="inp" id="pago-nota" placeholder="Ej: Efectivo, transferencia, parcial...">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
+        <button onclick="closeModal('ov-registrar-pago')"
+          style="padding:14px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">
+          Cancelar
+        </button>
+        <button onclick="guardarPago()"
+          style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#e65100,#bf360c);color:#fff;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(230,81,0,.35)">
+          Registrar pago →
+        </button>
+      </div>
     </div>
   </div>
 </div>
 
 <!-- MODAL HISTORIAL DE PAGOS -->
 <div class="overlay" id="ov-historial-pagos">
-  <div class="sheet">
-    <div class="sheet-title">📋 Historial de Pagos</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Cliente: <strong id="hist-nombre"></strong></div>
-    <div id="hist-lista" style="max-height:350px;overflow-y:auto"></div>
-    <button class="btn btn-outline btn-full" style="margin-top:14px" onclick="closeModal('ov-historial-pagos')">Cerrar</button>
+  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0;max-height:88vh">
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#1a5c38 0%,#0d3d25 100%);padding:24px 24px 20px;position:relative">
+      <div class="modal-handle" style="background:rgba(255,255,255,.3);margin-bottom:14px"></div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:44px;height:44px;background:rgba(255,255,255,.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px">📋</div>
+        <div>
+          <div style="font-family:'Instrument Serif',serif;font-size:20px;color:#fff;font-weight:400;line-height:1.1">Historial de Pagos</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:2px" id="hist-nombre"></div>
+        </div>
+        <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-historial-pagos')">✕</span>
+      </div>
+    </div>
+    <!-- Resumen -->
+    <div id="hist-resumen" style="display:flex;gap:0;border-bottom:1px solid #f0f0f0"></div>
+    <!-- Lista -->
+    <div id="hist-lista" style="overflow-y:auto;max-height:45vh;padding:16px 20px;display:flex;flex-direction:column;gap:10px"></div>
+    <!-- Footer -->
+    <div style="padding:16px 20px;border-top:1px solid #f0f0f0">
+      <button onclick="closeModal('ov-historial-pagos')"
+        style="width:100%;padding:14px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">
+        Cerrar
+      </button>
+    </div>
   </div>
 </div>
 
-<!-- CONFIGURACION MI TIENDA -->
+<!-- CONFIGURACION MI TIENDA --><!-- CONFIGURACION MI TIENDA -->
   <div id="pcfg" class="page">
     <div class="hero h-ink" data-bg="CONFIG">
       <div class="hl">Configuración</div>
@@ -1253,6 +1311,33 @@ async function eliminarDeuda(id){
 // ══ PAGOS PARCIALES ══
 let pagosHistorial = [];
 
+function actualizarPreviewPago(){
+  const monto = parseFloat(document.getElementById('pago-monto').value) || 0;
+  const saldoEl = document.getElementById('pago-saldo').textContent;
+  const saldoNum = parseFloat(saldoEl.replace(/[$.]/g,'').replace(',','.')) || 0;
+  const preview = document.getElementById('pago-preview');
+  const resto = document.getElementById('pago-resto');
+  if(monto > 0 && monto <= saldoNum){
+    const restante = saldoNum - monto;
+    preview.style.display = 'block';
+    if(restante <= 0){
+      preview.style.background = '#e8f5e9';
+      preview.style.borderColor = '#a5d6a7';
+      resto.textContent = '¡Deuda saldada! 🎉';
+      resto.style.color = '#2e7d32';
+      document.querySelector('#pago-preview span:first-child').textContent = '✅ Resultado';
+    } else {
+      preview.style.background = '#fff8f0';
+      preview.style.borderColor = '#ffccbc';
+      resto.textContent = '$' + restante.toLocaleString('es-AR');
+      resto.style.color = '#e65100';
+      document.querySelector('#pago-preview span:first-child').textContent = '⏳ Saldo restante';
+    }
+  } else {
+    preview.style.display = 'none';
+  }
+}
+
 function abrirModalPago(id, nombre, saldo){
   document.getElementById('pago-deuda-id').value = id;
   document.getElementById('pago-deuda-nombre').textContent = nombre;
@@ -1309,21 +1394,48 @@ async function verHistorialPagos(deudaId, nombre){
     pagosHistorial = data || [];
     document.getElementById('hist-nombre').textContent = nombre;
     const lista = document.getElementById('hist-lista');
+    const resumen = document.getElementById('hist-resumen');
     if(!pagosHistorial.length){
-      lista.innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">Sin pagos registrados aún</div>';
+      resumen.innerHTML = '';
+      lista.innerHTML = '<div style="text-align:center;padding:32px 20px"><div style="font-size:36px;margin-bottom:8px">📭</div><div style="font-size:14px;font-weight:600;color:#333">Sin pagos registrados</div><div style="font-size:12px;color:#999;margin-top:4px">Aún no se registró ningún abono</div></div>';
     } else {
-      lista.innerHTML = pagosHistorial.map(p => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--cream)">
-          <div>
-            <div style="font-size:12px;font-weight:600;color:var(--pine)">+ $${Number(p.monto_abonado).toLocaleString('es-AR')}</div>
-            ${p.nota?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${p.nota}</div>`:''}
-          </div>
-          <div style="text-align:right">
-            <div style="font-size:10px;color:var(--muted)">${new Date(p.created_at).toLocaleDateString('es-AR')}</div>
-            <div style="font-size:10px;color:var(--muted)">Saldo: $${Number(p.saldo_restante).toLocaleString('es-AR')}</div>
-          </div>
+      const totalAbonado = pagosHistorial.reduce((s,p) => s + Number(p.monto_abonado), 0);
+      const cantPagos = pagosHistorial.length;
+      const ultimoPago = new Date(pagosHistorial[0].created_at).toLocaleDateString('es-AR');
+      resumen.innerHTML = `
+        <div style="flex:1;padding:14px 16px;text-align:center;border-right:1px solid #f0f0f0">
+          <div style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total abonado</div>
+          <div style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:#1a5c38">$${totalAbonado.toLocaleString('es-AR')}</div>
         </div>
-      `).join('');
+        <div style="flex:1;padding:14px 16px;text-align:center;border-right:1px solid #f0f0f0">
+          <div style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Pagos</div>
+          <div style="font-size:18px;font-weight:700;color:#333">${cantPagos}</div>
+        </div>
+        <div style="flex:1;padding:14px 16px;text-align:center">
+          <div style="font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Último</div>
+          <div style="font-size:13px;font-weight:600;color:#333">${ultimoPago}</div>
+        </div>`;
+      lista.innerHTML = pagosHistorial.map((p, i) => {
+        const fecha = new Date(p.created_at);
+        const fechaStr = fecha.toLocaleDateString('es-AR', {day:'2-digit',month:'short',year:'numeric'});
+        const horaStr = fecha.toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+        return `<div style="background:#fff;border:1.5px solid #f0f0f0;border-radius:12px;padding:14px 16px;transition:box-shadow .2s" onmouseover="this.style.boxShadow='0 2px 12px rgba(0,0,0,.08)'" onmouseout="this.style.boxShadow='none'">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:36px;height:36px;background:linear-gradient(135deg,#e8f5e9,#c8e6c9);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${i === 0 ? '🟢' : '✅'}</div>
+              <div>
+                <div style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:#1a5c38">+ $${Number(p.monto_abonado).toLocaleString('es-AR')}</div>
+                ${p.nota ? `<div style="font-size:11px;color:#666;margin-top:2px;background:#f8f8f8;padding:3px 8px;border-radius:6px;display:inline-block">${p.nota}</div>` : ''}
+              </div>
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div style="font-size:12px;font-weight:600;color:#333">${fechaStr}</div>
+              <div style="font-size:10px;color:#aaa;margin-top:2px">${horaStr}</div>
+              <div style="font-size:10px;color:#999;margin-top:4px;font-family:'DM Mono',monospace">Saldo→ $${Number(p.saldo_restante).toLocaleString('es-AR')}</div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
     }
     openModal('ov-historial-pagos');
   }catch(e){ showToast('❌ Error al cargar historial','err'); }
