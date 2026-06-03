@@ -183,32 +183,44 @@ window.onload = async () => {
 
 async function loadTienda(){
   try{
-    const {data} = await SB.from('tiendas').select('*').eq('id', TIENDA_ID).single();
+    const {data, error} = await SB.from('tiendas').select('id, name, email, telefono, descripcion').eq('id', TIENDA_ID).single();
+    if(error){ console.error('loadTienda error:', error); return; }
     tienda = data;
     if(tienda){
       document.getElementById('store-name').textContent = tienda.name || 'Tienda';
       document.getElementById('banner-title').textContent = tienda.name || 'Tienda';
       document.getElementById('banner').setAttribute('data-name', tienda.name || '');
+      document.getElementById('banner-sub').textContent = tienda.descripcion || 'Todos los precios en pesos argentinos';
       document.title = `Catálogo · ${tienda.name}`;
-      // WhatsApp contact
       if(tienda.telefono){
         const num = tienda.telefono.replace(/\D/g,'');
-        document.getElementById('wa-contact').href = `https://wa.me/${num}?text=Hola! Vi tu catálogo y quiero consultar.`;
+        document.getElementById('wa-contact').href = `https://wa.me/${num}?text=Hola! Vi el catálogo de *${tienda.name}* y quiero consultar.`;
+      } else {
+        document.getElementById('wa-contact').style.display = 'none';
       }
     }
-  }catch(e){ console.error(e); }
+  }catch(e){ console.error('loadTienda catch:', e); }
 }
 
 async function loadProds(){
   try{
-    const {data, error} = await SB.from('productos').select('*').eq('tienda_id', TIENDA_ID).gt('stock', 0).order('nombre');
-    if(error) throw error;
-    prods = data || [];
+    // Query sin filtro de stock para público - mostrar todos con stock > 0
+    const {data, error} = await SB.from('productos')
+      .select('id, nombre, categoria, precio, stock, stock_minimo')
+      .eq('tienda_id', TIENDA_ID)
+      .order('nombre');
+    if(error){
+      console.error('Error cargando productos:', error);
+      document.getElementById('products').innerHTML = `<div class="empty">⚠️ No se pudieron cargar los productos.<br><small style="font-size:11px;color:var(--muted)">Error: ${error.message}</small></div>`;
+      return;
+    }
+    prods = (data || []).filter(p => p.stock > 0);
     filtered = [...prods];
     renderCats();
     renderProds();
     updateStats();
   }catch(e){
+    console.error('loadProds catch:', e);
     document.getElementById('products').innerHTML = '<div class="empty">No se pudieron cargar los productos.</div>';
   }
 }
