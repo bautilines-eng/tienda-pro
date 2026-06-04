@@ -2466,7 +2466,7 @@ function renderFinanzas(){
   if(avisoEl) {
     if(!tieneCosto) {
       avisoEl.style.display = 'flex';
-      avisoEl.innerHTML = \`<span style="font-size:16px">⚠️</span><div><div style="font-weight:600;font-size:13px">Los productos no tienen costo cargado</div><div style="font-size:11px;color:#92400e;margin-top:2px">Andá a Stock → editá cada producto → ingresá el costo de compra para ver la ganancia real.</div></div>\`;
+      avisoEl.innerHTML = `<span style="font-size:16px">⚠️</span><div><div style="font-weight:600;font-size:13px">Los productos no tienen costo cargado</div><div style="font-size:11px;color:#92400e;margin-top:2px">Andá a Stock → editá cada producto → ingresá el costo de compra para ver la ganancia real.</div></div>`;
     } else {
       avisoEl.style.display = 'none';
     }
@@ -2475,7 +2475,7 @@ function renderFinanzas(){
   // Panel ganancia real
   const ganEl = document.getElementById('fin-ganancia-real');
   if(ganEl) {
-    ganEl.innerHTML = \`
+    ganEl.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div style="font-size:13px;font-weight:600">Ganancia real del período</div>
         <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:\${gananciaVentas>=0?'#1a5c38':'#c94040'}">$\${gananciaVentas.toLocaleString('es-AR')}</div>
@@ -2493,7 +2493,7 @@ function renderFinanzas(){
           <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Margen</div>
           <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:\${margen>=30?'#1a5c38':margen>=10?'#e65100':'#c94040'}">\${tieneCosto?margen+'%':'Sin costo'}</div>
         </div>
-      </div>\`;
+      </div>`;
   }
   document.getElementById('fin-deudas-total').textContent = `$${totalDeudas.toLocaleString('es-AR')}`;
   document.getElementById('fin-deudas-count').textContent = `${deudasPend.length} sin cobrar`;
