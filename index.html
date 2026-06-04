@@ -425,12 +425,28 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div class="modal-title">Nuevo Producto</div>
     <div class="fgroup"><div class="flabel">Nombre</div><input class="inp" id="np-name" placeholder="Nombre del producto"></div>
     <div class="frow" style="margin-bottom:10px">
-      <div><div class="flabel">Precio</div><input class="inp" id="np-price" type="number" placeholder="0"></div>
-      <div><div class="flabel">Stock inicial</div><input class="inp" id="np-stock" type="number" placeholder="0"></div>
+      <div>
+        <div class="flabel">Precio de venta</div>
+        <input class="inp" id="np-price" type="number" placeholder="0" oninput="actualizarMargenPreview()">
+      </div>
+      <div>
+        <div class="flabel" style="display:flex;align-items:center;gap:4px">
+          Costo de compra
+          <span title="Precio al que comprás el producto. Permite calcular ganancia real." style="cursor:help;font-size:11px;background:#f0f0f0;border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:#666">?</span>
+        </div>
+        <input class="inp" id="np-costo" type="number" placeholder="0" style="border-color:#c8e6c9" oninput="actualizarMargenPreview()">
+      </div>
+    </div>
+    <div style="margin-bottom:12px;padding:8px 12px;background:#f0faf4;border-radius:8px;border:1px solid #c8e6c9;font-size:12px;color:#2e7d32;display:flex;justify-content:space-between;align-items:center">
+      <span>Margen estimado</span>
+      <span style="font-family:'DM Mono',monospace;font-weight:700" id="np-margen-preview">—</span>
     </div>
     <div class="frow" style="margin-bottom:10px">
-      <div><div class="flabel">Categoría</div><input class="inp" id="np-cat" placeholder="Toallas, Ropa de Cama..."></div>
+      <div><div class="flabel">Stock inicial</div><input class="inp" id="np-stock" type="number" placeholder="0"></div>
       <div><div class="flabel">Stock mínimo</div><input class="inp" id="np-min" type="number" placeholder="10"></div>
+    </div>
+    <div class="frow" style="margin-bottom:10px">
+      <div style="flex:1"><div class="flabel">Categoría</div><input class="inp" id="np-cat" placeholder="Toallas, Ropa de Cama..."></div>
     </div>
     <button class="btn btn-ink btn-full" onclick="saveProduct()">Guardar producto</button>
   </div>
@@ -868,6 +884,12 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         </div>
       </div>
     </div>
+
+    <!-- AVISO COSTO -->
+    <div id="fin-aviso-costo" style="display:none;margin:14px 20px 0;background:#fef3c7;border:1.5px solid #fbbf24;border-radius:12px;padding:14px 16px;gap:12px;align-items:flex-start"></div>
+
+    <!-- GANANCIA REAL -->
+    <div style="margin:14px 20px 0;background:#fff;border:1.5px solid #e0e0e0;border-radius:14px;padding:16px" id="fin-ganancia-real"></div>
 
     <!-- KPIs -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 20px 0">
@@ -2048,7 +2070,12 @@ function renderStock(f){
         </div>
       </div>
       <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${p.stock} uds</div></div>
-      <div class="sc-meta"><span>${p.categoria||'—'}</span><span>$${(p.precio||0).toLocaleString('es-AR')} c/u</span><span>Mín: ${min}</span></div>
+      <div class="sc-meta"><span>${p.categoria||'—'}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${p.costo>0?'Costo: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
+      ${p.costo>0?`<div style="display:flex;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
+        <span style="color:#1a5c38;font-weight:600">Margen: $${((p.precio||0)-(p.costo||0)).toLocaleString('es-AR')}</span>
+        <span style="color:#999">·</span>
+        <span style="color:#1a5c38;font-weight:600">${p.precio>0?Math.round(((p.precio-p.costo)/p.precio)*100):0}%</span>
+      </div>`:''}
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
         <span style="font-size:11px;color:var(--muted)">Ajustar stock:</span>
         <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red);padding:4px 10px" onclick="ajustarStock('${p.id}',-1)">−</button>
@@ -2074,9 +2101,11 @@ function editProduct(id){
   const p=prods.find(x=>x.id==id);if(!p)return;
   document.getElementById('np-name').value=p.nombre||'';
   document.getElementById('np-price').value=p.precio||'';
+  document.getElementById('np-costo').value=p.costo||'';
   document.getElementById('np-stock').value=p.stock||'';
   document.getElementById('np-cat').value=p.categoria||'';
   document.getElementById('np-min').value=p.stock_minimo||10;
+  actualizarMargenPreview();
   document.querySelector('#ov-add-prod .modal-title').textContent='Editar Producto';
   document.querySelector('#ov-add-prod .btn-ink').textContent='Guardar cambios';
   document.querySelector('#ov-add-prod .btn-ink').onclick=()=>updateProduct(id);
@@ -2115,9 +2144,12 @@ async function saveProduct(){
   const nombre=document.getElementById('np-name').value.trim();
   if(!nombre){showToast('Ingresá el nombre','err');return;}
   try{
+    const costo = parseFloat(document.getElementById('np-costo').value)||0;
+    const precio = parseFloat(document.getElementById('np-price').value)||0;
     const p=await sbInsert('productos',{
       nombre,
-      precio:parseFloat(document.getElementById('np-price').value)||0,
+      precio,
+      costo,
       stock:parseInt(document.getElementById('np-stock').value)||0,
       categoria:document.getElementById('np-cat').value||'General',
       stock_minimo:parseInt(document.getElementById('np-min').value)||10,
@@ -2259,6 +2291,23 @@ function showAlerts(){
 }
 
 // ══ MODALS ══
+// Preview margen al tipear en formulario de producto
+function actualizarMargenPreview(){
+  const precio = parseFloat(document.getElementById('np-price')?.value)||0;
+  const costo = parseFloat(document.getElementById('np-costo')?.value)||0;
+  const el = document.getElementById('np-margen-preview');
+  if(!el) return;
+  if(precio > 0 && costo > 0){
+    const margen = Math.round((precio-costo)/precio*100);
+    const ganancia = precio - costo;
+    el.textContent = `$${ganancia.toLocaleString('es-AR')} · ${margen}% margen`;
+    el.style.color = margen >= 30 ? '#1a5c38' : margen >= 10 ? '#e65100' : '#c94040';
+  } else {
+    el.textContent = '—';
+    el.style.color = '#999';
+  }
+}
+
 function openModal(id){document.getElementById(id).classList.add('show')}
 function closeModal(id){document.getElementById(id).classList.remove('show')}
 document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('show')}));
@@ -2363,18 +2412,40 @@ function renderFinanzas(){
   const countVentas = ventasFilt.length;
   const ticketProm = countVentas ? Math.round(totalIngresos/countVentas) : 0;
 
-  // Compras filtradas
+  // Costo real de productos vendidos (usando costo de cada producto)
+  let costoVentas = 0;
+  let gananciaVentas = 0;
+  let ventasConCosto = 0;
+  ventasFilt.forEach(v => {
+    const items = typeof v.items === 'string' ? JSON.parse(v.items||'[]') : (v.items||[]);
+    items.forEach(item => {
+      const prod = prods.find(p => p.id === item.id || p.nombre === item.nombre);
+      const costo = prod?.costo || 0;
+      const cantidad = item.cantidad || 1;
+      const precioVenta = (item.precio || 0) * cantidad;
+      const costoTotal = costo * cantidad;
+      costoVentas += costoTotal;
+      gananciaVentas += precioVenta - costoTotal;
+      if(costo > 0) ventasConCosto++;
+    });
+  });
+
+  // Compras filtradas (egresos de reposición de stock)
   const comprasFilt = finPeriodo==='todo' ? compras : compras.filter(c=>c.fecha>=cutoff);
-  const totalEgresos = comprasFilt.reduce((s,c)=>s+(c.precio_unitario||0)*(c.cantidad||0),0);
+  const totalCompras = comprasFilt.reduce((s,c)=>s+(c.precio_unitario||0)*(c.cantidad||0),0);
   const countCompras = comprasFilt.length;
+
+  // Egresos totales = costo de lo vendido + compras de reposición
+  const totalEgresos = costoVentas + totalCompras;
 
   // Deudas pendientes
   const deudasPend = deudas.filter(d=>d.estado!=='pagado');
   const totalDeudas = deudasPend.reduce((s,d)=>s+(d.monto||0),0);
 
-  // Balance y margen
-  const balance = totalIngresos - totalEgresos;
-  const margen = totalIngresos ? Math.round(balance/totalIngresos*100) : 0;
+  // Balance y margen reales
+  const balance = gananciaVentas - totalCompras;
+  const margen = totalIngresos ? Math.round(gananciaVentas/totalIngresos*100) : 0;
+  const tieneCosto = prods.some(p => p.costo > 0);
 
   // Update UI
   const balEl = document.getElementById('fin-balance');
@@ -2382,13 +2453,48 @@ function renderFinanzas(){
   balEl.style.color = balance >= 0 ? '#6fcf97' : '#eb5757';
   document.getElementById('fin-balance-label').textContent = balance >= 0 ? '✅ Ganancia neta' : '⚠️ Pérdida neta';
   document.getElementById('fin-ingresos').textContent = `$${totalIngresos.toLocaleString('es-AR')}`;
-  document.getElementById('fin-egresos').textContent = `$${totalEgresos.toLocaleString('es-AR')}`;
-  document.getElementById('fin-margen').textContent = `${margen}%`;
+  document.getElementById('fin-egresos').textContent = `$${costoVentas.toLocaleString('es-AR')}`;
+  document.getElementById('fin-margen').textContent = tieneCosto ? `${margen}%` : '—';
   document.getElementById('fin-ventas-total').textContent = `$${totalIngresos.toLocaleString('es-AR')}`;
   document.getElementById('fin-ventas-count').textContent = `${countVentas} transacciones`;
   document.getElementById('fin-ticket-prom').textContent = `$${ticketProm.toLocaleString('es-AR')}`;
-  document.getElementById('fin-compras-total').textContent = `$${totalEgresos.toLocaleString('es-AR')}`;
+  document.getElementById('fin-compras-total').textContent = `$${totalCompras.toLocaleString('es-AR')}`;
   document.getElementById('fin-compras-count').textContent = `${countCompras} compras registradas`;
+
+  // Aviso si los productos no tienen costo cargado
+  const avisoEl = document.getElementById('fin-aviso-costo');
+  if(avisoEl) {
+    if(!tieneCosto) {
+      avisoEl.style.display = 'flex';
+      avisoEl.innerHTML = \`<span style="font-size:16px">⚠️</span><div><div style="font-weight:600;font-size:13px">Los productos no tienen costo cargado</div><div style="font-size:11px;color:#92400e;margin-top:2px">Andá a Stock → editá cada producto → ingresá el costo de compra para ver la ganancia real.</div></div>\`;
+    } else {
+      avisoEl.style.display = 'none';
+    }
+  }
+
+  // Panel ganancia real
+  const ganEl = document.getElementById('fin-ganancia-real');
+  if(ganEl) {
+    ganEl.innerHTML = \`
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:600">Ganancia real del período</div>
+        <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:\${gananciaVentas>=0?'#1a5c38':'#c94040'}">$\${gananciaVentas.toLocaleString('es-AR')}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div style="background:#f8f8f8;border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Ingresos</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#1a5c38">$\${totalIngresos.toLocaleString('es-AR')}</div>
+        </div>
+        <div style="background:#f8f8f8;border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Costo vendido</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#c94040">$\${costoVentas.toLocaleString('es-AR')}</div>
+        </div>
+        <div style="background:\${margen>=30?'#eaf5ee':margen>=10?'#fff8e1':'#fdeaea'};border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Margen</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:\${margen>=30?'#1a5c38':margen>=10?'#e65100':'#c94040'}">\${tieneCosto?margen+'%':'Sin costo'}</div>
+        </div>
+      </div>\`;
+  }
   document.getElementById('fin-deudas-total').textContent = `$${totalDeudas.toLocaleString('es-AR')}`;
   document.getElementById('fin-deudas-count').textContent = `${deudasPend.length} sin cobrar`;
 
