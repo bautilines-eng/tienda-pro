@@ -473,6 +473,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="ntab" onclick="gp('pco',this)"><span>🚚</span>Compras</div>
       <div class="ntab" onclick="gp('pde',this)"><span>💸</span>Deudores</div>
       <div class="ntab" onclick="gp('pusu',this)"><span>👤</span>Usuarios</div>
+      <div class="ntab" onclick="gp('pgas',this)"><span>📋</span>Gastos</div>
       <div class="ntab" onclick="gp('pfin',this)"><span>💰</span>Finanzas</div>
       <div class="ntab" onclick="gp('pcfg',this)"><span>⚙️</span>Mi Tienda</div>
       <div class="ntab" id="admin-tab" style="display:none;background:rgba(201,79,26,.15)" onclick="gp('padmin',this)"><span>⚙️</span>Admin</div>
@@ -718,7 +719,67 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
   </div>
 
-  <!-- MODAL REGISTRAR PAGO -->
+  <!-- MODAL NUEVO GASTO -->
+<div class="overlay" id="ov-add-gasto">
+  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
+    <div style="background:linear-gradient(135deg,#4a1942,#2d0f29);padding:24px 24px 20px">
+      <div class="modal-handle" style="background:rgba(255,255,255,.3);margin-bottom:14px"></div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:44px;height:44px;background:rgba(255,255,255,.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px">📋</div>
+        <div>
+          <div style="font-family:'Instrument Serif',serif;font-size:20px;color:#fff">Registrar Gasto</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:2px">Egreso no relacionado a stock</div>
+        </div>
+        <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-add-gasto')">✕</span>
+      </div>
+    </div>
+    <div style="padding:20px">
+      <!-- Monto -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Monto *</div>
+        <div style="position:relative">
+          <div style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:16px;font-weight:700;color:#4a1942;pointer-events:none">$</div>
+          <input class="inp" id="gas-monto" type="number" placeholder="0" min="1"
+            style="padding-left:28px;font-size:20px;font-weight:700;font-family:'DM Mono',monospace;border-color:#d8b4d8;background:#fdf8fd;color:#1a1a0e">
+        </div>
+      </div>
+      <!-- Categoría -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Categoría *</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px" id="gas-cat-grid">
+          <button class="gas-cat-btn active" data-cat="Servicios" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #4a1942;background:#fdf8fd;font-size:12px;font-weight:600;color:#4a1942;cursor:pointer">⚡ Servicios</button>
+          <button class="gas-cat-btn" data-cat="Personal" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">👤 Personal</button>
+          <button class="gas-cat-btn" data-cat="Alquiler" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">🏠 Alquiler</button>
+          <button class="gas-cat-btn" data-cat="Transporte" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">🚗 Transporte</button>
+          <button class="gas-cat-btn" data-cat="Marketing" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">📣 Marketing</button>
+          <button class="gas-cat-btn" data-cat="Otro" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">📦 Otro</button>
+        </div>
+      </div>
+      <!-- Descripción -->
+      <div style="margin-bottom:20px">
+        <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Descripción <span style="font-weight:400;text-transform:none;color:#aaa">(opcional)</span></div>
+        <input class="inp" id="gas-desc" placeholder="Ej: Pago de luz de junio, sueldo empleado...">
+      </div>
+      <!-- Fecha -->
+      <div style="margin-bottom:20px">
+        <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Fecha</div>
+        <input class="inp" id="gas-fecha" type="date">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
+        <button onclick="closeModal('ov-add-gasto')"
+          style="padding:14px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">
+          Cancelar
+        </button>
+        <button onclick="guardarGasto()"
+          style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#4a1942,#2d0f29);color:#fff;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(74,25,66,.3)">
+          Registrar gasto →
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL REGISTRAR PAGO -->
 <div class="overlay" id="ov-registrar-pago">
   <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
     <!-- Header -->
@@ -851,6 +912,42 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 
   <!-- FINANZAS -->
+  <!-- ══ GASTOS PAGE ══ -->
+  <div id="pgas" class="page">
+    <div class="hero" style="background:linear-gradient(135deg,#4a1942 0%,#2d0f29 100%)" data-bg="GASTOS">
+      <div class="hl">Control de egresos</div>
+      <div class="ht">Gastos</div>
+      <div class="hs">Registrá cada gasto del día</div>
+    </div>
+    <div style="padding:16px 20px 0">
+      <!-- Resumen del día -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+        <div style="background:#fff;border:1.5px solid #f0f0f0;border-radius:14px;padding:14px">
+          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Gastos hoy</div>
+          <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:#4a1942" id="gas-hoy">$0</div>
+        </div>
+        <div style="background:#fff;border:1.5px solid #f0f0f0;border-radius:14px;padding:14px">
+          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Este mes</div>
+          <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:#4a1942" id="gas-mes">$0</div>
+        </div>
+      </div>
+      <!-- Breakdown por categoría hoy -->
+      <div id="gas-cats" style="margin-bottom:16px"></div>
+      <!-- Lista de gastos -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">Gastos registrados</div>
+        <div style="font-size:11px;color:#999" id="gas-count">0 gastos</div>
+      </div>
+      <div id="gas-list"></div>
+    </div>
+    <div style="height:100px"></div>
+    <!-- FAB -->
+    <button onclick="openModal('ov-add-gasto')"
+      style="position:fixed;bottom:24px;right:20px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#4a1942,#2d0f29);border:none;color:#fff;font-size:24px;cursor:pointer;box-shadow:0 4px 16px rgba(74,25,66,.4);z-index:300;display:flex;align-items:center;justify-content:center">
+      +
+    </button>
+  </div>
+
   <div id="pfin" class="page">
     <div class="hero h-pine" data-bg="FINANZAS">
       <div class="hl">Análisis financiero</div>
@@ -1063,7 +1160,7 @@ let USER = null;
 let STORE = null;
 
 // ══ STATE ══
-let prods=[], sales=[], clients=[], compras=[], cierres=[];
+let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[];
 let qtys={}, activeCat='all', filtered=[], method='Efectivo', periodo='semana';
 let stockFilter='all', histFilter='all';
 
@@ -1131,6 +1228,17 @@ function exportarCierrePDF() {
     <div class="row"><span class="row-label">🏦 Transferencia</span><span class="row-value">$${(d.transferencia||0).toLocaleString('es-AR')}</span></div>
     <div class="row"><span class="row-label">💳 Tarjeta</span><span class="row-value">$${(d.tarjeta||0).toLocaleString('es-AR')}</span></div>
     <div class="row"><span class="row-label">🔵 MercadoPago</span><span class="row-value">$${(d.mercadopago||0).toLocaleString('es-AR')}</span></div>
+  </div>
+
+  ${d.gastos_dia && d.gastos_dia.length > 0 ? `
+  <div class="section">
+    <div class="section-title">Gastos del día</div>
+    ${d.gastos_dia.map(g => `<div class="row"><span class="row-label">${g.categoria}${g.descripcion?' · '+g.descripcion:''}</span><span class="row-value" style="color:#c94040">-$${(g.monto||0).toLocaleString('es-AR')}</span></div>`).join('')}
+    <div class="row" style="border-top:2px solid #eee;margin-top:4px;padding-top:8px"><span class="row-label" style="font-weight:700">Total gastos</span><span class="row-value" style="color:#c94040">-$${d.gastos_dia.reduce((s,g)=>s+(g.monto||0),0).toLocaleString('es-AR')}</span></div>
+  </div>
+  ` : ''}
+
+  <div class="section" style="display:none">
   </div>
 
   <div class="section">
@@ -1321,7 +1429,7 @@ function updateDate(){
 
 function renderAll(){
   renderCats();renderProds();renderHist();renderCaja();
-  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();
+  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();
 }
 
 // ══ SUPABASE CRUD ══
@@ -1687,6 +1795,18 @@ async function eliminarUsuario(id, nombre){
   }catch(e){ showToast('❌ Error','err'); }
 }
 
+async function loadGastos(){
+  try {
+    const {data,error} = await SB.from('gastos').select('*')
+      .eq('tienda_id',STORE.id)
+      .order('fecha',{ascending:false})
+      .order('created_at',{ascending:false})
+      .limit(200);
+    if(error) throw error;
+    gastos = data || [];
+  } catch(e) { gastos = []; console.error('loadGastos',e); }
+}
+
 async function loadCierres(){
   try{cierres=await sbGet('cierres_caja');}
   catch(e){cierres=[];}
@@ -1985,6 +2105,7 @@ function prepararCierre(){
       <div class="hc-dr"><span>Transferencia</span><span>$${tr.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>Tarjeta</span><span>$${td.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>MercadoPago</span><span>$${mp.toLocaleString('es-AR')}</span></div>
+      ${gastosHoyCierre.length>0?`<div class="hc-dr" style="border-top:1px solid #ddd;margin-top:6px;padding-top:6px"><span style="color:#c94040;font-weight:600">Gastos del día</span><span style="color:#c94040;font-weight:700">-$${gastosHoyCierre.reduce((s,g)=>s+(g.monto||0),0).toLocaleString('es-AR')}</span></div>`:''}
       <div class="hc-dr"><span>Efectivo en caja</span><span>$${efCaja.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span style="font-weight:600">Diferencia</span><span style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${dif.toLocaleString('es-AR')}</span></div>
       ${obs?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${obs}</div>`:''}
@@ -1992,7 +2113,8 @@ function prepararCierre(){
     <div style="font-size:13px;color:var(--red);font-weight:500">⚠️ Esta acción registrará el cierre oficial del día. No se puede deshacer.</div>`;
 
   // Store cierre data for confirm
-  window._cierreData={fecha:today,total,ventas_count:todaySales.length,efectivo:ef,transferencia:tr,tarjeta:td,mercadopago:mp,efectivo_caja:efCaja,diferencia:dif,observaciones:obs};
+  const gastosHoyCierre = gastos.filter(g => g.fecha === today);
+  window._cierreData={fecha:today,total,ventas_count:todaySales.length,efectivo:ef,transferencia:tr,tarjeta:td,mercadopago:mp,efectivo_caja:efCaja,diferencia:dif,observaciones:obs,gastos_dia:gastosHoyCierre};
   openModal('ov-cierre');
 }
 
@@ -2292,6 +2414,156 @@ function showAlerts(){
 
 // ══ MODALS ══
 // Preview margen al tipear en formulario de producto
+// ══════════════════════════════════
+// GASTOS EVENTUALES
+// ══════════════════════════════════
+const GAS_CATS = {
+  'Servicios': { icon: '⚡', color: '#e65100', bg: '#fff3e0' },
+  'Personal':  { icon: '👤', color: '#1565c0', bg: '#e3f2fd' },
+  'Alquiler':  { icon: '🏠', color: '#2e7d32', bg: '#e8f5e9' },
+  'Transporte':{ icon: '🚗', color: '#6a1b9a', bg: '#f3e5f5' },
+  'Marketing': { icon: '📣', color: '#c62828', bg: '#ffebee' },
+  'Otro':      { icon: '📦', color: '#555',    bg: '#f5f5f5' }
+};
+
+let selectedGasCat = 'Servicios';
+
+function selectGasCat(btn) {
+  document.querySelectorAll('.gas-cat-btn').forEach(b => {
+    b.style.borderColor = '#e0e0e0';
+    b.style.background = '#fff';
+    b.style.color = '#555';
+  });
+  btn.style.borderColor = '#4a1942';
+  btn.style.background = '#fdf8fd';
+  btn.style.color = '#4a1942';
+  selectedGasCat = btn.dataset.cat;
+}
+
+async function guardarGasto() {
+  const monto = parseFloat(document.getElementById('gas-monto').value);
+  const desc  = document.getElementById('gas-desc').value.trim();
+  const fecha = document.getElementById('gas-fecha').value || new Date().toISOString().split('T')[0];
+  if (!monto || monto <= 0) { showToast('⚠️ Ingresá un monto válido', 'err'); return; }
+  try {
+    const g = await sbInsert('gastos', {
+      tienda_id: STORE.id,
+      monto,
+      categoria: selectedGasCat,
+      descripcion: desc || null,
+      fecha
+    });
+    gastos.unshift(g);
+    closeModal('ov-add-gasto');
+    document.getElementById('gas-monto').value = '';
+    document.getElementById('gas-desc').value = '';
+    renderGastos();
+    showToast(`✅ Gasto de $${monto.toLocaleString('es-AR')} registrado`, 'ok');
+  } catch(e) {
+    console.error(e);
+    showToast('❌ Error al registrar gasto', 'err');
+  }
+}
+
+async function eliminarGasto(id) {
+  if (!confirm('¿Eliminar este gasto?')) return;
+  try {
+    await SB.from('gastos').delete().eq('id', id);
+    gastos = gastos.filter(g => g.id !== id);
+    renderGastos();
+    showToast('✅ Gasto eliminado', 'ok');
+  } catch(e) { showToast('❌ Error', 'err'); }
+}
+
+function renderGastos() {
+  const today = new Date().toISOString().split('T')[0];
+  const thisMonth = today.substring(0, 7);
+
+  const gastosHoy = gastos.filter(g => g.fecha === today);
+  const gastosMes  = gastos.filter(g => g.fecha && g.fecha.startsWith(thisMonth));
+
+  const totalHoy = gastosHoy.reduce((s, g) => s + (g.monto || 0), 0);
+  const totalMes  = gastosMes.reduce((s, g) => s + (g.monto || 0), 0);
+
+  const gasHoyEl = document.getElementById('gas-hoy');
+  const gasMesEl = document.getElementById('gas-mes');
+  if (gasHoyEl) gasHoyEl.textContent = '$' + totalHoy.toLocaleString('es-AR');
+  if (gasMesEl) gasMesEl.textContent = '$' + totalMes.toLocaleString('es-AR');
+
+  // Breakdown por categoría (hoy)
+  const catsEl = document.getElementById('gas-cats');
+  if (catsEl) {
+    const byCat = {};
+    gastosHoy.forEach(g => {
+      byCat[g.categoria] = (byCat[g.categoria] || 0) + (g.monto || 0);
+    });
+    if (Object.keys(byCat).length > 0) {
+      catsEl.innerHTML = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">' +
+        Object.entries(byCat).map(([cat, total]) => {
+          const c = GAS_CATS[cat] || GAS_CATS['Otro'];
+          return `<div style="padding:6px 12px;background:${c.bg};border-radius:20px;font-size:12px;font-weight:600;color:${c.color}">
+            ${c.icon} ${cat}: $${total.toLocaleString('es-AR')}
+          </div>`;
+        }).join('') + '</div>';
+    } else {
+      catsEl.innerHTML = '';
+    }
+  }
+
+  // Lista completa
+  const el = document.getElementById('gas-list');
+  const countEl = document.getElementById('gas-count');
+  if (!el) return;
+
+  if (countEl) countEl.textContent = gastos.length + ' gasto' + (gastos.length !== 1 ? 's' : '');
+
+  if (!gastos.length) {
+    el.innerHTML = '<div class="empty">Sin gastos registrados 🎉<br><span style="font-size:12px">Tocá + para registrar un gasto</span></div>';
+    return;
+  }
+
+  // Group by date
+  const byDate = {};
+  gastos.forEach(g => {
+    const d = g.fecha || today;
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(g);
+  });
+
+  el.innerHTML = Object.entries(byDate)
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([fecha, items]) => {
+      const totalDia = items.reduce((s, g) => s + (g.monto || 0), 0);
+      const fechaLabel = fecha === today ? 'Hoy' :
+        new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short' });
+      return `
+        <div style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px">${fechaLabel}</div>
+            <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:#4a1942">$${totalDia.toLocaleString('es-AR')}</div>
+          </div>
+          ${items.map(g => {
+            const c = GAS_CATS[g.categoria] || GAS_CATS['Otro'];
+            return `<div style="background:#fff;border:1.5px solid #f0f0f0;border-radius:12px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px"
+              onmouseover="this.style.boxShadow='0 2px 12px rgba(0,0,0,.08)'"
+              onmouseout="this.style.boxShadow='none'">
+              <div style="width:40px;height:40px;background:${c.bg};border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${c.icon}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;color:#1a1a0e">${g.descripcion || g.categoria}</div>
+                <div style="font-size:11px;color:#999;margin-top:2px">${g.categoria}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                <div style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:${c.color}">-$${(g.monto||0).toLocaleString('es-AR')}</div>
+                <button onclick="eliminarGasto('${g.id}')"
+                  style="background:none;border:none;color:#ccc;font-size:16px;cursor:pointer;padding:2px 4px;margin-top:2px"
+                  title="Eliminar">🗑</button>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>`;
+    }).join('');
+}
+
 function actualizarMargenPreview(){
   const precio = parseFloat(document.getElementById('np-price')?.value)||0;
   const costo = parseFloat(document.getElementById('np-costo')?.value)||0;
@@ -2438,12 +2710,16 @@ function renderFinanzas(){
   // Egresos totales = costo de lo vendido + compras de reposición
   const totalEgresos = costoVentas + totalCompras;
 
+  // Gastos eventuales del período
+  const gastosFilt = finPeriodo==='todo' ? gastos : gastos.filter(g => g.fecha >= cutoff);
+  const totalGastos = gastosFilt.reduce((s,g) => s+(g.monto||0), 0);
+
   // Deudas pendientes
   const deudasPend = deudas.filter(d=>d.estado!=='pagado');
   const totalDeudas = deudasPend.reduce((s,d)=>s+(d.monto||0),0);
 
   // Balance y margen reales
-  const balance = gananciaVentas - totalCompras;
+  const balance = gananciaVentas - totalCompras - totalGastos;
   const margen = totalIngresos ? Math.round(gananciaVentas/totalIngresos*100) : 0;
   const tieneCosto = prods.some(p => p.costo > 0);
 
