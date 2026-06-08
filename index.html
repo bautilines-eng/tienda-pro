@@ -2478,20 +2478,20 @@ function renderFinanzas(){
     ganEl.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div style="font-size:13px;font-weight:600">Ganancia real del período</div>
-        <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:\${gananciaVentas>=0?'#1a5c38':'#c94040'}">$\${gananciaVentas.toLocaleString('es-AR')}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:${gananciaVentas>=0?'#1a5c38':'#c94040'}">$${gananciaVentas.toLocaleString('es-AR')}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
         <div style="background:#f8f8f8;border-radius:8px;padding:10px;text-align:center">
           <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Ingresos</div>
-          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#1a5c38">$\${totalIngresos.toLocaleString('es-AR')}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#1a5c38">$${totalIngresos.toLocaleString('es-AR')}</div>
         </div>
         <div style="background:#f8f8f8;border-radius:8px;padding:10px;text-align:center">
           <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Costo vendido</div>
-          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#c94040">$\${costoVentas.toLocaleString('es-AR')}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#c94040">$${costoVentas.toLocaleString('es-AR')}</div>
         </div>
-        <div style="background:\${margen>=30?'#eaf5ee':margen>=10?'#fff8e1':'#fdeaea'};border-radius:8px;padding:10px;text-align:center">
+        <div style="background:${margen>=30?'#eaf5ee':margen>=10?'#fff8e1':'#fdeaea'};border-radius:8px;padding:10px;text-align:center">
           <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Margen</div>
-          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:\${margen>=30?'#1a5c38':margen>=10?'#e65100':'#c94040'}">\${tieneCosto?margen+'%':'Sin costo'}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:${margen>=30?'#1a5c38':margen>=10?'#e65100':'#c94040'}">${tieneCosto?margen+'%':'Sin costo'}</div>
         </div>
       </div>`;
   }
