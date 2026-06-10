@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-title" content="Tienda Pro">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -424,6 +425,18 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <button class="modal-close" onclick="closeModal('ov-add-prod')">✕</button>
     <div class="modal-title">Nuevo Producto</div>
     <div class="fgroup"><div class="flabel">Nombre</div><input class="inp" id="np-name" placeholder="Nombre del producto"></div>
+    <div class="fgroup">
+      <div class="flabel" style="display:flex;align-items:center;gap:6px">
+        Código de barras
+        <span style="font-size:10px;color:#aaa;font-weight:400">(opcional — escaneá o escribilo)</span>
+      </div>
+      <div style="position:relative;display:flex;gap:8px">
+        <input class="inp" id="np-barcode" placeholder="Ej: 7790123456789" style="flex:1;font-family:'DM Mono',monospace">
+        <button type="button" onclick="escanearBarcode('np-barcode')"
+          style="padding:10px 14px;border-radius:9px;border:1.5px solid var(--border);background:#fff;font-size:18px;cursor:pointer;flex-shrink:0"
+          title="Escanear con cámara">📷</button>
+      </div>
+    </div>
     <div class="frow" style="margin-bottom:10px">
       <div>
         <div class="flabel">Precio de venta</div>
@@ -509,6 +522,28 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div class="search-wrap">
       <span class="search-ico">🔍</span>
       <input class="search-inp" id="srch" placeholder="Buscar producto..." oninput="filterP()">
+    </div>
+    <!-- Scanner de código de barras -->
+    <div style="display:flex;gap:8px;padding:0 0 10px">
+      <div style="position:relative;flex:1">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:16px;pointer-events:none">🔖</span>
+        <input class="inp" id="scan-input" type="text" inputmode="numeric"
+          placeholder="Escanear código de barras (lector USB)..."
+          style="padding-left:36px;font-family:'DM Mono',monospace;font-size:13px;background:#f8f8ff;border-color:#c5cae9"
+          onkeydown="onScannerKeydown(event)"
+          autocomplete="off">
+      </div>
+      <button onclick="toggleCamScanner()"
+        style="padding:10px 14px;border-radius:10px;border:1.5px solid #c5cae9;background:#f8f8ff;font-size:20px;cursor:pointer;flex-shrink:0"
+        title="Escanear con cámara" id="cam-scan-btn">📷</button>
+    </div>
+    <!-- Vista de cámara (oculta por defecto) -->
+    <div id="cam-scanner-wrap" style="display:none;margin-bottom:12px;border-radius:12px;overflow:hidden;position:relative;background:#000">
+      <video id="cam-preview" style="width:100%;max-height:200px;object-fit:cover" autoplay muted playsinline></video>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:70%;height:2px;background:rgba(255,100,0,.7);box-shadow:0 0 8px rgba(255,100,0,.5)"></div>
+      <button onclick="toggleCamScanner()"
+        style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.6);border:none;color:#fff;width:32px;height:32px;border-radius:50%;font-size:16px;cursor:pointer">✕</button>
+      <div id="cam-status" style="position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#fff;font-size:12px;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.8)">Apuntá al código de barras</div>
     </div>
     <div class="cats" id="cats-el"></div>
     <div class="slabel">
@@ -1840,7 +1875,7 @@ function renderProds(){
     const min=p.stock_minimo||10;
     const sc=p.stock===0?'sout':p.stock<min?'slow':'sok';
     const st=p.stock===0?'🔴 Sin stock':p.stock<min?`⚠️ ${p.stock} uds`:`✓ ${p.stock} uds`;
-    return `<div class="pc ${on?'on':''}" id="pc-${p.id}">
+    return `<div class="pc ${on?'on':''}" id="pc-${p.id}" data-prod-id="${p.id}">
       <div class="pc-em">${getEm(p.categoria)}</div>
       <div class="pc-info">
         <div class="pc-name">${p.nombre}</div>
@@ -1848,6 +1883,7 @@ function renderProds(){
           <span class="ptag">${p.categoria||'—'}</span>
           <span class="pprice">$${(p.precio||0).toLocaleString('es-AR')}</span>
           <span class="pstk ${sc}">${st}</span>
+          ${p.barcode?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:#aaa;letter-spacing:.5px">${p.barcode}</span>`:''}
         </div>
       </div>
       <div class="qc">
@@ -2192,7 +2228,7 @@ function renderStock(f){
         </div>
       </div>
       <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${p.stock} uds</div></div>
-      <div class="sc-meta"><span>${p.categoria||'—'}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${p.costo>0?'Costo: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
+      <div class="sc-meta"><span>${p.categoria||'—'}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${p.barcode?'🔖 '+p.barcode:''}</span><span>${p.costo>0?'Costo: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
       ${p.costo>0?`<div style="display:flex;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
         <span style="color:#1a5c38;font-weight:600">Margen: $${((p.precio||0)-(p.costo||0)).toLocaleString('es-AR')}</span>
         <span style="color:#999">·</span>
@@ -2223,6 +2259,7 @@ function editProduct(id){
   const p=prods.find(x=>x.id==id);if(!p)return;
   document.getElementById('np-name').value=p.nombre||'';
   document.getElementById('np-price').value=p.precio||'';
+  document.getElementById('np-barcode').value=p.barcode||'';
   document.getElementById('np-costo').value=p.costo||'';
   document.getElementById('np-stock').value=p.stock||'';
   document.getElementById('np-cat').value=p.categoria||'';
@@ -2268,10 +2305,12 @@ async function saveProduct(){
   try{
     const costo = parseFloat(document.getElementById('np-costo').value)||0;
     const precio = parseFloat(document.getElementById('np-price').value)||0;
+    const barcode = document.getElementById('np-barcode').value.trim() || null;
     const p=await sbInsert('productos',{
       nombre,
       precio,
       costo,
+      barcode,
       stock:parseInt(document.getElementById('np-stock').value)||0,
       categoria:document.getElementById('np-cat').value||'General',
       stock_minimo:parseInt(document.getElementById('np-min').value)||10,
@@ -2563,6 +2602,164 @@ function renderGastos() {
         </div>`;
     }).join('');
 }
+
+// ══════════════════════════════════
+// CÓDIGO DE BARRAS
+// ══════════════════════════════════
+let codeReader = null;
+let camScannerActive = false;
+let scanBuffer = '';
+let scanTimer = null;
+
+// Lector USB: el scanner tipea el código muy rápido y presiona Enter
+function onScannerKeydown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const code = document.getElementById('scan-input').value.trim();
+    if (code) {
+      buscarPorBarcode(code);
+      document.getElementById('scan-input').value = '';
+    }
+  }
+}
+
+function buscarPorBarcode(code) {
+  const prod = prods.find(p => p.barcode && p.barcode.trim() === code.trim());
+  if (prod) {
+    // Agregar al carrito
+    qtys[prod.id] = (qtys[prod.id] || 0) + 1;
+    updateCart();
+    // Flash visual en el producto
+    const prodCard = document.querySelector(`[data-prod-id="${prod.id}"]`);
+    if (prodCard) {
+      prodCard.style.background = '#eaf5ee';
+      prodCard.style.transition = 'background .3s';
+      setTimeout(() => { prodCard.style.background = ''; }, 800);
+    }
+    showToast(`✅ ${prod.nombre} agregado`, 'ok');
+    // Mantener foco en el scanner
+    setTimeout(() => document.getElementById('scan-input')?.focus(), 100);
+  } else {
+    showToast(`⚠️ Código ${code} no encontrado`, 'err');
+    document.getElementById('scan-input')?.select();
+  }
+}
+
+// Cámara: usar ZXing para leer desde video
+function toggleCamScanner() {
+  const wrap = document.getElementById('cam-scanner-wrap');
+  const btn = document.getElementById('cam-scan-btn');
+  if (!camScannerActive) {
+    // Activar
+    wrap.style.display = 'block';
+    btn.style.background = '#fdeaea';
+    btn.style.borderColor = '#e57373';
+    camScannerActive = true;
+    iniciarCamScanner();
+  } else {
+    detenerCamScanner();
+    wrap.style.display = 'none';
+    btn.style.background = '#f8f8ff';
+    btn.style.borderColor = '#c5cae9';
+    camScannerActive = false;
+  }
+}
+
+function iniciarCamScanner() {
+  try {
+    if (typeof ZXing === 'undefined') {
+      showToast('⚠️ Librería de escaneo no disponible', 'err');
+      return;
+    }
+    codeReader = new ZXing.BrowserMultiFormatReader();
+    const statusEl = document.getElementById('cam-status');
+    codeReader.decodeFromConstraints(
+      { video: { facingMode: 'environment' } },
+      'cam-preview',
+      (result, err) => {
+        if (result) {
+          const code = result.getText();
+          if (statusEl) statusEl.textContent = '✅ Código detectado: ' + code;
+          buscarPorBarcode(code);
+          // Pausa breve para no leer múltiples veces
+          detenerCamScanner();
+          setTimeout(() => {
+            if (camScannerActive) iniciarCamScanner();
+          }, 1500);
+        }
+      }
+    );
+  } catch(e) {
+    console.error('Scanner error:', e);
+    showToast('❌ No se pudo acceder a la cámara', 'err');
+    toggleCamScanner();
+  }
+}
+
+function detenerCamScanner() {
+  if (codeReader) {
+    codeReader.reset();
+    codeReader = null;
+  }
+}
+
+// Scanner en modal de producto (para asignar código escaneando)
+let modalScanReader = null;
+function escanearBarcode(targetId) {
+  if (modalScanReader) {
+    modalScanReader.reset();
+    modalScanReader = null;
+    return;
+  }
+  if (typeof ZXing === 'undefined') {
+    showToast('⚠️ Librería no disponible, escribí el código manualmente', 'err');
+    return;
+  }
+  // Crear preview temporal
+  const inp = document.getElementById(targetId);
+  const wrap = inp.closest('.fgroup') || inp.parentElement;
+  
+  // Remove existing preview if any
+  const existingPreview = document.getElementById('modal-cam-preview-wrap');
+  if (existingPreview) existingPreview.remove();
+  
+  const previewWrap = document.createElement('div');
+  previewWrap.id = 'modal-cam-preview-wrap';
+  previewWrap.style.cssText = 'margin-top:8px;border-radius:10px;overflow:hidden;position:relative;background:#000';
+  previewWrap.innerHTML = '<video id="modal-cam-preview" style="width:100%;max-height:180px;object-fit:cover" autoplay muted playsinline></video>' +
+    '<div style="position:absolute;top:50%;left:0;right:0;height:2px;background:rgba(255,100,0,.8)"></div>' +
+    '<div id="modal-cam-status" style="position:absolute;bottom:6px;left:0;right:0;text-align:center;color:#fff;font-size:11px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.9)">Apuntá al código de barras</div>';
+  wrap.appendChild(previewWrap);
+  
+  modalScanReader = new ZXing.BrowserMultiFormatReader();
+  modalScanReader.decodeFromConstraints(
+    { video: { facingMode: 'environment' } },
+    'modal-cam-preview',
+    (result, err) => {
+      if (result) {
+        inp.value = result.getText();
+        actualizarMargenPreview();
+        modalScanReader.reset();
+        modalScanReader = null;
+        previewWrap.remove();
+        showToast('✅ Código escaneado: ' + result.getText(), 'ok');
+      }
+    }
+  );
+}
+
+// Foco automático en el scanner al entrar a ventas
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.ntab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      if (tab.textContent.includes('Ventas')) {
+        setTimeout(() => {
+          document.getElementById('scan-input')?.focus();
+        }, 300);
+      }
+    });
+  });
+});
 
 function actualizarMargenPreview(){
   const precio = parseFloat(document.getElementById('np-price')?.value)||0;
