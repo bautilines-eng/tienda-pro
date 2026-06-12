@@ -459,7 +459,11 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div><div class="flabel">Stock mínimo</div><input class="inp" id="np-min" type="number" placeholder="10"></div>
     </div>
     <div class="frow" style="margin-bottom:10px">
-      <div style="flex:1"><div class="flabel">Categoría</div><input class="inp" id="np-cat" placeholder="Toallas, Ropa de Cama..."></div>
+      <div style="flex:1"><div class="flabel">Categoría</div><input class="inp" id="np-cat" placeholder="General, Bebidas..."></div>
+      <div>
+        <div class="flabel" style="display:flex;align-items:center;gap:4px">Vencimiento <span style="font-size:10px;color:#aaa">(opcional)</span></div>
+        <input class="inp" id="np-vence" type="date">
+      </div>
     </div>
     <button class="btn btn-ink btn-full" onclick="saveProduct()">Guardar producto</button>
   </div>
@@ -509,6 +513,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div class="mopt" id="m-tr" onclick="setMethod('Transferencia')"><div class="mopt-ico">🏦</div><div class="mopt-l">Transferencia</div></div>
         <div class="mopt" id="m-td" onclick="setMethod('Tarjeta')"><div class="mopt-ico">💳</div><div class="mopt-l">Tarjeta</div></div>
         <div class="mopt" id="m-mp" onclick="setMethod('MercadoPago')"><div class="mopt-ico">🔵</div><div class="mopt-l">MercadoPago</div></div>
+        <div class="mopt" id="m-cc" onclick="setMethod('Cuenta Corriente')"><div class="mopt-ico">📒</div><div class="mopt-l">Cta. Cte.</div></div>
       </div>
     </div>
     <div style="padding:12px 20px 0">
@@ -636,6 +641,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
       <div style="margin-top:14px">
         <div class="fgroup"><div class="flabel">Observaciones del cierre</div><input class="inp" id="arq-obs" placeholder="Todo en orden, diferencia por..."></div>
+        <button onclick="prepararCierreTurno()" style="width:100%;padding:13px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:8px">
+          🔄 Cierre de Turno
+        </button>
         <button class="btn btn-red btn-full" onclick="prepararCierre()">🔒 Realizar Cierre del Día</button>
       </div>
     </div>
@@ -677,7 +685,13 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="hs">Estado y alertas de tus productos</div>
     </div>
     <div style="padding:14px 20px 0">
-      <button class="btn btn-ink btn-full" onclick="openModal('ov-add-prod')">+ Agregar producto</button>
+      <div style="display:flex;gap:8px;margin-bottom:0">
+        <button class="btn btn-ink btn-full" onclick="openModal('ov-add-prod')">+ Agregar producto</button>
+        <button onclick="openModal('ov-add-combo')"
+          style="padding:13px 16px;border-radius:10px;border:1.5px solid #1a5ec9;background:#eaf0fd;color:#1a5ec9;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+          🎁 Combo
+        </button>
+      </div>
     </div>
     <div class="fbar">
       <div class="fb on" onclick="filtS('all',this)">Todos</div>
@@ -719,6 +733,30 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           <div><div class="flabel">Precio unitario</div><input class="inp" id="co-precio" type="number" placeholder="$0"></div>
         </div>
         <div class="fgroup"><div class="flabel">Número de Factura</div><input class="inp" id="co-factura" placeholder="FAC-2026-001"></div>
+        <div class="fgroup">
+          <div class="flabel">Estado del pedido</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+            <button type="button" class="co-estado-btn active" data-estado="completo"
+              onclick="selectEstadoPedido(this)"
+              style="padding:8px 4px;border-radius:8px;border:1.5px solid #1a5c38;background:#eaf5ee;font-size:11px;font-weight:600;color:#1a5c38;cursor:pointer">
+              ✅ Completo
+            </button>
+            <button type="button" class="co-estado-btn" data-estado="faltante"
+              onclick="selectEstadoPedido(this)"
+              style="padding:8px 4px;border-radius:8px;border:1.5px solid #e0e0e0;background:#fff;font-size:11px;font-weight:600;color:#555;cursor:pointer">
+              ⚠️ Faltante
+            </button>
+            <button type="button" class="co-estado-btn" data-estado="roto"
+              onclick="selectEstadoPedido(this)"
+              style="padding:8px 4px;border-radius:8px;border:1.5px solid #e0e0e0;background:#fff;font-size:11px;font-weight:600;color:#555;cursor:pointer">
+              ❌ Roto/Dañado
+            </button>
+          </div>
+        </div>
+        <div id="co-obs-wrap" style="display:none;margin-bottom:8px">
+          <div class="flabel">Detalle del problema</div>
+          <input class="inp" id="co-obs" placeholder="Ej: Faltaron 3 unidades, caja llegó mojada...">
+        </div>
         <div class="fgroup"><div class="flabel">Proveedor</div><select class="inp" id="co-prov" style="cursor:pointer"><option value="">-- Sin proveedor --</option></select></div>
         <button class="btn btn-rust btn-full" onclick="doCompra()">Registrar Compra →</button>
       </div>
@@ -783,14 +821,20 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Categoría *</div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px" id="gas-cat-grid">
           <button class="gas-cat-btn active" data-cat="Servicios" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #4a1942;background:#fdf8fd;font-size:12px;font-weight:600;color:#4a1942;cursor:pointer">⚡ Servicios</button>
+          <button class="gas-cat-btn" data-cat="Proveedores" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">🏭 Proveedores</button>
           <button class="gas-cat-btn" data-cat="Personal" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">👤 Personal</button>
           <button class="gas-cat-btn" data-cat="Alquiler" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">🏠 Alquiler</button>
           <button class="gas-cat-btn" data-cat="Transporte" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">🚗 Transporte</button>
           <button class="gas-cat-btn" data-cat="Marketing" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">📣 Marketing</button>
+          <button class="gas-cat-btn" data-cat="Impuestos" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">🧾 Impuestos</button>
           <button class="gas-cat-btn" data-cat="Otro" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">📦 Otro</button>
         </div>
       </div>
       <!-- Descripción -->
+      <div style="margin-bottom:12px" id="gas-proveedor-wrap" style="display:none">
+        <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Nombre del proveedor</div>
+        <input class="inp" id="gas-proveedor" placeholder="Ej: Distribuidora López, Coca Cola...">
+      </div>
       <div style="margin-bottom:20px">
         <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Descripción <span style="font-weight:400;text-transform:none;color:#aaa">(opcional)</span></div>
         <input class="inp" id="gas-desc" placeholder="Ej: Pago de luz de junio, sueldo empleado...">
@@ -808,6 +852,70 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <button onclick="guardarGasto()"
           style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#4a1942,#2d0f29);color:#fff;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(74,25,66,.3)">
           Registrar gasto →
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NUEVO COMBO -->
+<div class="overlay" id="ov-add-combo">
+  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
+    <div style="background:linear-gradient(135deg,#1a5ec9,#0d3d8a);padding:20px 24px 16px">
+      <div class="modal-handle" style="background:rgba(255,255,255,.3);margin-bottom:12px"></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:40px;height:40px;background:rgba(255,255,255,.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🎁</div>
+        <div>
+          <div style="font-family:'Instrument Serif',serif;font-size:18px;color:#fff">Nuevo Combo</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.7)">Agrupá productos con precio especial</div>
+        </div>
+        <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-add-combo')">✕</span>
+      </div>
+    </div>
+    <div style="padding:16px 20px">
+      <div class="fgroup" style="margin-bottom:12px">
+        <div class="flabel">Nombre del combo</div>
+        <input class="inp" id="combo-nombre" placeholder="Ej: Combo Fernet, Pack Hidratación...">
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <div style="flex:1">
+          <div class="flabel">Agregar producto</div>
+          <select class="inp" id="combo-prod-sel" style="cursor:pointer">
+            <option value="">Seleccionar...</option>
+          </select>
+        </div>
+        <div style="width:70px">
+          <div class="flabel">Cant.</div>
+          <input class="inp" id="combo-prod-qty" type="number" min="1" value="1">
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button onclick="addComboItem()"
+            style="padding:10px 14px;border-radius:9px;background:#1a5ec9;color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+            + Agregar
+          </button>
+        </div>
+      </div>
+      <div id="combo-items-list" style="min-height:60px;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px;margin-bottom:12px">
+        <div style="color:#aaa;font-size:12px;text-align:center;padding:12px">Agregá productos al combo</div>
+      </div>
+      <div style="margin-bottom:16px">
+        <div class="flabel" style="display:flex;justify-content:space-between">
+          <span>Precio del combo *</span>
+          <span style="font-weight:400;color:#aaa">Sugerido (10% off): <span id="combo-precio-sug">—</span></span>
+        </div>
+        <div style="position:relative">
+          <div style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:15px;font-weight:700;color:#1a5ec9;pointer-events:none">$</div>
+          <input class="inp" id="combo-precio" type="number" placeholder="0" style="padding-left:26px;font-family:'DM Mono',monospace;font-size:16px;font-weight:700">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
+        <button onclick="closeModal('ov-add-combo')"
+          style="padding:13px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">
+          Cancelar
+        </button>
+        <button onclick="guardarCombo()"
+          style="padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#1a5ec9,#0d3d8a);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+          Crear combo →
         </button>
       </div>
     </div>
@@ -1016,6 +1124,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         </div>
       </div>
     </div>
+
+    <!-- PROYECCIONES -->
+    <div id="fin-proyecciones" style="margin:14px 20px 0;background:#fff;border:1.5px solid #e0e0e0;border-radius:14px;padding:14px"></div>
 
     <!-- AVISO COSTO -->
     <div id="fin-aviso-costo" style="display:none;margin:14px 20px 0;background:#fef3c7;border:1.5px solid #fbbf24;border-radius:12px;padding:14px 16px;gap:12px;align-items:flex-start"></div>
@@ -1464,7 +1575,7 @@ function updateDate(){
 
 function renderAll(){
   renderCats();renderProds();renderHist();renderCaja();
-  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();
+  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();renderProyecciones();setTimeout(checkVencimientos,2000);
 }
 
 // ══ SUPABASE CRUD ══
@@ -1958,13 +2069,35 @@ async function registerSale(){
     }
 
     sales.unshift(venta);
+
+    // Si es Cuenta Corriente → crear deuda automáticamente
+    if(method === 'Cuenta Corriente'){
+      const clienteId = clienteEl.value || null;
+      try {
+        const deuda = await sbInsert('deudas',{
+          tienda_id: STORE.id,
+          nombre_cliente: clienteNom || 'Sin nombre',
+          monto: total,
+          monto_original: total,
+          descripcion: `Venta en cuenta corriente${nota?' — '+nota:''}`,
+          estado: 'pendiente',
+          fecha_limite: null,
+          cliente_id: clienteId,
+          venta_id: venta.id,
+        });
+        deudas.unshift(deuda);
+        renderDeudas();
+        showToast(`📒 Venta en Cta. Cte. — $${total.toLocaleString('es-AR')} pasado a Deudores`,'ok');
+      } catch(e){ console.error('Error creando deuda CC:',e); }
+    }
+
     qtys={};
     document.getElementById('v-desc').value='';
     document.getElementById('v-nota').value='';
     document.getElementById('cart').classList.remove('show');
     renderProds();renderHist();renderCaja();renderStock(stockFilter);checkAlertBar();
     showTicket({...venta,items});
-    showToast(`✅ Venta registrada — $${total.toLocaleString('es-AR')}`,'ok');
+    if(method !== 'Cuenta Corriente') showToast(`✅ Venta registrada — $${total.toLocaleString('es-AR')}`,'ok');
   }catch(e){
     showToast('❌ Error al guardar','err');
     console.error(e);
@@ -2261,6 +2394,7 @@ function editProduct(id){
   document.getElementById('np-price').value=p.precio||'';
   document.getElementById('np-barcode').value=p.barcode||'';
   document.getElementById('np-costo').value=p.costo||'';
+  document.getElementById('np-vence').value=p.vence||'';
   document.getElementById('np-stock').value=p.stock||'';
   document.getElementById('np-cat').value=p.categoria||'';
   document.getElementById('np-min').value=p.stock_minimo||10;
@@ -2306,11 +2440,13 @@ async function saveProduct(){
     const costo = parseFloat(document.getElementById('np-costo').value)||0;
     const precio = parseFloat(document.getElementById('np-price').value)||0;
     const barcode = document.getElementById('np-barcode').value.trim() || null;
+    const vence = document.getElementById('np-vence').value || null;
     const p=await sbInsert('productos',{
       nombre,
       precio,
       costo,
       barcode,
+      vence,
       stock:parseInt(document.getElementById('np-stock').value)||0,
       categoria:document.getElementById('np-cat').value||'General',
       stock_minimo:parseInt(document.getElementById('np-min').value)||10,
@@ -2412,7 +2548,10 @@ async function doCompra(){
   if(!pid||!qty||qty<=0){showToast('Completá producto y cantidad','err');return;}
   const p=prods.find(x=>x.id==pid);
   try{
-    const c=await sbInsert('compras',{producto_id:pid,producto_nombre:p.nombre,cantidad:qty,precio_unitario:precio,numero_factura:factura,proveedor:prov,fecha:new Date().toISOString().split('T')[0]});
+    const estadoBtn = document.querySelector('.co-estado-btn.active');
+    const estadoPedido = estadoBtn?.dataset.estado || 'completo';
+    const obsPedido = document.getElementById('co-obs')?.value.trim() || null;
+    const c=await sbInsert('compras',{producto_id:pid,producto_nombre:p.nombre,cantidad:qty,precio_unitario:precio,numero_factura:factura,proveedor:prov,estado_pedido:estadoPedido,observacion_pedido:obsPedido,fecha:new Date().toISOString().split('T')[0]});
     await sbUpdate('productos',pid,{stock:p.stock+qty});
     p.stock+=qty;
     compras.unshift(c);
@@ -2454,15 +2593,244 @@ function showAlerts(){
 // ══ MODALS ══
 // Preview margen al tipear en formulario de producto
 // ══════════════════════════════════
+// CUENTA CORRIENTE
+// ══════════════════════════════════
+// setMethod already handles 'Cuenta Corriente' - just add visual style
+const origSetMethod = typeof setMethod === 'function' ? setMethod : null;
+
+// ══════════════════════════════════
+// ESTADO PEDIDO COMPRAS
+// ══════════════════════════════════
+let selectedEstadoPedido = 'completo';
+function selectEstadoPedido(btn) {
+  document.querySelectorAll('.co-estado-btn').forEach(b => {
+    b.style.borderColor = '#e0e0e0';
+    b.style.background = '#fff';
+    b.style.color = '#555';
+  });
+  btn.style.borderColor = '#1a5c38';
+  btn.style.background = '#eaf5ee';
+  btn.style.color = '#1a5c38';
+  selectedEstadoPedido = btn.dataset.estado;
+  const obsWrap = document.getElementById('co-obs-wrap');
+  if(obsWrap) obsWrap.style.display = selectedEstadoPedido !== 'completo' ? 'block' : 'none';
+}
+
+// ══════════════════════════════════
+// CIERRE DE TURNO
+// ══════════════════════════════════
+async function prepararCierreTurno() {
+  const today = new Date().toISOString().split('T')[0];
+  const now = new Date().toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
+  const turnoSales = sales.filter(s => s.fecha === today);
+  const totalTurno = turnoSales.reduce((s,v) => s+(v.total||0), 0);
+  const ef = turnoSales.filter(s=>s.metodo_pago==='Efectivo').reduce((s,v)=>s+(v.total||0),0);
+  const tr = turnoSales.filter(s=>s.metodo_pago==='Transferencia').reduce((s,v)=>s+(v.total||0),0);
+  const td = turnoSales.filter(s=>s.metodo_pago==='Tarjeta').reduce((s,v)=>s+(v.total||0),0);
+  const mp = turnoSales.filter(s=>s.metodo_pago==='MercadoPago').reduce((s,v)=>s+(v.total||0),0);
+  const cc = turnoSales.filter(s=>s.metodo_pago==='Cuenta Corriente').reduce((s,v)=>s+(v.total||0),0);
+
+  if(!confirm(`¿Confirmar cierre de turno a las ${now}?
+
+Total: $${totalTurno.toLocaleString('es-AR')}
+Ventas: ${turnoSales.length}`)) return;
+
+  // Generar PDF del turno
+  const html = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Cierre de Turno</title>
+<style>
+  body{font-family:Arial,sans-serif;padding:30px;max-width:400px;margin:0 auto}
+  h2{border-bottom:2px solid #12100e;padding-bottom:8px}
+  .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0}
+  .total{font-weight:700;font-size:18px;margin-top:16px}
+  @media print{button{display:none}}
+</style></head>
+<body>
+  <h2>🔄 Cierre de Turno</h2>
+  <p><b>${STORE?.nombre || 'Tienda Pro'}</b><br>Fecha: ${today} · Hora: ${now}</p>
+  <div class="row"><span>Ventas del turno</span><span>${turnoSales.length}</span></div>
+  <div class="row"><span>Efectivo</span><span>$${ef.toLocaleString('es-AR')}</span></div>
+  <div class="row"><span>Transferencia</span><span>$${tr.toLocaleString('es-AR')}</span></div>
+  <div class="row"><span>Tarjeta</span><span>$${td.toLocaleString('es-AR')}</span></div>
+  <div class="row"><span>MercadoPago</span><span>$${mp.toLocaleString('es-AR')}</span></div>
+  <div class="row"><span>Cta. Corriente</span><span>$${cc.toLocaleString('es-AR')}</span></div>
+  <div class="row total"><span>TOTAL</span><span>$${totalTurno.toLocaleString('es-AR')}</span></div>
+  <br><p style="font-size:12px;color:#999">Generado por Tienda Pro · ${new Date().toLocaleString('es-AR')}</p>
+  <script>window.print();<\/script>
+</body></html>`;
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+  showToast('✅ Cierre de turno generado', 'ok');
+}
+
+// ══════════════════════════════════
+// VENCIMIENTO DE PRODUCTOS
+// ══════════════════════════════════
+function checkVencimientos() {
+  const hoy = new Date();
+  const en7dias = new Date(hoy.getTime() + 7*24*60*60*1000);
+  const proximos = prods.filter(p => {
+    if(!p.vence) return false;
+    const v = new Date(p.vence + 'T12:00:00');
+    return v <= en7dias;
+  });
+  if(!proximos.length) return;
+  const vencidos = proximos.filter(p => new Date(p.vence+'T12:00:00') < hoy);
+  const porVencer = proximos.filter(p => new Date(p.vence+'T12:00:00') >= hoy);
+  let msg = '';
+  if(vencidos.length) msg += `⚠️ ${vencidos.length} producto(s) VENCIDO(S): ${vencidos.map(p=>p.nombre).join(', ')}. `;
+  if(porVencer.length) msg += `📅 ${porVencer.length} producto(s) vencen en 7 días: ${porVencer.map(p=>p.nombre).join(', ')}.`;
+  if(msg) showToast(msg, 'err');
+}
+
+// ══════════════════════════════════
+// COMBOS
+// ══════════════════════════════════
+let combos = [];
+let comboItems = [];
+
+async function loadCombos() {
+  try {
+    const {data} = await SB.from('combos').select('*').eq('tienda_id', STORE.id);
+    combos = data || [];
+  } catch(e) { combos = []; }
+}
+
+function addComboItem() {
+  const sel = document.getElementById('combo-prod-sel');
+  const qty = parseInt(document.getElementById('combo-prod-qty').value) || 1;
+  if(!sel.value) { showToast('Seleccioná un producto', 'err'); return; }
+  const prod = prods.find(p => p.id === sel.value);
+  if(!prod) return;
+  if(comboItems.find(i => i.id === prod.id)) { showToast('Ya está en el combo', 'err'); return; }
+  comboItems.push({ id: prod.id, nombre: prod.nombre, cantidad: qty, precio: prod.precio });
+  renderComboItems();
+}
+
+function removeComboItem(id) {
+  comboItems = comboItems.filter(i => i.id !== id);
+  renderComboItems();
+}
+
+function renderComboItems() {
+  const el = document.getElementById('combo-items-list');
+  if(!el) return;
+  if(!comboItems.length) { el.innerHTML = '<div style="color:#aaa;font-size:12px;text-align:center;padding:12px">Agregá productos al combo</div>'; return; }
+  const total = comboItems.reduce((s,i) => s + i.precio * i.cantidad, 0);
+  el.innerHTML = comboItems.map(i => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f0f0f0">
+      <div style="font-size:12px"><b>${i.nombre}</b> × ${i.cantidad}</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-family:'DM Mono',monospace;font-size:12px;color:#666">$${(i.precio*i.cantidad).toLocaleString('es-AR')}</span>
+        <button onclick="removeComboItem('${i.id}')" style="background:none;border:none;color:#ccc;cursor:pointer;font-size:14px">✕</button>
+      </div>
+    </div>`).join('') +
+    `<div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:700">
+      <span>Total normal</span><span>$${total.toLocaleString('es-AR')}</span>
+    </div>`;
+  // Suggest price
+  const sugEl = document.getElementById('combo-precio-sug');
+  if(sugEl) sugEl.textContent = `$${Math.round(total * 0.9).toLocaleString('es-AR')}`;
+}
+
+async function guardarCombo() {
+  const nombre = document.getElementById('combo-nombre').value.trim();
+  const precio = parseFloat(document.getElementById('combo-precio').value);
+  if(!nombre) { showToast('Ingresá un nombre', 'err'); return; }
+  if(!precio || precio <= 0) { showToast('Ingresá el precio del combo', 'err'); return; }
+  if(comboItems.length < 2) { showToast('Un combo necesita al menos 2 productos', 'err'); return; }
+  try {
+    const combo = await sbInsert('combos', {
+      tienda_id: STORE.id,
+      nombre,
+      precio,
+      items: JSON.stringify(comboItems),
+      activo: true,
+    });
+    combos.unshift(combo);
+    // Add to products list as virtual product
+    prods.unshift({...combo, id: combo.id, es_combo: true, stock: 999, categoria: 'Combo', barcode: null});
+    closeModal('ov-add-combo');
+    comboItems = [];
+    document.getElementById('combo-nombre').value = '';
+    document.getElementById('combo-precio').value = '';
+    renderComboItems();
+    renderProds(); renderStock('all');
+    showToast(`✅ Combo "${nombre}" creado`, 'ok');
+  } catch(e) { showToast('❌ Error al guardar combo', 'err'); console.error(e); }
+}
+
+// Hook registerSale to discount combo items from stock
+const _origRegisterComboStock = async (venta, sel) => {
+  for(const p of sel) {
+    if(p.es_combo) {
+      const items = typeof p.items === 'string' ? JSON.parse(p.items) : (p.items||[]);
+      for(const item of items) {
+        const prod = prods.find(x => x.id === item.id);
+        if(prod) {
+          const newStock = Math.max(0, prod.stock - item.cantidad * (qtys[p.id]||1));
+          await sbUpdate('productos', prod.id, {stock: newStock});
+          prod.stock = newStock;
+        }
+      }
+    }
+  }
+};
+
+// ══════════════════════════════════
+// PROYECCIONES SEMANALES
+// ══════════════════════════════════
+function calcProyecciones() {
+  const hoy = new Date();
+  const hace7 = new Date(hoy.getTime() - 7*24*60*60*1000).toISOString().split('T')[0];
+  const hace14 = new Date(hoy.getTime() - 14*24*60*60*1000).toISOString().split('T')[0];
+  const semanaActual = sales.filter(s => s.fecha >= hace7);
+  const semanaAnterior = sales.filter(s => s.fecha >= hace14 && s.fecha < hace7);
+  const totalActual = semanaActual.reduce((s,v) => s+(v.total||0), 0);
+  const totalAnterior = semanaAnterior.reduce((s,v) => s+(v.total||0), 0);
+  const diasConVentas = [...new Set(semanaActual.map(s=>s.fecha))].length || 1;
+  const promDiario = totalActual / diasConVentas;
+  const proyMes = Math.round(promDiario * 30);
+  const variacion = totalAnterior > 0 ? Math.round((totalActual - totalAnterior) / totalAnterior * 100) : 0;
+  return { totalActual, totalAnterior, promDiario, proyMes, variacion, diasConVentas };
+}
+
+function renderProyecciones() {
+  const el = document.getElementById('fin-proyecciones');
+  if(!el) return;
+  const p = calcProyecciones();
+  const varColor = p.variacion >= 0 ? '#1a5c38' : '#c94040';
+  const varIcon = p.variacion >= 0 ? '↑' : '↓';
+  el.innerHTML = `
+    <div style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Proyecciones</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div style="background:#f8f8f8;border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:10px;color:#999;margin-bottom:4px">Últimos 7 días</div>
+        <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:#1a1a0e">$${p.totalActual.toLocaleString('es-AR')}</div>
+        <div style="font-size:10px;color:${varColor};margin-top:2px">${varIcon} ${Math.abs(p.variacion)}% vs semana anterior</div>
+      </div>
+      <div style="background:#f8f8f8;border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:10px;color:#999;margin-bottom:4px">Proyección mensual</div>
+        <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:#1a5c38">$${p.proyMes.toLocaleString('es-AR')}</div>
+        <div style="font-size:10px;color:#999;margin-top:2px">Prom. $${Math.round(p.promDiario).toLocaleString('es-AR')}/día</div>
+      </div>
+    </div>`;
+}
+
+// ══════════════════════════════════
 // GASTOS EVENTUALES
+
 // ══════════════════════════════════
 const GAS_CATS = {
-  'Servicios': { icon: '⚡', color: '#e65100', bg: '#fff3e0' },
-  'Personal':  { icon: '👤', color: '#1565c0', bg: '#e3f2fd' },
-  'Alquiler':  { icon: '🏠', color: '#2e7d32', bg: '#e8f5e9' },
-  'Transporte':{ icon: '🚗', color: '#6a1b9a', bg: '#f3e5f5' },
-  'Marketing': { icon: '📣', color: '#c62828', bg: '#ffebee' },
-  'Otro':      { icon: '📦', color: '#555',    bg: '#f5f5f5' }
+  'Servicios':   { icon: '⚡', color: '#e65100', bg: '#fff3e0' },
+  'Proveedores': { icon: '🏭', color: '#1a5c38', bg: '#eaf5ee' },
+  'Personal':    { icon: '👤', color: '#1565c0', bg: '#e3f2fd' },
+  'Alquiler':    { icon: '🏠', color: '#2e7d32', bg: '#e8f5e9' },
+  'Transporte':  { icon: '🚗', color: '#6a1b9a', bg: '#f3e5f5' },
+  'Marketing':   { icon: '📣', color: '#c62828', bg: '#ffebee' },
+  'Impuestos':   { icon: '🧾', color: '#e65100', bg: '#fff8e1' },
+  'Otro':        { icon: '📦', color: '#555',    bg: '#f5f5f5' }
 };
 
 let selectedGasCat = 'Servicios';
