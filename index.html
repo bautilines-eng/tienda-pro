@@ -793,6 +793,26 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <button class="btn btn-rust btn-full" onclick="doCompra()">Registrar Compra →</button>
       </div>
     </div>
+    <!-- Tabs Compras -->
+    <div style="display:flex;gap:6px;padding:14px 20px 0;overflow-x:auto">
+      <button class="co-tab active" data-tab="nueva" onclick="switchCoTab(this)"
+        style="padding:8px 16px;border-radius:20px;border:1.5px solid #c94f1a;background:#fdf0ea;color:#c94f1a;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        ➕ Nueva compra
+      </button>
+      <button class="co-tab" data-tab="historial" onclick="switchCoTab(this)"
+        style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        📋 Historial
+      </button>
+      <button class="co-tab" data-tab="proveedores" onclick="switchCoTab(this)"
+        style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        🏭 Por proveedor
+      </button>
+      <button class="co-tab" data-tab="orden" onclick="switchCoTab(this)"
+        style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        📄 Orden de compra
+      </button>
+    </div>
+
     <div class="slabel"><span class="slabel-t">Últimas compras</span></div>
     <div class="clist" id="colist"><div class="empty">Sin compras aún</div></div>
   </div>
@@ -2760,6 +2780,487 @@ function agregarBtnLibroDiario() {
 
 
 
+// ══════════════════════════════════════════
+// DEUDORES — TABS (Clientes / Proveedores / Saldo por proveedor)
+// ══════════════════════════════════════════
+let deTabActual = 'clientes';
+
+function switchDeTab(btn) {
+  deTabActual = btn.dataset.tab;
+  document.querySelectorAll('.de-tab').forEach(b => {
+    b.style.borderColor = '#e0e0e0';
+    b.style.background  = '#fff';
+    b.style.color       = '#555';
+  });
+  btn.style.borderColor = '#c97f1a';
+  btn.style.background  = '#fdf5ea';
+  btn.style.color       = '#c97f1a';
+  renderDeudas();
+}
+
+// ══════════════════════════════════════════
+// COMPRAS — TABS
+// ══════════════════════════════════════════
+let coTabActual = 'nueva';
+
+function switchCoTab(btn) {
+  coTabActual = btn.dataset.tab;
+  document.querySelectorAll('.co-tab').forEach(b => {
+    b.style.borderColor = '#e0e0e0';
+    b.style.background  = '#fff';
+    b.style.color       = '#555';
+  });
+  btn.style.borderColor = '#c94f1a';
+  btn.style.background  = '#fdf0ea';
+  btn.style.color       = '#c94f1a';
+
+  // Toggle visibility
+  const colistEl  = document.getElementById('colist');
+  const provPanel = document.getElementById('co-prov-panel');
+  const ordenPanel= document.getElementById('co-orden-panel');
+  const slabels   = document.querySelectorAll('#pco .slabel');
+
+  if (coTabActual === 'nueva' || coTabActual === 'historial') {
+    if(colistEl)  colistEl.style.display  = 'block';
+    if(provPanel) provPanel.style.display  = 'none';
+    if(ordenPanel)ordenPanel.style.display = 'none';
+    slabels.forEach(s => s.style.display = 'flex');
+    renderCompraList();
+  } else if (coTabActual === 'proveedores') {
+    if(colistEl)  colistEl.style.display  = 'none';
+    if(provPanel) provPanel.style.display  = 'block';
+    if(ordenPanel)ordenPanel.style.display = 'none';
+    slabels.forEach(s => s.style.display = 'none');
+    renderHistorialProveedores();
+  } else if (coTabActual === 'orden') {
+    if(colistEl)  colistEl.style.display  = 'none';
+    if(provPanel) provPanel.style.display  = 'none';
+    if(ordenPanel)ordenPanel.style.display = 'block';
+    slabels.forEach(s => s.style.display = 'none');
+    renderOrdenCompra();
+  }
+}
+
+// ══════════════════════════════════════════
+// HISTORIAL POR PROVEEDOR
+// ══════════════════════════════════════════
+function renderHistorialProveedores() {
+  const el = document.getElementById('co-prov-panel');
+  if (!el) return;
+
+  // Group compras by proveedor
+  const byProv = {};
+  compras.forEach(co => {
+    const prov = co.proveedor || 'Sin proveedor';
+    if (!byProv[prov]) byProv[prov] = [];
+    byProv[prov].push(co);
+  });
+
+  if (!Object.keys(byProv).length) {
+    el.innerHTML = '<div class="empty">Sin compras registradas</div>';
+    return;
+  }
+
+  el.innerHTML = Object.entries(byProv)
+    .sort((a,b) => b[1].length - a[1].length)
+    .map(([prov, cos]) => {
+      const totalComprado = cos.reduce((s,co) => s + (co.precio_unitario||0)*(co.cantidad||0), 0);
+      const deudaProv = deudas.filter(d => d.nombre_cliente === prov && d.tipo === 'proveedor' && d.estado !== 'pagado')
+                              .reduce((s,d) => s+(d.monto||0), 0);
+      const ultimaCompra = cos.sort((a,b) => b.fecha?.localeCompare(a.fecha||''))[0];
+
+      return `<div style="background:#fff;border:1.5px solid #f0f0f0;border-radius:14px;margin-bottom:12px;overflow:hidden">
+        <!-- Header proveedor -->
+        <div style="background:#f8f8f8;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f0f0f0">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:#1a1a0e">🏭 ${prov}</div>
+            <div style="font-size:11px;color:#999;margin-top:2px">${cos.length} compra${cos.length!==1?'s':''} · Última: ${ultimaCompra?.fecha||'—'}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:10px;color:#999;margin-bottom:2px">Total comprado</div>
+            <div style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:#c94f1a">$${totalComprado.toLocaleString('es-AR')}</div>
+            ${deudaProv>0?`<div style="font-size:10px;color:#e65100;font-weight:600;margin-top:2px">⚠️ Saldo: $${deudaProv.toLocaleString('es-AR')}</div>`:'<div style="font-size:10px;color:#1a5c38;font-weight:600;margin-top:2px">✅ Sin deuda</div>'}
+          </div>
+        </div>
+        <!-- Compras del proveedor -->
+        <div style="padding:10px 16px">
+          ${cos.slice(0,5).map(co => {
+            const total = (co.precio_unitario||0)*(co.cantidad||0);
+            const estadoColor = co.estado_pedido==='completo'?'#1a5c38':co.estado_pedido==='faltante'?'#e65100':'#c94040';
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #fafafa">
+              <div>
+                <div style="font-size:12px;font-weight:600">${co.producto_nombre}</div>
+                <div style="font-size:10px;color:#999">${co.fecha} · ${co.cantidad} uds · ${co.forma_pago||'Contado'}${co.numero_factura?' · '+co.numero_factura:''}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600">$${total.toLocaleString('es-AR')}</div>
+                ${co.estado_pedido&&co.estado_pedido!=='completo'?`<div style="font-size:10px;color:${estadoColor};font-weight:600">${co.estado_pedido==='faltante'?'⚠️ Faltante':'❌ Roto'}</div>`:''}
+              </div>
+            </div>`;
+          }).join('')}
+          ${cos.length>5?`<div style="text-align:center;font-size:11px;color:#aaa;padding:6px 0">+ ${cos.length-5} compras más</div>`:''}
+        </div>
+        <!-- Botón orden de compra -->
+        <div style="padding:10px 16px;border-top:1px solid #f0f0f0">
+          <button onclick="generarOrdenCompraProveedor('${prov}')"
+            style="width:100%;padding:10px;border-radius:8px;border:1.5px solid #c94f1a;background:#fdf0ea;color:#c94f1a;font-size:12px;font-weight:600;cursor:pointer">
+            📄 Generar orden de compra para ${prov}
+          </button>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+// ══════════════════════════════════════════
+// SALDO POR PROVEEDOR (en Deudores)
+// ══════════════════════════════════════════
+function renderSaldoProveedores() {
+  const el = document.getElementById('de-saldos');
+  if (!el) return;
+
+  const deudasProv = deudas.filter(d => d.tipo === 'proveedor' && d.estado !== 'pagado');
+
+  if (!deudasProv.length) {
+    el.innerHTML = '<div class="empty" style="margin-top:20px">Sin deudas pendientes con proveedores 🎉</div>';
+    return;
+  }
+
+  // Group by proveedor
+  const byProv = {};
+  deudasProv.forEach(d => {
+    const prov = d.nombre_cliente || 'Sin proveedor';
+    if (!byProv[prov]) byProv[prov] = [];
+    byProv[prov].push(d);
+  });
+
+  const totalGeneral = deudasProv.reduce((s,d) => s+(d.monto||0), 0);
+
+  el.innerHTML = `
+    <!-- Resumen total -->
+    <div style="background:linear-gradient(135deg,#1a3a5c,#0d1f33);border-radius:14px;padding:16px;margin-bottom:16px;color:#fff">
+      <div style="font-size:11px;opacity:.7;margin-bottom:4px">TOTAL ADEUDADO A PROVEEDORES</div>
+      <div style="font-family:'DM Mono',monospace;font-size:26px;font-weight:700">$${totalGeneral.toLocaleString('es-AR')}</div>
+      <div style="font-size:11px;opacity:.7;margin-top:4px">${Object.keys(byProv).length} proveedor${Object.keys(byProv).length!==1?'es':''}</div>
+    </div>
+
+    ${Object.entries(byProv).sort((a,b) => {
+      const sa = a[1].reduce((s,d)=>s+(d.monto||0),0);
+      const sb = b[1].reduce((s,d)=>s+(d.monto||0),0);
+      return sb - sa;
+    }).map(([prov, ds]) => {
+      const total = ds.reduce((s,d) => s+(d.monto||0), 0);
+      const orig  = ds.reduce((s,d) => s+(d.monto_original||d.monto||0), 0);
+      const pct   = orig > 0 ? Math.round((orig-total)/orig*100) : 0;
+      const vencidas = ds.filter(d => d.fecha_limite && new Date(d.fecha_limite) < new Date());
+
+      return `<div style="background:#fff;border:1.5px solid ${vencidas.length?'#ffcdd2':'#f0f0f0'};border-radius:12px;padding:14px 16px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+          <div>
+            <div style="font-size:13px;font-weight:700">🏭 ${prov}</div>
+            <div style="font-size:11px;color:#999;margin-top:2px">${ds.length} factura${ds.length!==1?'s':''} pendiente${ds.length!==1?'s':''}</div>
+            ${vencidas.length?`<div style="font-size:11px;color:#c94040;font-weight:600;margin-top:2px">⚠️ ${vencidas.length} vencida${vencidas.length!==1?'s':''}</div>`:''}
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:#1a3a5c">$${total.toLocaleString('es-AR')}</div>
+            ${pct>0?`<div style="font-size:10px;color:#1a5c38;margin-top:2px">Pagado ${pct}%</div>`:''}
+          </div>
+        </div>
+        ${pct>0?`<div style="background:#f0f0f0;border-radius:4px;height:5px;overflow:hidden;margin-bottom:10px">
+          <div style="background:#1a5c38;height:100%;width:${pct}%"></div>
+        </div>`:''}
+        ${ds.map(d => {
+          const vencida = d.fecha_limite && new Date(d.fecha_limite) < new Date();
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #fafafa;font-size:11px">
+            <div>
+              <span style="color:#555">${d.descripcion||'Deuda proveedor'}</span>
+              ${d.fecha_limite?`<span style="margin-left:6px;color:${vencida?'#c94040':'#999'}">${vencida?'⚠️ Vencida':'📅'} ${new Date(d.fecha_limite+'T12:00:00').toLocaleDateString('es-AR')}</span>`:''}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-family:'DM Mono',monospace;font-weight:600;color:${vencida?'#c94040':'#1a3a5c'}">$${(d.monto||0).toLocaleString('es-AR')}</span>
+              <button onclick="abrirModalPago('${d.id}','${d.nombre_cliente||''}',${d.monto||0})"
+                style="padding:4px 10px;border-radius:6px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:10px;font-weight:600;cursor:pointer">
+                Pagar
+              </button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }).join('')}`;
+}
+
+// ══════════════════════════════════════════
+// ORDEN DE COMPRA — PDF profesional
+// ══════════════════════════════════════════
+let ordenItems = [];
+
+function renderOrdenCompra() {
+  const el = document.getElementById('co-orden-panel');
+  if (!el) return;
+
+  el.innerHTML = `
+    <div style="background:#fff;border:1.5px solid #f0f0f0;border-radius:14px;padding:16px;margin-top:14px">
+      <div style="font-size:14px;font-weight:700;margin-bottom:14px">📄 Generar Orden de Compra</div>
+
+      <div class="fgroup" style="margin-bottom:12px">
+        <div class="flabel">Proveedor</div>
+        <input class="inp" id="orden-prov" placeholder="Nombre del proveedor" list="orden-prov-list">
+        <datalist id="orden-prov-list">
+          ${[...new Set(compras.map(c=>c.proveedor).filter(Boolean))].map(p=>`<option value="${p}">`).join('')}
+        </datalist>
+      </div>
+
+      <div class="fgroup" style="margin-bottom:12px">
+        <div class="flabel">Fecha de entrega esperada</div>
+        <input class="inp" id="orden-fecha" type="date">
+      </div>
+
+      <div class="fgroup" style="margin-bottom:12px">
+        <div class="flabel">Observaciones</div>
+        <input class="inp" id="orden-obs" placeholder="Condiciones de entrega, forma de pago...">
+      </div>
+
+      <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Productos a pedir</div>
+      <div id="orden-items-list" style="margin-bottom:12px"></div>
+
+      <!-- Agregar item -->
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <select class="inp" id="orden-prod-sel" style="flex:1;cursor:pointer;font-size:12px">
+          <option value="">Seleccionar producto...</option>
+          ${prods.map(p=>`<option value="${p.id}" data-precio="${p.costo||0}">${p.nombre}</option>`).join('')}
+        </select>
+        <input class="inp" id="orden-qty" type="number" min="1" placeholder="Cant." style="width:70px;font-size:12px">
+        <input class="inp" id="orden-precio-u" type="number" placeholder="Precio" style="width:90px;font-size:12px">
+        <button onclick="addOrdenItem()"
+          style="padding:10px 14px;border-radius:9px;background:#c94f1a;color:#fff;border:none;font-weight:600;cursor:pointer;font-size:12px;white-space:nowrap">
+          + Agregar
+        </button>
+      </div>
+
+      <button onclick="generarOrdenPDF()"
+        style="width:100%;padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#1a3a5c,#0d1f33);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+        📄 Generar PDF de Orden de Compra
+      </button>
+    </div>`;
+
+  renderOrdenItemsList();
+}
+
+function addOrdenItem() {
+  const sel   = document.getElementById('orden-prod-sel');
+  const qty   = parseInt(document.getElementById('orden-qty')?.value) || 0;
+  const precio= parseFloat(document.getElementById('orden-precio-u')?.value) || 0;
+  if (!sel?.value || qty <= 0) { showToast('Completá producto y cantidad', 'err'); return; }
+  const prod = prods.find(p => p.id === sel.value);
+  if (!prod) return;
+  if (ordenItems.find(i => i.id === prod.id)) { showToast('Ya está en la orden', 'err'); return; }
+  ordenItems.push({ id: prod.id, nombre: prod.nombre, cantidad: qty, precio_unitario: precio });
+  sel.value = '';
+  document.getElementById('orden-qty').value = '';
+  document.getElementById('orden-precio-u').value = '';
+  renderOrdenItemsList();
+}
+
+function removeOrdenItem(id) {
+  ordenItems = ordenItems.filter(i => i.id !== id);
+  renderOrdenItemsList();
+}
+
+function renderOrdenItemsList() {
+  const el = document.getElementById('orden-items-list');
+  if (!el) return;
+  if (!ordenItems.length) {
+    el.innerHTML = '<div style="color:#aaa;font-size:12px;text-align:center;padding:12px;border:1px dashed #e0e0e0;border-radius:8px">Sin productos agregados</div>';
+    return;
+  }
+  const total = ordenItems.reduce((s,i) => s + i.precio_unitario * i.cantidad, 0);
+  el.innerHTML = ordenItems.map(i => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#f8f8f8;border-radius:8px;margin-bottom:6px">
+      <div>
+        <div style="font-size:12px;font-weight:600">${i.nombre}</div>
+        <div style="font-size:10px;color:#999">${i.cantidad} uds × $${i.precio_unitario.toLocaleString('es-AR')}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-family:'DM Mono',monospace;font-size:12px;font-weight:700">$${(i.precio_unitario*i.cantidad).toLocaleString('es-AR')}</span>
+        <button onclick="removeOrdenItem('${i.id}')" style="background:none;border:none;color:#ccc;cursor:pointer;font-size:14px">✕</button>
+      </div>
+    </div>`).join('') +
+    `<div style="text-align:right;font-family:'DM Mono',monospace;font-weight:700;font-size:13px;padding:8px 10px;border-top:1px solid #e0e0e0;margin-top:4px">
+      Total: $${total.toLocaleString('es-AR')}
+    </div>`;
+}
+
+function generarOrdenCompraProveedor(proveedor) {
+  // Switch to orden tab and prefill proveedor
+  const btn = document.querySelector('.co-tab[data-tab="orden"]');
+  if (btn) switchCoTab(btn);
+  setTimeout(() => {
+    const provEl = document.getElementById('orden-prov');
+    if (provEl) provEl.value = proveedor;
+    // Prefill items from last purchase to this proveedor
+    ordenItems = [];
+    const ultimasCompras = compras.filter(c => c.proveedor === proveedor).slice(0, 5);
+    ultimasCompras.forEach(co => {
+      if (!ordenItems.find(i => i.nombre === co.producto_nombre)) {
+        ordenItems.push({
+          id: co.producto_id || co.id,
+          nombre: co.producto_nombre,
+          cantidad: co.cantidad,
+          precio_unitario: co.precio_unitario || 0,
+        });
+      }
+    });
+    renderOrdenItemsList();
+  }, 100);
+}
+
+function generarOrdenPDF() {
+  const prov    = document.getElementById('orden-prov')?.value.trim();
+  const fecha   = document.getElementById('orden-fecha')?.value;
+  const obs     = document.getElementById('orden-obs')?.value.trim();
+  if (!prov)          { showToast('Ingresá el proveedor', 'err'); return; }
+  if (!ordenItems.length) { showToast('Agregá al menos un producto', 'err'); return; }
+
+  const nroOrden  = 'OC-' + new Date().getFullYear() + '-' + String(Date.now()).slice(-5);
+  const fechaHoy  = new Date().toLocaleDateString('es-AR', {day:'2-digit',month:'long',year:'numeric'});
+  const fechaEntrega = fecha ? new Date(fecha+'T12:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric'}) : 'A confirmar';
+  const total     = ordenItems.reduce((s,i) => s + i.precio_unitario * i.cantidad, 0);
+  const iva       = Math.round(total / 1.21 * 0.21 * 100) / 100;
+  const neto      = total - iva;
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Orden de Compra ${nroOrden}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'DM Sans',Arial,sans-serif;padding:32px;max-width:800px;margin:0 auto;color:#12100e;font-size:13px}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:20px;border-bottom:3px solid #1a3a5c}
+  .empresa{font-size:20px;font-weight:700;color:#1a3a5c}
+  .empresa-sub{font-size:11px;color:#888;margin-top:3px}
+  .orden-box{text-align:right}
+  .orden-title{font-size:22px;font-weight:700;color:#c94f1a}
+  .orden-nro{font-family:'DM Mono',monospace;font-size:13px;color:#555;margin-top:4px}
+  .orden-fecha{font-size:11px;color:#888;margin-top:2px}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px}
+  .info-box{background:#f8f8f8;border-radius:10px;padding:14px 16px}
+  .info-label{font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+  .info-val{font-size:13px;font-weight:600;color:#12100e}
+  .info-sub{font-size:11px;color:#888;margin-top:2px}
+  table{width:100%;border-collapse:collapse;margin-bottom:20px}
+  thead tr{background:#1a3a5c;color:#fff}
+  thead th{padding:10px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  thead th.r{text-align:right}
+  tbody tr:nth-child(even){background:#f8f8f8}
+  tbody td{padding:10px 12px;border-bottom:1px solid #f0f0f0;font-size:12px}
+  tbody td.r{text-align:right;font-family:'DM Mono',monospace}
+  .totales{display:flex;justify-content:flex-end;margin-bottom:24px}
+  .totales-box{width:260px}
+  .tot-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12px}
+  .tot-row.final{background:#1a3a5c;color:#fff;border-radius:8px;padding:10px 14px;margin-top:8px;font-size:14px;font-weight:700}
+  .tot-val{font-family:'DM Mono',monospace;font-weight:600}
+  .firmas{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:40px;padding-top:20px;border-top:1px solid #e0e0e0}
+  .firma-box{text-align:center}
+  .firma-line{border-top:1.5px solid #333;margin-bottom:8px;margin-top:40px}
+  .firma-label{font-size:11px;color:#555;font-weight:600}
+  .obs-box{background:#fff8e1;border:1.5px solid #ffd54f;border-radius:8px;padding:12px 14px;margin-bottom:20px;font-size:12px;color:#795548}
+  .estado{display:inline-block;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;background:#fff3e0;color:#e65100;margin-top:8px}
+  @media print{body{padding:20px}.no-print{display:none!important}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="empresa">TODO PYMES S.R.L. — Drugstore</div>
+    <div class="empresa-sub">CUIT: ${STORE?.cuit||'30-71140779-7'} · IVA Responsable Inscripto</div>
+    <div class="empresa-sub">${STORE?.nombre||''} · Santiago del Estero</div>
+  </div>
+  <div class="orden-box">
+    <div class="orden-title">ORDEN DE COMPRA</div>
+    <div class="orden-nro">${nroOrden}</div>
+    <div class="orden-fecha">Emitida: ${fechaHoy}</div>
+    <div class="estado">PENDIENTE</div>
+  </div>
+</div>
+
+<div class="info-grid">
+  <div class="info-box">
+    <div class="info-label">Proveedor</div>
+    <div class="info-val">${prov}</div>
+  </div>
+  <div class="info-box">
+    <div class="info-label">Fecha de entrega</div>
+    <div class="info-val">${fechaEntrega}</div>
+    <div class="info-sub">Lugar: ${STORE?.nombre||'Drugstore'}</div>
+  </div>
+</div>
+
+${obs?`<div class="obs-box">📝 <b>Observaciones:</b> ${obs}</div>`:''}
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:40px">#</th>
+      <th>Descripción del producto</th>
+      <th class="r" style="width:80px">Cantidad</th>
+      <th class="r" style="width:120px">Precio Unit.</th>
+      <th class="r" style="width:120px">Subtotal</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${ordenItems.map((item,i) => `
+    <tr>
+      <td style="color:#888">${i+1}</td>
+      <td><b>${item.nombre}</b></td>
+      <td class="r">${item.cantidad}</td>
+      <td class="r">$${item.precio_unitario.toLocaleString('es-AR')}</td>
+      <td class="r" style="font-weight:600">$${(item.precio_unitario*item.cantidad).toLocaleString('es-AR')}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>
+
+<div class="totales">
+  <div class="totales-box">
+    <div class="tot-row"><span>Neto gravado 21%</span><span class="tot-val">$${neto.toLocaleString('es-AR')}</span></div>
+    <div class="tot-row"><span>IVA 21%</span><span class="tot-val">$${iva.toLocaleString('es-AR')}</span></div>
+    <div class="tot-row final">
+      <span>TOTAL</span>
+      <span>$${total.toLocaleString('es-AR')}</span>
+    </div>
+  </div>
+</div>
+
+<div class="firmas">
+  <div class="firma-box">
+    <div class="firma-line"></div>
+    <div class="firma-label">AUTORIZADO POR</div>
+    <div style="font-size:11px;color:#888;margin-top:2px">TODO PYMES S.R.L.</div>
+  </div>
+  <div class="firma-box">
+    <div class="firma-line"></div>
+    <div class="firma-label">RECIBIDO / CONFORME</div>
+    <div style="font-size:11px;color:#888;margin-top:2px">${prov}</div>
+  </div>
+</div>
+
+<div style="margin-top:24px;text-align:center;font-size:10px;color:#aaa;border-top:1px solid #f0f0f0;padding-top:12px">
+  Tienda Pro · TODO PYMES S.R.L. · Generado: ${new Date().toLocaleString('es-AR')} · ${nroOrden}
+</div>
+
+<script>window.print();<\/script>
+</body>
+</html>`;
+
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+  showToast('✅ Orden de compra generada', 'ok');
+}
+
+
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(reg => {
@@ -2957,7 +3458,30 @@ async function loadDeudas(){
 }
 
 function renderDeudas(){
-  const pendientes = deudas.filter(d => d.estado !== 'pagado');
+  // Filter by tab
+  let pendientes;
+  const deTabEl = document.querySelector('.de-tab.active');
+  const deTab = deTabEl?.dataset?.tab || deTabActual || 'clientes';
+
+  // Handle saldos tab
+  const deListEl = document.getElementById('de-list');
+  const deSaldosEl = document.getElementById('de-saldos');
+
+  if (deTab === 'saldos') {
+    if(deListEl) deListEl.style.display = 'none';
+    if(deSaldosEl) deSaldosEl.style.display = 'block';
+    renderSaldoProveedores();
+    return;
+  } else {
+    if(deListEl) deListEl.style.display = 'block';
+    if(deSaldosEl) deSaldosEl.style.display = 'none';
+  }
+
+  if (deTab === 'proveedores') {
+    pendientes = deudas.filter(d => d.estado !== 'pagado' && d.tipo === 'proveedor');
+  } else {
+    pendientes = deudas.filter(d => d.estado !== 'pagado' && d.tipo !== 'proveedor');
+  }
   const total = pendientes.reduce((s,d) => s+(d.monto||0), 0);
   document.getElementById('de-count').textContent = pendientes.length;
   document.getElementById('de-total').textContent = `$${total.toLocaleString('es-AR')}`;
@@ -3974,14 +4498,26 @@ async function doCompra(){
 function renderCompraList(){
   const el=document.getElementById('colist');
   if(!compras.length){el.innerHTML='<div class="empty">Sin compras aún</div>';return;}
-  el.innerHTML=compras.map(c=>`
-    <div class="ccard">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div class="cc-prod">${getEm('')} ${c.producto_nombre||'—'}</div>
-        ${c.precio_unitario?`<div class="cc-total">$${(c.precio_unitario*c.cantidad).toLocaleString('es-AR')}</div>`:''}
+  el.innerHTML=compras.map(co=>{
+    const total = (co.precio_unitario||0)*(co.cantidad||0);
+    const estadoColor = co.estado_pedido==='faltante'?'#e65100':co.estado_pedido==='roto'?'#c94040':'#1a5c38';
+    const pagoColor = co.forma_pago==='Cuenta Corriente'?'#1565c0':co.forma_pago==='Transferencia'?'#1a5c38':'#555';
+    return `<div class="ccard">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div class="cc-prod" style="font-weight:600">${co.producto_nombre||'—'}</div>
+        ${total?`<div class="cc-total" style="font-family:'DM Mono',monospace;font-weight:700">$${total.toLocaleString('es-AR')}</div>`:''}
       </div>
-      <div class="cc-meta2">+${c.cantidad} uds${c.proveedor?' · '+c.proveedor:''}${c.numero_factura?' · '+c.numero_factura:''} · ${c.fecha||'—'}</div>
-    </div>`).join('');
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        <span style="font-size:10px;color:#888">${co.fecha||'—'}</span>
+        ${co.proveedor?`<span style="font-size:10px;background:#f0f0f0;padding:2px 7px;border-radius:10px;color:#555">🏭 ${co.proveedor}</span>`:''}
+        ${co.numero_factura?`<span style="font-size:10px;color:#888">📄 ${co.numero_factura}</span>`:''}
+        <span style="font-size:10px;font-weight:600;color:${pagoColor}">${co.forma_pago||'Contado'}</span>
+        ${co.estado_pedido&&co.estado_pedido!=='completo'?`<span style="font-size:10px;font-weight:600;color:${estadoColor}">${co.estado_pedido==='faltante'?'⚠️ Faltante':'❌ Roto'}</span>`:''}
+        ${co.vence_pago?`<span style="font-size:10px;color:#e65100">📅 Vence: ${co.vence_pago}</span>`:''}
+      </div>
+      <div style="font-size:11px;color:#aaa;margin-top:3px">+${co.cantidad} uds · $${(co.precio_unitario||0).toLocaleString('es-AR')} c/u</div>
+    </div>`;
+  }).join('');
 }
 
 // ══ ALERTS ══
