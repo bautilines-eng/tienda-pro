@@ -1046,6 +1046,50 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
     </div>
 
+    <!-- CONFIGURACIÓN FISCAL -->
+    <div style="padding:14px 20px 0">
+      <div class="card" style="background:#e8f0fe;border-color:#1a3a5c">
+        <div style="font-size:14px;font-weight:600;color:#1a3a5c;margin-bottom:4px">🧾 Configuración Fiscal</div>
+        <div style="font-size:11px;color:#666;margin-bottom:16px">Datos para el Libro IVA Digital (RG 3685) y asientos contables</div>
+        <div class="fgroup">
+          <div class="flabel" style="display:flex;justify-content:space-between">
+            Punto de Venta AFIP
+            <span style="font-weight:400;color:#888;font-size:10px">Asignado por AFIP — completar cuando esté disponible</span>
+          </div>
+          <input class="inp" id="cfg-pto-venta" type="number" placeholder="Ej: 1, 2, 3..."
+            style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700">
+        </div>
+        <div class="fgroup">
+          <div class="flabel">CUIT de la empresa</div>
+          <input class="inp" id="cfg-cuit" placeholder="30-71140779-7"
+            style="font-family:'DM Mono',monospace">
+        </div>
+        <div class="fgroup">
+          <div class="flabel">Condición IVA</div>
+          <select class="inp" id="cfg-condicion-iva" style="cursor:pointer">
+            <option value="RI">Responsable Inscripto</option>
+            <option value="CF">Consumidor Final</option>
+            <option value="MON">Monotributista</option>
+          </select>
+        </div>
+        <div class="fgroup">
+          <div class="flabel">Alícuota IIBB</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <input class="inp" id="cfg-iibb" type="number" step="0.1" placeholder="3"
+              style="font-family:'DM Mono',monospace;max-width:80px">
+            <span style="font-size:13px;color:#666">% — Santiago del Estero (DGR)</span>
+          </div>
+        </div>
+        <button class="btn btn-full" onclick="guardarConfigFiscal()"
+          style="background:#1a3a5c;color:#fff;margin-top:4px">
+          💾 Guardar configuración fiscal
+        </button>
+        <div id="fiscal-saved-msg" style="display:none;margin-top:8px;padding:8px 12px;background:#eaf5ee;border-radius:8px;font-size:12px;color:#1a5c38;text-align:center">
+          ✅ Configuración guardada correctamente
+        </div>
+      </div>
+    </div>
+
     <div style="padding:14px 20px 24px">
       <div class="card" style="background:var(--red-l);border-color:var(--red)">
         <div style="font-size:13px;font-weight:600;color:var(--red);margin-bottom:8px">⚠️ Zona de peligro</div>
@@ -1564,302 +1608,584 @@ function generarLinkMP() {
 // ══════════════════════════════════
 // PWA - Service Worker registration
 // ══════════════════════════════════
-// ══════════════════════════════════════════════════════
-// MÓDULO CONTABLE COMPLETO
-// ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════
+// MÓDULO CONTABLE — TIENDA PRO
+// Plan de cuentas TODO PYMES S.R.L. — Drugstore
+// IVA 21% general · IIBB 3% Santiago del Estero
+// Tarjetas: Fiserv (cobro inmediato)
+// Banco: Patagonia
+// ══════════════════════════════════════════════════════════
 
-// ── PLAN DE CUENTAS ESTÁNDAR PARA COMERCIO MINORISTA ──
+// ── PLAN DE CUENTAS OFICIAL TODO PYMES S.R.L. ──
+// Solo las cuentas relevantes para el Drugstore
 const PLAN_CUENTAS = [
-  // ACTIVO
-  {codigo:'1.1.01', nombre:'Caja', tipo:'Activo', naturaleza:'D'},
-  {codigo:'1.1.02', nombre:'Banco Cuenta Corriente', tipo:'Activo', naturaleza:'D'},
-  {codigo:'1.1.03', nombre:'MercadoPago', tipo:'Activo', naturaleza:'D'},
-  {codigo:'1.1.04', nombre:'Tarjetas a Cobrar', tipo:'Activo', naturaleza:'D'},
-  {codigo:'1.1.05', nombre:'Deudores por Ventas (Cta. Cte.)', tipo:'Activo', naturaleza:'D'},
-  {codigo:'1.1.06', nombre:'IVA Crédito Fiscal', tipo:'Activo', naturaleza:'D'},
-  {codigo:'1.1.07', nombre:'Percepciones IVA a recuperar', tipo:'Activo', naturaleza:'D'},
-  {codigo:'1.2.01', nombre:'Mercaderías', tipo:'Activo', naturaleza:'D'},
-  // PASIVO
-  {codigo:'2.1.01', nombre:'Proveedores', tipo:'Pasivo', naturaleza:'H'},
-  {codigo:'2.1.02', nombre:'IVA Débito Fiscal', tipo:'Pasivo', naturaleza:'H'},
-  {codigo:'2.1.03', nombre:'Sueldos a Pagar', tipo:'Pasivo', naturaleza:'H'},
-  {codigo:'2.1.04', nombre:'Cargas Sociales a Pagar', tipo:'Pasivo', naturaleza:'H'},
-  {codigo:'2.1.05', nombre:'IIBB a Pagar', tipo:'Pasivo', naturaleza:'H'},
-  {codigo:'2.1.06', nombre:'Impuestos a Pagar', tipo:'Pasivo', naturaleza:'H'},
-  // PATRIMONIO NETO
-  {codigo:'3.1.01', nombre:'Capital Social', tipo:'Patrimonio', naturaleza:'H'},
-  {codigo:'3.1.02', nombre:'Resultados Acumulados', tipo:'Patrimonio', naturaleza:'H'},
-  // INGRESOS
-  {codigo:'4.1.01', nombre:'Ventas', tipo:'Ingreso', naturaleza:'H'},
-  {codigo:'4.1.02', nombre:'Descuentos Obtenidos', tipo:'Ingreso', naturaleza:'H'},
-  // EGRESOS / COSTOS
-  {codigo:'5.1.01', nombre:'Costo de Mercaderías Vendidas', tipo:'Egreso', naturaleza:'D'},
-  {codigo:'5.2.01', nombre:'Gastos de Servicios (Luz, Gas, etc.)', tipo:'Egreso', naturaleza:'D'},
-  {codigo:'5.2.02', nombre:'Sueldos y Jornales', tipo:'Egreso', naturaleza:'D'},
-  {codigo:'5.2.03', nombre:'Alquileres', tipo:'Egreso', naturaleza:'D'},
-  {codigo:'5.2.04', nombre:'Gastos de Transporte', tipo:'Egreso', naturaleza:'D'},
-  {codigo:'5.2.05', nombre:'Gastos de Marketing', tipo:'Egreso', naturaleza:'D'},
-  {codigo:'5.2.06', nombre:'Impuestos y Tasas', tipo:'Egreso', naturaleza:'D'},
-  {codigo:'5.2.07', nombre:'Gastos Varios', tipo:'Egreso', naturaleza:'D'},
+  // ── ACTIVO CORRIENTE ──────────────────────────
+  // Disponibilidades
+  { codigo:'11101001', nombre:'CAJA EN PESOS',                        jerarquia:'1.1.1.01.001', tipo:'Activo', grupo:'Caja y Bancos',         naturaleza:'D' },
+  { codigo:'11102006', nombre:'BANCO PATAGONIA C/C',                  jerarquia:'1.1.1.02.006', tipo:'Activo', grupo:'Caja y Bancos',         naturaleza:'D' },
+  // Créditos
+  { codigo:'11301001', nombre:'CUENTA CORRIENTE (Clientes)',          jerarquia:'1.1.3.01.001', tipo:'Activo', grupo:'Créditos',              naturaleza:'D' },
+  { codigo:'11301002', nombre:'TARJETAS A COBRAR (Fiserv)',           jerarquia:'1.1.3.01.002', tipo:'Activo', grupo:'Créditos',              naturaleza:'D' },
+  { codigo:'11301005', nombre:'DEUDORES MOROSOS',                     jerarquia:'1.1.3.01.005', tipo:'Activo', grupo:'Créditos',              naturaleza:'D' },
+  // Impuestos a favor
+  { codigo:'11403001', nombre:'DGR RETENCIÓN INGRESOS BRUTOS',        jerarquia:'1.1.4.03.001', tipo:'Activo', grupo:'Créditos Fiscales',     naturaleza:'D' },
+  { codigo:'11403002', nombre:'DGR PERCEPCIÓN INGRESOS BRUTOS',       jerarquia:'1.1.4.03.002', tipo:'Activo', grupo:'Créditos Fiscales',     naturaleza:'D' },
+  { codigo:'11403005', nombre:'CRÉDITO FISCAL IVA 21%',               jerarquia:'1.1.4.03.005', tipo:'Activo', grupo:'Créditos Fiscales',     naturaleza:'D' },
+  { codigo:'11403006', nombre:'CRÉDITO FISCAL IVA 10.5%',             jerarquia:'1.1.4.03.006', tipo:'Activo', grupo:'Créditos Fiscales',     naturaleza:'D' },
+  { codigo:'11403019', nombre:'INGRESOS BRUTOS SALDO A FAVOR',        jerarquia:'1.1.4.03.019', tipo:'Activo', grupo:'Créditos Fiscales',     naturaleza:'D' },
+  // Bienes de cambio (Mercaderías Drugstore)
+  { codigo:'11501005', nombre:'MERCADERÍA — ART. LIMPIEZA/HIGIENE/PERFUMERÍA', jerarquia:'1.1.5.01.005', tipo:'Activo', grupo:'Bienes de Cambio', naturaleza:'D' },
+  { codigo:'11501008', nombre:'MERCADERÍA DE REVENTA (Drugstore)',     jerarquia:'1.1.5.01.008', tipo:'Activo', grupo:'Bienes de Cambio',      naturaleza:'D' },
+  { codigo:'11501007', nombre:'IMPUESTO INTERNO COMPRAS',              jerarquia:'1.1.5.01.007', tipo:'Activo', grupo:'Bienes de Cambio',      naturaleza:'D' },
+  // ── ACTIVO NO CORRIENTE ───────────────────────
+  { codigo:'12101',    nombre:'MUEBLES Y ÚTILES',                     jerarquia:'1.2.1.01.000', tipo:'Activo', grupo:'Bienes de Uso',         naturaleza:'D' },
+  { codigo:'12103',    nombre:'INSTALACIONES',                        jerarquia:'1.2.1.03.000', tipo:'Activo', grupo:'Bienes de Uso',         naturaleza:'D' },
+  { codigo:'12113',    nombre:'EQUIPOS DE INFORMÁTICA',               jerarquia:'1.2.1.13.000', tipo:'Activo', grupo:'Bienes de Uso',         naturaleza:'D' },
+  // ── PASIVO CORRIENTE ──────────────────────────
+  { codigo:'21101001', nombre:'PROVEEDORES',                          jerarquia:'2.1.1.01.001', tipo:'Pasivo', grupo:'Deudas Comerciales',    naturaleza:'H' },
+  { codigo:'21101004', nombre:'OTROS PROVEEDORES',                    jerarquia:'2.1.1.01.004', tipo:'Pasivo', grupo:'Deudas Comerciales',    naturaleza:'H' },
+  { codigo:'21301',    nombre:'SUELDOS Y JORNALES A PAGAR',           jerarquia:'2.1.3.01.000', tipo:'Pasivo', grupo:'Deudas Sociales',       naturaleza:'H' },
+  { codigo:'21302',    nombre:'REG. NAC. SEG. SOC. A PAGAR',          jerarquia:'2.1.3.02.000', tipo:'Pasivo', grupo:'Deudas Sociales',       naturaleza:'H' },
+  { codigo:'21303',    nombre:'REG. NAC. OBRA SOC. A PAGAR',          jerarquia:'2.1.3.03.000', tipo:'Pasivo', grupo:'Deudas Sociales',       naturaleza:'H' },
+  { codigo:'21404',    nombre:'IVA DÉBITO FISCAL (RI)',               jerarquia:'2.1.4.04.000', tipo:'Pasivo', grupo:'Deudas Fiscales',       naturaleza:'H' },
+  { codigo:'21412002', nombre:'INGRESOS BRUTOS A PAGAR',              jerarquia:'2.1.4.12.002', tipo:'Pasivo', grupo:'Deudas Fiscales',       naturaleza:'H' },
+  { codigo:'21415',    nombre:'RET. IIBB SOBRE PAGOS',               jerarquia:'2.1.4.15.000', tipo:'Pasivo', grupo:'Deudas Fiscales',       naturaleza:'H' },
+  // ── PATRIMONIO NETO ───────────────────────────
+  { codigo:'31101',    nombre:'CAPITAL',                              jerarquia:'3.1.1.01.000', tipo:'Patrimonio', grupo:'Capital',           naturaleza:'H' },
+  { codigo:'33101',    nombre:'RESULTADO DEL EJERCICIO',              jerarquia:'3.3.1.01.000', tipo:'Patrimonio', grupo:'Resultados',        naturaleza:'H' },
+  { codigo:'33201',    nombre:'RESULTADOS EJERCICIOS ANTERIORES',     jerarquia:'3.3.2.01.000', tipo:'Patrimonio', grupo:'Resultados',        naturaleza:'H' },
+  // ── INGRESOS ──────────────────────────────────
+  { codigo:'41101007', nombre:'VENTA DE MERCADERÍAS',                 jerarquia:'4.1.1.01.007', tipo:'Ingreso',   grupo:'Ventas',            naturaleza:'H' },
+  { codigo:'41103001', nombre:'DESCUENTOS OBTENIDOS',                 jerarquia:'4.1.1.03.001', tipo:'Ingreso',   grupo:'Ventas',            naturaleza:'H' },
+  { codigo:'41105',    nombre:'IMPUESTOS INTERNOS POR VENTAS',        jerarquia:'4.1.1.05.000', tipo:'Ingreso',   grupo:'Ventas',            naturaleza:'H' },
+  // ── COSTOS Y GASTOS ───────────────────────────
+  { codigo:'51101',    nombre:'COSTO DE MERCADERÍAS VENDIDAS',        jerarquia:'5.1.1.01.000', tipo:'Egreso',    grupo:'Costos',            naturaleza:'D' },
+  { codigo:'51103001', nombre:'SUELDOS',                              jerarquia:'5.1.1.03.001', tipo:'Egreso',    grupo:'Personal',          naturaleza:'D' },
+  { codigo:'51103002', nombre:'CARGAS SOCIALES',                      jerarquia:'5.1.1.03.002', tipo:'Egreso',    grupo:'Personal',          naturaleza:'D' },
+  { codigo:'51109004', nombre:'ELECTRICIDAD',                         jerarquia:'5.1.1.09.004', tipo:'Egreso',    grupo:'Servicios',         naturaleza:'D' },
+  { codigo:'51109002', nombre:'TELEFONÍA MÓVIL',                      jerarquia:'5.1.1.09.002', tipo:'Egreso',    grupo:'Servicios',         naturaleza:'D' },
+  { codigo:'51109003', nombre:'INTERNET',                             jerarquia:'5.1.1.09.003', tipo:'Egreso',    grupo:'Servicios',         naturaleza:'D' },
+  { codigo:'51109007', nombre:'OTROS SERVICIOS',                      jerarquia:'5.1.1.09.007', tipo:'Egreso',    grupo:'Servicios',         naturaleza:'D' },
+  { codigo:'51110001', nombre:'ALQUILER DE INMUEBLES',                jerarquia:'5.1.1.10.001', tipo:'Egreso',    grupo:'Alquileres',        naturaleza:'D' },
+  { codigo:'51112001', nombre:'COMBUSTIBLES',                         jerarquia:'5.1.1.12.001', tipo:'Egreso',    grupo:'Transporte',        naturaleza:'D' },
+  { codigo:'51107003', nombre:'FLETES VARIOS',                        jerarquia:'5.1.1.07.003', tipo:'Egreso',    grupo:'Transporte',        naturaleza:'D' },
+  { codigo:'51113003', nombre:'SEGURO MERCANTIL',                     jerarquia:'5.1.1.13.003', tipo:'Egreso',    grupo:'Seguros',           naturaleza:'D' },
+  { codigo:'51114003', nombre:'INGRESOS BRUTOS',                      jerarquia:'5.1.1.14.003', tipo:'Egreso',    grupo:'Impuestos',         naturaleza:'D' },
+  { codigo:'51114009', nombre:'IMPUESTOS VARIOS',                     jerarquia:'5.1.1.14.009', tipo:'Egreso',    grupo:'Impuestos',         naturaleza:'D' },
+  { codigo:'51116002', nombre:'PUBLICIDAD',                           jerarquia:'5.1.1.16.002', tipo:'Egreso',    grupo:'Comercialización',  naturaleza:'D' },
+  { codigo:'51116003', nombre:'PROMOCIONES Y DESCUENTOS',             jerarquia:'5.1.1.16.003', tipo:'Egreso',    grupo:'Comercialización',  naturaleza:'D' },
+  { codigo:'51117001', nombre:'PAPELERÍA Y LIBRERÍA',                 jerarquia:'5.1.1.17.001', tipo:'Egreso',    grupo:'Gastos Generales',  naturaleza:'D' },
+  { codigo:'51117003', nombre:'OTROS GASTOS',                         jerarquia:'5.1.1.17.003', tipo:'Egreso',    grupo:'Gastos Generales',  naturaleza:'D' },
+  { codigo:'51118',    nombre:'DIFERENCIA DE CAJA',                   jerarquia:'5.1.1.18.000', tipo:'Egreso',    grupo:'Gastos Generales',  naturaleza:'D' },
+  { codigo:'51119002', nombre:'GASTOS BANCARIOS',                     jerarquia:'5.1.1.19.002', tipo:'Egreso',    grupo:'Gastos Financieros', naturaleza:'D' },
 ];
 
-// Cuenta por categoría de gasto
-const GASTO_CUENTA = {
-  'Servicios':   '5.2.01',
-  'Personal':    '5.2.02',
-  'Alquiler':    '5.2.03',
-  'Transporte':  '5.2.04',
-  'Marketing':   '5.2.05',
-  'Impuestos':   '5.2.06',
-  'Proveedores': '2.1.01',
-  'Otro':        '5.2.07',
-};
-
-// Cuenta por método de pago
+// ── MAPEO DE CUENTAS POR MÉTODO DE PAGO ──
 const METODO_CUENTA = {
-  'Efectivo':        '1.1.01',
-  'Transferencia':   '1.1.02',
-  'MercadoPago':     '1.1.03',
-  'Tarjeta':         '1.1.04',
-  'Cuenta Corriente':'1.1.05',
+  'Efectivo':         '11101001', // CAJA EN PESOS
+  'Transferencia':    '11102006', // BANCO PATAGONIA
+  'MercadoPago':      '11102006', // BANCO PATAGONIA (acredita mismo día)
+  'Tarjeta':          '11301002', // TARJETAS A COBRAR (Fiserv)
+  'Cuenta Corriente': '11301001', // CUENTA CORRIENTE
 };
 
-let asientos = [];
+// ── MAPEO DE CUENTAS POR CATEGORÍA DE GASTO ──
+const GASTO_CUENTA = {
+  'Servicios':   '51109007', // OTROS SERVICIOS
+  'Personal':    '51103001', // SUELDOS
+  'Alquiler':    '51110001', // ALQUILER DE INMUEBLES
+  'Transporte':  '51107003', // FLETES VARIOS
+  'Marketing':   '51116002', // PUBLICIDAD
+  'Impuestos':   '51114009', // IMPUESTOS VARIOS
+  'Proveedores': '21101001', // PROVEEDORES (pago)
+  'Otro':        '51117003', // OTROS GASTOS
+};
 
-// ── GENERACIÓN AUTOMÁTICA DE ASIENTOS ──
-function crearAsientoVenta(venta) {
-  const cuentaHaber = METODO_CUENTA[venta.metodo_pago] || '1.1.01';
-  const iva = Math.round((venta.total || 0) / 1.21 * 0.21 * 100) / 100;
-  const neto = Math.round((venta.total || 0) - iva * 100) / 100;
+// ── CONFIGURACIÓN FISCAL ──
+const CONFIG_FISCAL = {
+  alicuota_iva:      0.21,   // 21% general
+  alicuota_iibb:     0.03,   // 3% Santiago del Estero
+  tipo_cbte_ticket:  '008',  // Tique Factura B
+  tipo_cbte_fac_b:   '006',  // Factura B
+  tipo_cbte_fac_a:   '001',  // Factura A
+  tipo_cbte_fac_c:   '011',  // Factura C (no aplica RI)
+  punto_venta:       '00001', // Se actualiza cuando AFIP asigne el número
+};
+
+// ── CONTADOR DE ASIENTOS ──
+let nroAsiento = 1;
+function getNroAsiento() {
+  return String(nroAsiento++).padStart(5, '0');
+}
+
+// ══════════════════════════════════════════
+// GENERADORES DE ASIENTOS AUTOMÁTICOS
+// ══════════════════════════════════════════
+
+function asientoVenta(venta) {
+  const total  = venta.total || 0;
+  const iva    = Math.round(total / 1.21 * 0.21 * 100) / 100;
+  const neto   = Math.round((total - iva) * 100) / 100;
+  const iibb   = Math.round(total * CONFIG_FISCAL.alicuota_iibb * 100) / 100;
+  const ctaDebe = METODO_CUENTA[venta.metodo_pago] || '11101001';
+  const ctaNombreDebe = PLAN_CUENTAS.find(c => c.codigo === ctaDebe)?.nombre || venta.metodo_pago;
+
+  const lineas = [
+    { debe: true,  cuenta: ctaDebe,    nombre: ctaNombreDebe,          importe: total, detalle: `Cobro ${venta.metodo_pago}` },
+    { debe: false, cuenta: '41101007', nombre: 'VENTA DE MERCADERÍAS', importe: neto,  detalle: 'Ventas netas s/IVA' },
+    { debe: false, cuenta: '21404',    nombre: 'IVA DÉBITO FISCAL',    importe: iva,   detalle: 'IVA 21% débito fiscal' },
+  ];
+
+  // IIBB: percepción sobre ventas (3%)
+  if (iibb > 0) {
+    lineas.push({ debe: true, cuenta: '11403002', nombre: 'DGR PERCEPCIÓN IIBB', importe: iibb, detalle: 'Percepción IIBB 3% s/ventas' });
+    lineas[0].importe = Math.round((total - iibb) * 100) / 100; // neto cobrado
+    lineas.push({ debe: false, cuenta: '21412002', nombre: 'IIBB A PAGAR', importe: iibb, detalle: 'IIBB 3% a depositar DGR' });
+  }
+
   return {
-    id: 'as-v-' + venta.id,
+    nro: getNroAsiento(),
     fecha: venta.fecha,
     tipo: 'VENTA',
-    descripcion: `Venta ${venta.metodo_pago}${venta.cliente ? ' — ' + venta.cliente : ''}`,
+    comprobante: venta.metodo_pago === 'Cuenta Corriente' ? 'Cta.Cte.' : 'Ticket/Factura',
+    descripcion: `Venta — ${venta.metodo_pago}${venta.cliente ? ' · ' + venta.cliente : ''}`,
+    origen: 'venta',
     origen_id: venta.id,
-    lineas: [
-      {cuenta: cuentaHaber, debe: venta.total, haber: 0, detalle: venta.metodo_pago},
-      {cuenta: '4.1.01',    debe: 0, haber: neto,      detalle: 'Ventas netas'},
-      {cuenta: '2.1.02',    debe: 0, haber: iva,        detalle: 'IVA Débito Fiscal 21%'},
-    ]
+    lineas,
+    total_debe:  lineas.filter(l=>l.debe).reduce((s,l)=>s+l.importe,0),
+    total_haber: lineas.filter(l=>!l.debe).reduce((s,l)=>s+l.importe,0),
   };
 }
 
-function crearAsientoGasto(gasto) {
-  const cuentaDebe = GASTO_CUENTA[gasto.categoria] || '5.2.07';
+function asientoGasto(gasto) {
+  const monto = gasto.monto || 0;
+  const ctaDebe = GASTO_CUENTA[gasto.categoria] || '51117003';
+  const ctaNombreDebe = PLAN_CUENTAS.find(c => c.codigo === ctaDebe)?.nombre || gasto.categoria;
+
+  // Pago a proveedor: va a Proveedores no a gasto directo
+  if (gasto.categoria === 'Proveedores') {
+    return {
+      nro: getNroAsiento(),
+      fecha: gasto.fecha,
+      tipo: 'PAGO PROVEEDOR',
+      comprobante: gasto.descripcion || 'Orden de pago',
+      descripcion: `Pago a proveedor — ${gasto.descripcion || ''}`,
+      origen: 'gasto',
+      origen_id: gasto.id,
+      lineas: [
+        { debe: true,  cuenta: '21101001', nombre: 'PROVEEDORES',    importe: monto, detalle: gasto.descripcion || 'Cancelación factura proveedor' },
+        { debe: false, cuenta: '11101001', nombre: 'CAJA EN PESOS',  importe: monto, detalle: 'Pago efectivo' },
+      ],
+      total_debe: monto, total_haber: monto,
+    };
+  }
+
   return {
-    id: 'as-g-' + gasto.id,
+    nro: getNroAsiento(),
     fecha: gasto.fecha,
     tipo: 'GASTO',
-    descripcion: `Gasto — ${gasto.categoria}${gasto.descripcion ? ': '+gasto.descripcion : ''}`,
+    comprobante: gasto.descripcion || 'Comprobante gasto',
+    descripcion: `Gasto — ${gasto.categoria}${gasto.descripcion ? ': ' + gasto.descripcion : ''}`,
+    origen: 'gasto',
     origen_id: gasto.id,
     lineas: [
-      {cuenta: cuentaDebe, debe: gasto.monto, haber: 0,           detalle: gasto.categoria},
-      {cuenta: '1.1.01',   debe: 0,           haber: gasto.monto, detalle: 'Caja'},
-    ]
+      { debe: true,  cuenta: ctaDebe,    nombre: ctaNombreDebe,    importe: monto, detalle: gasto.descripcion || gasto.categoria },
+      { debe: false, cuenta: '11101001', nombre: 'CAJA EN PESOS',  importe: monto, detalle: 'Pago efectivo' },
+    ],
+    total_debe: monto, total_haber: monto,
   };
 }
 
-function crearAsientoCompra(compra) {
+function asientoCompra(compra) {
   const total = (compra.precio_unitario || 0) * (compra.cantidad || 0);
-  const iva = Math.round(total / 1.21 * 0.21 * 100) / 100;
-  const neto = total - iva;
+  const iva   = Math.round(total / 1.21 * 0.21 * 100) / 100;
+  const neto  = Math.round((total - iva) * 100) / 100;
+
   return {
-    id: 'as-c-' + compra.id,
+    nro: getNroAsiento(),
     fecha: compra.fecha,
     tipo: 'COMPRA',
-    descripcion: `Compra — ${compra.producto_nombre}${compra.proveedor ? ' ('+compra.proveedor+')' : ''}`,
+    comprobante: compra.numero_factura || 'S/N',
+    descripcion: `Compra — ${compra.producto_nombre}${compra.proveedor ? ' · ' + compra.proveedor : ''}`,
+    origen: 'compra',
     origen_id: compra.id,
     lineas: [
-      {cuenta: '1.2.01', debe: neto,  haber: 0,     detalle: 'Mercaderías'},
-      {cuenta: '1.1.06', debe: iva,   haber: 0,     detalle: 'IVA Crédito Fiscal'},
-      {cuenta: '2.1.01', debe: 0,     haber: total, detalle: compra.proveedor || 'Proveedor'},
-    ]
+      { debe: true,  cuenta: '11501008', nombre: 'MERCADERÍA DE REVENTA',  importe: neto,  detalle: compra.producto_nombre },
+      { debe: true,  cuenta: '11403005', nombre: 'CRÉDITO FISCAL IVA 21%', importe: iva,   detalle: 'IVA CF 21%' },
+      { debe: false, cuenta: '21101001', nombre: 'PROVEEDORES',            importe: total, detalle: compra.proveedor || 'Proveedor' },
+    ],
+    total_debe: total, total_haber: total,
   };
 }
 
-function crearAsientoCobroDeuda(pago) {
+function asientoCobroDeuda(pago, deuda) {
+  const monto = pago.monto_abonado || 0;
   return {
-    id: 'as-p-' + pago.id,
+    nro: getNroAsiento(),
     fecha: new Date(pago.created_at).toISOString().split('T')[0],
-    tipo: 'COBRO',
-    descripcion: `Cobro deuda — ${pago.nota || 'Abono cuenta corriente'}`,
+    tipo: 'COBRO CTA. CTE.',
+    comprobante: `Recibo s/n`,
+    descripcion: `Cobro cuenta corriente — ${deuda?.nombre_cliente || ''}`,
+    origen: 'pago_deuda',
     origen_id: pago.id,
     lineas: [
-      {cuenta: '1.1.01', debe: pago.monto_abonado, haber: 0,                  detalle: 'Caja'},
-      {cuenta: '1.1.05', debe: 0,                  haber: pago.monto_abonado, detalle: 'Deudores Cta. Cte.'},
-    ]
+      { debe: true,  cuenta: '11101001', nombre: 'CAJA EN PESOS',                       importe: monto, detalle: 'Cobro en efectivo' },
+      { debe: false, cuenta: '11301001', nombre: 'CUENTA CORRIENTE (Clientes)',           importe: monto, detalle: deuda?.nombre_cliente || 'Cliente' },
+    ],
+    total_debe: monto, total_haber: monto,
   };
 }
 
-// ── GENERAR ASIENTO RESUMEN DEL DÍA ──
+// ══════════════════════════════════════════
+// GENERAR TODOS LOS ASIENTOS DEL PERÍODO
+// ══════════════════════════════════════════
+function generarAsientosPeriodo(mesAno) {
+  // mesAno = 'YYYY-MM'
+  const desde = mesAno + '-01';
+  const hasta = mesAno + '-31';
+  const todos = [];
+  nroAsiento = 1; // Reset numbering for period
+
+  const ventasFilt  = sales.filter(v => v.fecha >= desde && v.fecha <= hasta)
+                           .sort((a,b) => a.fecha.localeCompare(b.fecha));
+  const gastosFilt  = gastos.filter(g => g.fecha >= desde && g.fecha <= hasta)
+                            .sort((a,b) => a.fecha.localeCompare(b.fecha));
+  const comprasFilt = compras.filter(c => c.fecha >= desde && c.fecha <= hasta)
+                             .sort((a,b) => a.fecha.localeCompare(b.fecha));
+
+  // Merge and sort all by date
+  const movs = [
+    ...ventasFilt.map(v => ({fecha: v.fecha, tipo: 'v', data: v})),
+    ...gastosFilt.map(g => ({fecha: g.fecha, tipo: 'g', data: g})),
+    ...comprasFilt.map(c => ({fecha: c.fecha, tipo: 'c', data: c})),
+  ].sort((a,b) => a.fecha.localeCompare(b.fecha));
+
+  movs.forEach(m => {
+    if (m.tipo === 'v') todos.push(asientoVenta(m.data));
+    if (m.tipo === 'g') todos.push(asientoGasto(m.data));
+    if (m.tipo === 'c') todos.push(asientoCompra(m.data));
+  });
+
+  return todos;
+}
+
+// ══════════════════════════════════════════
+// RESUMEN DIARIO DE ASIENTOS
+// ══════════════════════════════════════════
 function generarAsientoDia() {
   const hoy = new Date().toISOString().split('T')[0];
-  const ventasHoy = sales.filter(s => s.fecha === hoy);
-  const gastosHoy = gastos.filter(g => g.fecha === hoy);
-  
-  if(!ventasHoy.length && !gastosHoy.length) {
-    showToast('No hay movimientos hoy para asentar', 'err');
+  const ventasHoy  = sales.filter(s => s.fecha === hoy);
+  const gastosHoy  = gastos.filter(g => g.fecha === hoy);
+  const comprasHoy = compras.filter(c => c.fecha === hoy);
+
+  if (!ventasHoy.length && !gastosHoy.length && !comprasHoy.length) {
+    showToast('No hay movimientos hoy', 'err');
     return;
   }
-  
-  const totalVentas = ventasHoy.reduce((s,v) => s+(v.total||0), 0);
-  const totalGastos = gastosHoy.reduce((s,g) => s+(g.monto||0), 0);
-  const iva = Math.round(totalVentas / 1.21 * 0.21 * 100) / 100;
-  const neto = totalVentas - iva;
-  
-  // Build resumen
+
+  const totalVentas  = ventasHoy.reduce((s,v)  => s + (v.total||0), 0);
+  const totalGastos  = gastosHoy.reduce((s,g)  => s + (g.monto||0), 0);
+  const totalCompras = comprasHoy.reduce((s,c) => s + (c.precio_unitario||0)*(c.cantidad||0), 0);
+  const ivaDebito    = Math.round(totalVentas / 1.21 * 0.21 * 100) / 100;
+  const ivaCredito   = Math.round(totalCompras / 1.21 * 0.21 * 100) / 100;
+  const netaVentas   = totalVentas - ivaDebito;
+  const netoCompras  = totalCompras - ivaCredito;
+  const iibb         = Math.round(totalVentas * 0.03 * 100) / 100;
+
+  // Build per-method breakdown
   const metodos = {};
   ventasHoy.forEach(v => {
     metodos[v.metodo_pago] = (metodos[v.metodo_pago] || 0) + (v.total||0);
   });
-  
+
+  const fechaLabel = new Date(hoy + 'T12:00:00').toLocaleDateString('es-AR', {
+    weekday:'long', day:'2-digit', month:'long', year:'numeric'
+  });
+
   const html = `<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><title>Asiento Diario</title>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Asiento Diario — ${hoy}</title>
 <style>
-  body{font-family:Arial,sans-serif;padding:30px;max-width:700px;margin:0 auto;font-size:13px}
-  h2{color:#1a3a5c;border-bottom:2px solid #1a3a5c;padding-bottom:8px}
-  table{width:100%;border-collapse:collapse;margin:16px 0}
-  th{background:#1a3a5c;color:#fff;padding:8px 10px;text-align:left;font-size:11px}
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'DM Sans',Arial,sans-serif;padding:32px;max-width:750px;margin:0 auto;color:#12100e;font-size:13px}
+  .header{border-bottom:3px solid #1a3a5c;padding-bottom:16px;margin-bottom:20px}
+  .header-top{display:flex;justify-content:space-between;align-items:flex-start}
+  .empresa{font-size:18px;font-weight:700;color:#1a3a5c}
+  .sub{font-size:11px;color:#888;margin-top:2px}
+  .titulo{font-size:22px;font-weight:700;color:#12100e;margin-top:12px}
+  .fecha-label{font-size:12px;color:#555;margin-top:2px;text-transform:capitalize}
+  .nro-asiento{background:#1a3a5c;color:#fff;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600}
+  
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:12px}
+  thead tr{background:#1a3a5c;color:#fff}
+  thead th{padding:8px 10px;text-align:left;font-weight:600;font-size:11px}
+  thead th.r{text-align:right}
+  tbody tr:nth-child(even){background:#f8f8f8}
+  tbody tr:hover{background:#f0f4ff}
   td{padding:7px 10px;border-bottom:1px solid #f0f0f0}
-  .debe{text-align:right;color:#c94040;font-family:monospace}
-  .haber{text-align:right;color:#1a5c38;font-family:monospace}
-  .total-row{font-weight:700;background:#f5f5f5;border-top:2px solid #ddd}
-  .ok{color:#1a5c38;font-weight:700}
-  @media print{button{display:none}}
-</style></head>
+  td.cod{font-family:'DM Mono',monospace;font-size:10px;color:#666;white-space:nowrap}
+  td.debe{text-align:right;font-family:'DM Mono',monospace;color:#c94040;font-weight:600}
+  td.haber{text-align:right;font-family:'DM Mono',monospace;color:#1a5c38;font-weight:600}
+  td.vacio{color:#ddd}
+  .tfoot tr{background:#1a3a5c!important;color:#fff;font-weight:700}
+  .tfoot td{padding:9px 10px;border:none;font-family:'DM Mono',monospace}
+  .tfoot td.r{text-align:right}
+  
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:20px 0}
+  .kpi{background:#f5f5f5;border-radius:8px;padding:12px;text-align:center}
+  .kpi-label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+  .kpi-val{font-family:'DM Mono',monospace;font-size:16px;font-weight:700}
+  .kpi.green .kpi-val{color:#1a5c38}
+  .kpi.red .kpi-val{color:#c94040}
+  .kpi.blue .kpi-val{color:#1a3a5c}
+  .kpi.amber .kpi-val{color:#c97f1a}
+  
+  .seccion{font-size:10px;font-weight:700;color:#1a3a5c;text-transform:uppercase;letter-spacing:1px;
+           margin:16px 0 6px;padding:4px 0;border-bottom:1.5px solid #1a3a5c}
+  .cuadrado{display:inline-block;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;margin-top:12px}
+  .ok{background:#eaf5ee;color:#1a5c38}
+  .err{background:#fdeaea;color:#c94040}
+  .footer{margin-top:24px;padding-top:12px;border-top:1px solid #e0e0e0;
+          display:flex;justify-content:space-between;font-size:10px;color:#999}
+  @media print{body{padding:20px}.footer{position:fixed;bottom:10px;left:20px;right:20px}}
+</style>
+</head>
 <body>
-  <h2>📋 Asiento Diario de Caja — ${hoy}</h2>
-  <p><b>${STORE?.nombre || 'Tienda'}</b> · Generado: ${new Date().toLocaleString('es-AR')}</p>
-  
-  <table>
-    <thead><tr><th>Cuenta</th><th>Descripción</th><th style="text-align:right">Debe</th><th style="text-align:right">Haber</th></tr></thead>
-    <tbody>
-      ${Object.entries(metodos).map(([met, monto]) => 
-        `<tr><td>${METODO_CUENTA[met] || '1.1.01'}</td><td>${met}</td><td class="debe">$${monto.toLocaleString('es-AR')}</td><td></td></tr>`
-      ).join('')}
-      <tr><td>4.1.01</td><td>Ventas</td><td></td><td class="haber">$${neto.toLocaleString('es-AR')}</td></tr>
-      <tr><td>2.1.02</td><td>IVA Débito Fiscal</td><td></td><td class="haber">$${iva.toLocaleString('es-AR')}</td></tr>
-      ${gastosHoy.map(g => 
-        `<tr><td>${GASTO_CUENTA[g.categoria]||'5.2.07'}</td><td>${g.categoria}: ${g.descripcion||''}</td><td class="debe">$${(g.monto||0).toLocaleString('es-AR')}</td><td></td></tr>
-         <tr><td>1.1.01</td><td>Caja (pago gasto)</td><td></td><td class="haber">$${(g.monto||0).toLocaleString('es-AR')}</td></tr>`
-      ).join('')}
-      <tr class="total-row">
-        <td colspan="2">TOTALES</td>
-        <td class="debe">$${(totalVentas + totalGastos).toLocaleString('es-AR')}</td>
-        <td class="haber">$${(totalVentas + totalGastos).toLocaleString('es-AR')}</td>
-      </tr>
-    </tbody>
-  </table>
-  
-  <div style="display:flex;gap:30px;margin-top:20px">
-    <div><div style="font-size:11px;color:#999">Total ventas</div><div style="font-size:20px;font-weight:700;color:#1a5c38">$${totalVentas.toLocaleString('es-AR')}</div></div>
-    <div><div style="font-size:11px;color:#999">Total gastos</div><div style="font-size:20px;font-weight:700;color:#c94040">$${totalGastos.toLocaleString('es-AR')}</div></div>
-    <div><div style="font-size:11px;color:#999">IVA Débito</div><div style="font-size:20px;font-weight:700;color:#1a3a5c">$${iva.toLocaleString('es-AR')}</div></div>
+
+<div class="header">
+  <div class="header-top">
+    <div>
+      <div class="empresa">TODO PYMES S.R.L. — Drugstore</div>
+      <div class="sub">CUIT: 30-71140779-7 · IVA Responsable Inscripto</div>
+    </div>
+    <span class="nro-asiento">Asiento N° ${String(nroAsiento).padStart(5,'0')}</span>
   </div>
-  <p class="ok" style="margin-top:20px">✅ Asiento cuadrado — Debe = Haber</p>
-  <script>window.print();<\/script>
-</body></html>`;
-  
+  <div class="titulo">Asiento Diario de Caja</div>
+  <div class="fecha-label">${fechaLabel}</div>
+</div>
+
+<div class="kpis">
+  <div class="kpi green">
+    <div class="kpi-label">Total Ventas</div>
+    <div class="kpi-val">$${totalVentas.toLocaleString('es-AR')}</div>
+  </div>
+  <div class="kpi blue">
+    <div class="kpi-label">IVA Débito</div>
+    <div class="kpi-val">$${ivaDebito.toLocaleString('es-AR')}</div>
+  </div>
+  <div class="kpi amber">
+    <div class="kpi-label">IIBB 3%</div>
+    <div class="kpi-val">$${iibb.toLocaleString('es-AR')}</div>
+  </div>
+  <div class="kpi red">
+    <div class="kpi-label">Total Gastos</div>
+    <div class="kpi-val">$${totalGastos.toLocaleString('es-AR')}</div>
+  </div>
+</div>
+
+${Object.keys(metodos).length ? `
+<div class="seccion">Desglose por método de cobro</div>
+<table>
+  <thead><tr><th>Cód. Cuenta</th><th>Descripción</th><th class="r">Debe</th><th class="r">Haber</th></tr></thead>
+  <tbody>
+    ${Object.entries(metodos).map(([met, monto]) => {
+      const ct = METODO_CUENTA[met] || '11101001';
+      const cn = PLAN_CUENTAS.find(c => c.codigo === ct)?.nombre || met;
+      return `<tr><td class="cod">${ct}</td><td>${cn}</td><td class="debe">$${monto.toLocaleString('es-AR')}</td><td class="vacio">—</td></tr>`;
+    }).join('')}
+    <tr><td class="cod">41101007</td><td>VENTA DE MERCADERÍAS</td><td class="vacio">—</td><td class="haber">$${netaVentas.toLocaleString('es-AR')}</td></tr>
+    <tr><td class="cod">21404</td><td>IVA DÉBITO FISCAL (RI)</td><td class="vacio">—</td><td class="haber">$${ivaDebito.toLocaleString('es-AR')}</td></tr>
+    ${iibb > 0 ? `
+    <tr><td class="cod">11403002</td><td>DGR PERCEPCIÓN IIBB 3%</td><td class="debe">$${iibb.toLocaleString('es-AR')}</td><td class="vacio">—</td></tr>
+    <tr><td class="cod">21412002</td><td>INGRESOS BRUTOS A PAGAR</td><td class="vacio">—</td><td class="haber">$${iibb.toLocaleString('es-AR')}</td></tr>
+    ` : ''}
+  </tbody>
+  <tfoot class="tfoot">
+    <tr><td colspan="2">TOTALES</td>
+        <td class="r">$${(totalVentas+iibb).toLocaleString('es-AR')}</td>
+        <td class="r">$${(totalVentas+iibb).toLocaleString('es-AR')}</td></tr>
+  </tfoot>
+</table>` : ''}
+
+${gastosHoy.length ? `
+<div class="seccion">Gastos del día</div>
+<table>
+  <thead><tr><th>Cód. Cuenta</th><th>Descripción</th><th class="r">Debe</th><th class="r">Haber</th></tr></thead>
+  <tbody>
+    ${gastosHoy.map(g => {
+      const ct = GASTO_CUENTA[g.categoria] || '51117003';
+      const cn = PLAN_CUENTAS.find(c => c.codigo === ct)?.nombre || g.categoria;
+      return `
+      <tr><td class="cod">${ct}</td><td>${cn}${g.descripcion ? ' — '+g.descripcion : ''}</td><td class="debe">$${(g.monto||0).toLocaleString('es-AR')}</td><td class="vacio">—</td></tr>
+      <tr><td class="cod">11101001</td><td>CAJA EN PESOS — pago</td><td class="vacio">—</td><td class="haber">$${(g.monto||0).toLocaleString('es-AR')}</td></tr>`;
+    }).join('')}
+  </tbody>
+  <tfoot class="tfoot">
+    <tr><td colspan="2">TOTALES GASTOS</td>
+        <td class="r">$${totalGastos.toLocaleString('es-AR')}</td>
+        <td class="r">$${totalGastos.toLocaleString('es-AR')}</td></tr>
+  </tfoot>
+</table>` : ''}
+
+${comprasHoy.length ? `
+<div class="seccion">Compras del día</div>
+<table>
+  <thead><tr><th>Cód. Cuenta</th><th>Descripción</th><th class="r">Debe</th><th class="r">Haber</th></tr></thead>
+  <tbody>
+    ${comprasHoy.map(co => {
+      const tot = (co.precio_unitario||0)*(co.cantidad||0);
+      const iva = Math.round(tot/1.21*0.21*100)/100;
+      const neto = tot - iva;
+      return `
+      <tr><td class="cod">11501008</td><td>MERCADERÍA DE REVENTA — ${co.producto_nombre}</td><td class="debe">$${neto.toLocaleString('es-AR')}</td><td class="vacio">—</td></tr>
+      <tr><td class="cod">11403005</td><td>CRÉDITO FISCAL IVA 21%</td><td class="debe">$${iva.toLocaleString('es-AR')}</td><td class="vacio">—</td></tr>
+      <tr><td class="cod">21101001</td><td>PROVEEDORES — ${co.proveedor||'Proveedor'}</td><td class="vacio">—</td><td class="haber">$${tot.toLocaleString('es-AR')}</td></tr>`;
+    }).join('')}
+  </tbody>
+</table>` : ''}
+
+<div style="margin-top:16px;padding:12px 16px;background:#f5f5f5;border-radius:8px;display:flex;justify-content:space-between;align-items:center">
+  <div>
+    <div style="font-size:11px;color:#888;margin-bottom:2px">Posición IVA del día</div>
+    <div style="font-family:'DM Mono',monospace;font-weight:700;color:#1a3a5c;font-size:14px">
+      Débito: $${ivaDebito.toLocaleString('es-AR')} — Crédito: $${ivaCredito.toLocaleString('es-AR')} = 
+      <span style="color:${ivaDebito>ivaCredito?'#c94040':'#1a5c38'}">
+        ${ivaDebito>ivaCredito?'A pagar':'A favor'}: $${Math.abs(ivaDebito-ivaCredito).toLocaleString('es-AR')}
+      </span>
+    </div>
+  </div>
+  <span class="cuadrado ok">✅ Asiento cuadrado</span>
+</div>
+
+<div class="footer">
+  <span>TODO PYMES S.R.L. — Tienda Pro · ${new Date().toLocaleString('es-AR')}</span>
+  <span>Generado automáticamente — No requiere firma</span>
+</div>
+
+<script>window.print();<\/script>
+</body>
+</html>`;
+
   const win = window.open('', '_blank');
   win.document.write(html);
   win.document.close();
   showToast('✅ Asiento diario generado', 'ok');
 }
 
-// ── MAYOR POR CUENTA ──
+// ══════════════════════════════════════════
+// MAYOR POR CUENTA (con plan real)
+// ══════════════════════════════════════════
 function renderMayor() {
   const cuentaCod = document.getElementById('mayor-cuenta-sel')?.value;
   const el = document.getElementById('mayor-content');
-  if(!el) return;
-  if(!cuentaCod) { el.innerHTML = '<div class="empty">Seleccioná una cuenta</div>'; return; }
-  
+  if (!el) return;
+  if (!cuentaCod) { el.innerHTML = '<div class="empty">Seleccioná una cuenta para ver sus movimientos</div>'; return; }
+
   const cuenta = PLAN_CUENTAS.find(c => c.codigo === cuentaCod);
-  const mesDesde = document.getElementById('mayor-mes-desde')?.value;
-  const mesHasta = document.getElementById('mayor-mes-hasta')?.value;
-  
-  // Generate movements for this account from all transactions
-  const movimientos = [];
-  
-  // From ventas
-  sales.forEach(v => {
-    if(mesDesde && v.fecha < mesDesde + '-01') return;
-    if(mesHasta && v.fecha > mesHasta + '-31') return;
-    const cuentaHaber = METODO_CUENTA[v.metodo_pago] || '1.1.01';
-    const iva = Math.round((v.total||0) / 1.21 * 0.21 * 100) / 100;
+  if (!cuenta) return;
+
+  const mesDesde = document.getElementById('mayor-mes-desde')?.value || '';
+  const mesHasta = document.getElementById('mayor-mes-hasta')?.value || '';
+  const filtro = (fecha) => {
+    if (!fecha) return true;
+    if (mesDesde && fecha < mesDesde + '-01') return false;
+    if (mesHasta && fecha > mesHasta + '-31') return false;
+    return true;
+  };
+
+  const movs = [];
+
+  // Ventas
+  sales.filter(v => filtro(v.fecha)).forEach(v => {
+    const ct = METODO_CUENTA[v.metodo_pago] || '11101001';
+    const iva = Math.round((v.total||0)/1.21*0.21*100)/100;
     const neto = (v.total||0) - iva;
-    if(cuentaHaber === cuentaCod) movimientos.push({fecha:v.fecha, desc:`Venta ${v.metodo_pago}`, debe:v.total||0, haber:0});
-    if(cuentaCod === '4.1.01') movimientos.push({fecha:v.fecha, desc:`Ventas netas`, debe:0, haber:neto});
-    if(cuentaCod === '2.1.02') movimientos.push({fecha:v.fecha, desc:`IVA Débito`, debe:0, haber:iva});
+    const iibb = Math.round((v.total||0)*0.03*100)/100;
+    if (ct === cuentaCod)         movs.push({fecha:v.fecha, desc:`Venta ${v.metodo_pago}`, debe:v.total, haber:0, origen:'Venta'});
+    if (cuentaCod==='41101007')   movs.push({fecha:v.fecha, desc:'Ventas netas', debe:0, haber:neto, origen:'Venta'});
+    if (cuentaCod==='21404')      movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal 21%', debe:0, haber:iva, origen:'Venta'});
+    if (cuentaCod==='11403002')   movs.push({fecha:v.fecha, desc:'Percepción IIBB 3%', debe:iibb, haber:0, origen:'Venta'});
+    if (cuentaCod==='21412002')   movs.push({fecha:v.fecha, desc:'IIBB a pagar DGR', debe:0, haber:iibb, origen:'Venta'});
   });
-  
-  // From gastos
-  gastos.forEach(g => {
-    if(mesDesde && g.fecha < mesDesde + '-01') return;
-    if(mesHasta && g.fecha > mesHasta + '-31') return;
-    const cuentaDebe = GASTO_CUENTA[g.categoria] || '5.2.07';
-    if(cuentaDebe === cuentaCod) movimientos.push({fecha:g.fecha, desc:g.categoria+(g.descripcion?': '+g.descripcion:''), debe:g.monto||0, haber:0});
-    if(cuentaCod === '1.1.01' && g.categoria !== 'Proveedores') movimientos.push({fecha:g.fecha, desc:'Pago '+g.categoria, debe:0, haber:g.monto||0});
+
+  // Gastos
+  gastos.filter(g => filtro(g.fecha)).forEach(g => {
+    const ct = GASTO_CUENTA[g.categoria] || '51117003';
+    if (ct === cuentaCod)         movs.push({fecha:g.fecha, desc:g.categoria+(g.descripcion?': '+g.descripcion:''), debe:g.monto, haber:0, origen:'Gasto'});
+    if (cuentaCod==='11101001' && g.categoria!=='Proveedores') movs.push({fecha:g.fecha, desc:'Pago '+g.categoria, debe:0, haber:g.monto, origen:'Gasto'});
+    if (cuentaCod==='21101001' && g.categoria==='Proveedores') movs.push({fecha:g.fecha, desc:g.descripcion||'Pago proveedor', debe:g.monto, haber:0, origen:'Gasto'});
   });
-  
-  // From compras
-  compras.forEach(co => {
-    if(mesDesde && co.fecha < mesDesde + '-01') return;
-    if(mesHasta && co.fecha > mesHasta + '-31') return;
+
+  // Compras
+  compras.filter(c => filtro(c.fecha)).forEach(co => {
     const total = (co.precio_unitario||0)*(co.cantidad||0);
-    const iva = Math.round(total/1.21*0.21*100)/100;
-    const neto = total - iva;
-    if(cuentaCod === '1.2.01') movimientos.push({fecha:co.fecha, desc:'Compra '+co.producto_nombre, debe:neto, haber:0});
-    if(cuentaCod === '1.1.06') movimientos.push({fecha:co.fecha, desc:'IVA Crédito Fiscal', debe:iva, haber:0});
-    if(cuentaCod === '2.1.01') movimientos.push({fecha:co.fecha, desc:'Prov. '+co.proveedor, debe:0, haber:total});
+    const iva   = Math.round(total/1.21*0.21*100)/100;
+    const neto  = total - iva;
+    if (cuentaCod==='11501008') movs.push({fecha:co.fecha, desc:'Compra '+co.producto_nombre, debe:neto, haber:0, origen:'Compra'});
+    if (cuentaCod==='11403005') movs.push({fecha:co.fecha, desc:'CF IVA 21% — '+co.proveedor, debe:iva, haber:0, origen:'Compra'});
+    if (cuentaCod==='21101001') movs.push({fecha:co.fecha, desc:'A pagar — '+(co.proveedor||'Proveedor'), debe:0, haber:total, origen:'Compra'});
   });
-  
-  movimientos.sort((a,b) => a.fecha.localeCompare(b.fecha));
-  
-  let saldo = 0;
-  const isDebeNatural = cuenta.naturaleza === 'D';
-  let totalDebe = 0, totalHaber = 0;
-  
-  if(!movimientos.length) {
-    el.innerHTML = '<div class="empty">Sin movimientos para esta cuenta en el período</div>';
+
+  movs.sort((a,b) => a.fecha.localeCompare(b.fecha));
+
+  if (!movs.length) {
+    el.innerHTML = `<div class="empty">Sin movimientos para <b>${cuenta.codigo} — ${cuenta.nombre}</b> en el período seleccionado</div>`;
     return;
   }
-  
+
+  let saldo = 0;
+  let totalDebe = 0, totalHaber = 0;
+  const esDeudora = cuenta.naturaleza === 'D';
+
+  const filas = movs.map((m, i) => {
+    saldo += esDeudora ? (m.debe - m.haber) : (m.haber - m.debe);
+    totalDebe  += m.debe;
+    totalHaber += m.haber;
+    return `<tr style="border-bottom:1px solid #f5f5f5;background:${i%2===0?'#fff':'#fafafa'}">
+      <td style="padding:7px 10px;color:#666;font-size:11px;white-space:nowrap">${m.fecha}</td>
+      <td style="padding:7px 10px;font-size:11px;color:#555">${m.origen}</td>
+      <td style="padding:7px 10px">${m.desc}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:12px;color:${m.debe?'#c94040':'#ddd'}">${m.debe?'$'+m.debe.toLocaleString('es-AR'):'-'}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:12px;color:${m.haber?'#1a5c38':'#ddd'}">${m.haber?'$'+m.haber.toLocaleString('es-AR'):'-'}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:#1a3a5c">$${Math.abs(saldo).toLocaleString('es-AR')}<span style="font-size:9px;margin-left:3px;color:#aaa">${saldo>=0?'D':'H'}</span></td>
+    </tr>`;
+  }).join('');
+
   el.innerHTML = `
-    <div style="background:#1a3a5c;color:#fff;padding:10px 14px;border-radius:10px 10px 0 0;font-weight:600;font-size:13px">
-      Mayor — ${cuenta.codigo} ${cuenta.nombre}
+    <div style="background:#1a3a5c;color:#fff;padding:12px 16px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-family:'DM Mono',monospace;font-size:11px;opacity:.7">${cuenta.codigo} · ${cuenta.jerarquia}</div>
+        <div style="font-size:14px;font-weight:700;margin-top:2px">${cuenta.nombre}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:10px;opacity:.7;margin-bottom:2px">${cuenta.tipo} · Cuenta ${cuenta.naturaleza==='D'?'Deudora':'Acreedora'}</div>
+        <div style="font-size:11px;opacity:.7">${movs.length} movimiento${movs.length!==1?'s':''}</div>
+      </div>
     </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead style="background:#e8f0fe">
-          <tr>
-            <th style="padding:8px;text-align:left;border-bottom:1px solid #c5cae9">Fecha</th>
-            <th style="padding:8px;text-align:left;border-bottom:1px solid #c5cae9">Descripción</th>
-            <th style="padding:8px;text-align:right;border-bottom:1px solid #c5cae9;color:#c94040">Debe</th>
-            <th style="padding:8px;text-align:right;border-bottom:1px solid #c5cae9;color:#1a5c38">Haber</th>
-            <th style="padding:8px;text-align:right;border-bottom:1px solid #c5cae9">Saldo</th>
+        <thead>
+          <tr style="background:#e8f0fe">
+            <th style="padding:8px 10px;text-align:left;font-size:10px;color:#1a3a5c;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Fecha</th>
+            <th style="padding:8px 10px;text-align:left;font-size:10px;color:#1a3a5c;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Origen</th>
+            <th style="padding:8px 10px;text-align:left;font-size:10px;color:#1a3a5c;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Descripción</th>
+            <th style="padding:8px 10px;text-align:right;font-size:10px;color:#c94040;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Debe</th>
+            <th style="padding:8px 10px;text-align:right;font-size:10px;color:#1a5c38;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Haber</th>
+            <th style="padding:8px 10px;text-align:right;font-size:10px;color:#1a3a5c;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Saldo</th>
           </tr>
         </thead>
-        <tbody>
-          ${movimientos.map(m => {
-            saldo += isDebeNatural ? (m.debe - m.haber) : (m.haber - m.debe);
-            totalDebe += m.debe;
-            totalHaber += m.haber;
-            return `<tr style="border-bottom:1px solid #f5f5f5">
-              <td style="padding:7px 8px;color:#666">${m.fecha}</td>
-              <td style="padding:7px 8px">${m.desc}</td>
-              <td style="padding:7px 8px;text-align:right;font-family:monospace;color:${m.debe?'#c94040':'#ddd'}">${m.debe?'$'+m.debe.toLocaleString('es-AR'):'-'}</td>
-              <td style="padding:7px 8px;text-align:right;font-family:monospace;color:${m.haber?'#1a5c38':'#ddd'}">${m.haber?'$'+m.haber.toLocaleString('es-AR'):'-'}</td>
-              <td style="padding:7px 8px;text-align:right;font-family:monospace;font-weight:600">$${Math.abs(saldo).toLocaleString('es-AR')}</td>
-            </tr>`;
-          }).join('')}
-          <tr style="background:#f5f5f5;font-weight:700;border-top:2px solid #ddd">
-            <td colspan="2" style="padding:8px">TOTALES</td>
-            <td style="padding:8px;text-align:right;font-family:monospace;color:#c94040">$${totalDebe.toLocaleString('es-AR')}</td>
-            <td style="padding:8px;text-align:right;font-family:monospace;color:#1a5c38">$${totalHaber.toLocaleString('es-AR')}</td>
-            <td style="padding:8px;text-align:right;font-family:monospace">$${Math.abs(saldo).toLocaleString('es-AR')}</td>
+        <tbody>${filas}</tbody>
+        <tfoot>
+          <tr style="background:#1a3a5c;color:#fff;font-weight:700">
+            <td colspan="3" style="padding:9px 10px;font-size:12px">TOTALES DEL PERÍODO</td>
+            <td style="padding:9px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:13px">$${totalDebe.toLocaleString('es-AR')}</td>
+            <td style="padding:9px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:13px">$${totalHaber.toLocaleString('es-AR')}</td>
+            <td style="padding:9px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:13px">$${Math.abs(saldo).toLocaleString('es-AR')} ${saldo>=0?'D':'H'}</td>
           </tr>
-        </tbody>
+        </tfoot>
       </table>
     </div>`;
 }
@@ -1867,111 +2193,134 @@ function renderMayor() {
 function exportarMayorPDF() {
   const cuentaCod = document.getElementById('mayor-cuenta-sel')?.value;
   const cuenta = PLAN_CUENTAS.find(c => c.codigo === cuentaCod);
-  if(!cuenta) { showToast('Seleccioná una cuenta', 'err'); return; }
+  if (!cuenta) { showToast('Seleccioná una cuenta', 'err'); return; }
   const content = document.getElementById('mayor-content')?.innerHTML || '';
+  const mesDesde = document.getElementById('mayor-mes-desde')?.value || '';
+  const mesHasta = document.getElementById('mayor-mes-hasta')?.value || '';
   const win = window.open('', '_blank');
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Mayor ${cuenta.codigo}</title>
-    <style>body{font-family:Arial,sans-serif;padding:20px}h2{color:#1a3a5c}@media print{button{display:none}}</style>
+    <style>
+      body{font-family:Arial,sans-serif;padding:24px;font-size:11px;color:#12100e}
+      h2{color:#1a3a5c;margin-bottom:4px}
+      .sub{font-size:10px;color:#888;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse}
+      @media print{button{display:none!important}}
+    </style>
     </head><body>
     <h2>Mayor Contable — ${cuenta.codigo} ${cuenta.nombre}</h2>
-    <p>${STORE?.nombre||'Tienda'} · ${new Date().toLocaleDateString('es-AR')}</p>
+    <div class="sub">TODO PYMES S.R.L. — Drugstore · Período: ${mesDesde||'inicio'} a ${mesHasta||'hoy'} · Generado: ${new Date().toLocaleDateString('es-AR')}</div>
     ${content}
     <script>window.print();<\/script></body></html>`);
   win.document.close();
 }
 
-// ── BALANCE DE SUMAS Y SALDOS ──
+// ══════════════════════════════════════════
+// BALANCE DE SUMAS Y SALDOS
+// ══════════════════════════════════════════
 function renderBalance() {
   const el = document.getElementById('balance-content');
-  if(!el) return;
-  const mes = document.getElementById('balance-mes')?.value;
-  
-  // Calculate totals per account
-  const cuentaTotales = {};
-  PLAN_CUENTAS.forEach(c => { cuentaTotales[c.codigo] = {debe:0, haber:0}; });
-  
-  const filtro = (fecha) => !mes || fecha.startsWith(mes);
-  
+  if (!el) return;
+  const mes = document.getElementById('balance-mes')?.value || '';
+  const filtro = (fecha) => !mes || (fecha && fecha.startsWith(mes));
+
+  const totales = {};
+  PLAN_CUENTAS.forEach(c => { totales[c.codigo] = {debe:0, haber:0}; });
+
+  // Ventas
   sales.filter(v => filtro(v.fecha)).forEach(v => {
-    const ct = METODO_CUENTA[v.metodo_pago] || '1.1.01';
+    const ct = METODO_CUENTA[v.metodo_pago] || '11101001';
     const iva = Math.round((v.total||0)/1.21*0.21*100)/100;
     const neto = (v.total||0) - iva;
-    if(cuentaTotales[ct]) cuentaTotales[ct].debe += v.total||0;
-    if(cuentaTotales['4.1.01']) cuentaTotales['4.1.01'].haber += neto;
-    if(cuentaTotales['2.1.02']) cuentaTotales['2.1.02'].haber += iva;
+    const iibb = Math.round((v.total||0)*0.03*100)/100;
+    if (totales[ct])        totales[ct].debe += v.total||0;
+    if (totales['41101007'])totales['41101007'].haber += neto;
+    if (totales['21404'])   totales['21404'].haber += iva;
+    if (totales['11403002'])totales['11403002'].debe += iibb;
+    if (totales['21412002'])totales['21412002'].haber += iibb;
   });
-  
+
+  // Gastos
   gastos.filter(g => filtro(g.fecha)).forEach(g => {
-    const ct = GASTO_CUENTA[g.categoria] || '5.2.07';
-    if(cuentaTotales[ct]) cuentaTotales[ct].debe += g.monto||0;
-    if(cuentaTotales['1.1.01']) cuentaTotales['1.1.01'].haber += g.monto||0;
+    const ct = GASTO_CUENTA[g.categoria] || '51117003';
+    if (totales[ct])        totales[ct].debe += g.monto||0;
+    if (totales['11101001'] && g.categoria !== 'Proveedores') totales['11101001'].haber += g.monto||0;
+    if (totales['21101001'] && g.categoria === 'Proveedores') totales['21101001'].debe += g.monto||0;
   });
-  
+
+  // Compras
   compras.filter(c => filtro(c.fecha)).forEach(co => {
     const total = (co.precio_unitario||0)*(co.cantidad||0);
-    const iva = Math.round(total/1.21*0.21*100)/100;
-    const neto = total - iva;
-    if(cuentaTotales['1.2.01']) cuentaTotales['1.2.01'].debe += neto;
-    if(cuentaTotales['1.1.06']) cuentaTotales['1.1.06'].debe += iva;
-    if(cuentaTotales['2.1.01']) cuentaTotales['2.1.01'].haber += total;
+    const iva   = Math.round(total/1.21*0.21*100)/100;
+    const neto  = total - iva;
+    if (totales['11501008'])totales['11501008'].debe += neto;
+    if (totales['11403005'])totales['11403005'].debe += iva;
+    if (totales['21101001'])totales['21101001'].haber += total;
   });
-  
-  const tipos = ['Activo','Pasivo','Patrimonio','Ingreso','Egreso'];
+
+  const grupos = ['Caja y Bancos','Créditos','Créditos Fiscales','Bienes de Cambio','Bienes de Uso',
+                  'Deudas Comerciales','Deudas Sociales','Deudas Fiscales','Capital','Resultados',
+                  'Ventas','Costos','Personal','Servicios','Alquileres','Transporte','Seguros',
+                  'Impuestos','Comercialización','Gastos Generales','Gastos Financieros'];
+
   const tipoColor = {Activo:'#1565c0',Pasivo:'#c94040',Patrimonio:'#6a1b9a',Ingreso:'#1a5c38',Egreso:'#e65100'};
-  
-  let totalDebe = 0, totalHaber = 0;
-  
-  el.innerHTML = tipos.map(tipo => {
-    const cuentasTipo = PLAN_CUENTAS.filter(c => c.tipo === tipo);
-    const cuentasConMovimientos = cuentasTipo.filter(c => cuentaTotales[c.codigo].debe > 0 || cuentaTotales[c.codigo].haber > 0);
-    if(!cuentasConMovimientos.length) return '';
-    
-    const subtotalDebe = cuentasConMovimientos.reduce((s,c) => s+cuentaTotales[c.codigo].debe, 0);
-    const subtotalHaber = cuentasConMovimientos.reduce((s,c) => s+cuentaTotales[c.codigo].haber, 0);
-    totalDebe += subtotalDebe;
-    totalHaber += subtotalHaber;
-    
-    return `<div style="margin-bottom:16px">
-      <div style="background:${tipoColor[tipo]};color:#fff;padding:8px 12px;border-radius:8px 8px 0 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">${tipo}</div>
-      <table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead><tr style="background:#f5f5f5">
-          <th style="padding:6px 8px;text-align:left">Código</th>
-          <th style="padding:6px 8px;text-align:left">Cuenta</th>
-          <th style="padding:6px 8px;text-align:right;color:#c94040">Debe</th>
-          <th style="padding:6px 8px;text-align:right;color:#1a5c38">Haber</th>
-          <th style="padding:6px 8px;text-align:right">Saldo</th>
-        </tr></thead>
-        <tbody>
-          ${cuentasConMovimientos.map(c => {
-            const t = cuentaTotales[c.codigo];
-            const saldo = c.naturaleza==='D' ? t.debe-t.haber : t.haber-t.debe;
-            return `<tr style="border-bottom:1px solid #f0f0f0">
-              <td style="padding:6px 8px;color:#888;font-family:monospace">${c.codigo}</td>
-              <td style="padding:6px 8px">${c.nombre}</td>
-              <td style="padding:6px 8px;text-align:right;font-family:monospace">${t.debe?'$'+t.debe.toLocaleString('es-AR'):'-'}</td>
-              <td style="padding:6px 8px;text-align:right;font-family:monospace">${t.haber?'$'+t.haber.toLocaleString('es-AR'):'-'}</td>
-              <td style="padding:6px 8px;text-align:right;font-family:monospace;font-weight:600;color:${saldo>=0?tipoColor[tipo]:'#c94040'}">$${Math.abs(saldo).toLocaleString('es-AR')}</td>
-            </tr>`;
-          }).join('')}
-          <tr style="background:#f9f9f9;font-weight:700">
-            <td colspan="2" style="padding:6px 8px">Subtotal ${tipo}</td>
-            <td style="padding:6px 8px;text-align:right;font-family:monospace;color:#c94040">$${subtotalDebe.toLocaleString('es-AR')}</td>
-            <td style="padding:6px 8px;text-align:right;font-family:monospace;color:#1a5c38">$${subtotalHaber.toLocaleString('es-AR')}</td>
-            <td style="padding:6px 8px;text-align:right;font-family:monospace">$${Math.abs(subtotalDebe-subtotalHaber).toLocaleString('es-AR')}</td>
+  let totalDebeGen = 0, totalHaberGen = 0;
+  let rows = '';
+  let curTipo = '';
+
+  PLAN_CUENTAS.filter(c => totales[c.codigo] && (totales[c.codigo].debe > 0 || totales[c.codigo].haber > 0))
+    .forEach(c => {
+      const t = totales[c.codigo];
+      const saldo = c.naturaleza === 'D' ? t.debe - t.haber : t.haber - t.debe;
+      totalDebeGen  += t.debe;
+      totalHaberGen += t.haber;
+
+      if (c.tipo !== curTipo) {
+        curTipo = c.tipo;
+        const color = tipoColor[c.tipo] || '#333';
+        rows += `<tr style="background:${color}"><td colspan="5" style="padding:7px 12px;color:#fff;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">${c.tipo}</td></tr>`;
+      }
+
+      rows += `<tr style="border-bottom:1px solid #f5f5f5">
+        <td style="padding:6px 10px;font-family:'DM Mono',monospace;font-size:10px;color:#888">${c.codigo}</td>
+        <td style="padding:6px 10px;font-size:11px">${c.nombre}</td>
+        <td style="padding:6px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:11px;color:#c94040">${t.debe?'$'+t.debe.toLocaleString('es-AR'):'-'}</td>
+        <td style="padding:6px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:11px;color:#1a5c38">${t.haber?'$'+t.haber.toLocaleString('es-AR'):'-'}</td>
+        <td style="padding:6px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:${tipoColor[c.tipo]||'#333'}">$${Math.abs(saldo).toLocaleString('es-AR')} <span style="font-size:9px;color:#aaa">${saldo>=0?'D':'H'}</span></td>
+      </tr>`;
+    });
+
+  const cuadrado = Math.abs(totalDebeGen - totalHaberGen) < 1;
+
+  el.innerHTML = `
+    <div style="background:#1a3a5c;color:#fff;padding:12px 16px;border-radius:10px 10px 0 0;margin-bottom:0">
+      <div style="font-size:14px;font-weight:700">Balance de Sumas y Saldos</div>
+      <div style="font-size:11px;opacity:.7;margin-top:2px">TODO PYMES S.R.L. — Drugstore · ${mes||'Acumulado'}</div>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#e8f0fe">
+            <th style="padding:8px 10px;text-align:left;font-size:10px;color:#1a3a5c;font-weight:700;text-transform:uppercase">Código</th>
+            <th style="padding:8px 10px;text-align:left;font-size:10px;color:#1a3a5c;font-weight:700;text-transform:uppercase">Cuenta</th>
+            <th style="padding:8px 10px;text-align:right;font-size:10px;color:#c94040;font-weight:700;text-transform:uppercase">Sumas Debe</th>
+            <th style="padding:8px 10px;text-align:right;font-size:10px;color:#1a5c38;font-weight:700;text-transform:uppercase">Sumas Haber</th>
+            <th style="padding:8px 10px;text-align:right;font-size:10px;color:#1a3a5c;font-weight:700;text-transform:uppercase">Saldo</th>
           </tr>
-        </tbody>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr style="background:#1a3a5c;color:#fff;font-weight:700">
+            <td colspan="2" style="padding:10px 12px;font-size:13px">TOTAL GENERAL</td>
+            <td style="padding:10px 12px;text-align:right;font-family:'DM Mono',monospace;font-size:13px">$${totalDebeGen.toLocaleString('es-AR')}</td>
+            <td style="padding:10px 12px;text-align:right;font-family:'DM Mono',monospace;font-size:13px">$${totalHaberGen.toLocaleString('es-AR')}</td>
+            <td style="padding:10px 12px;text-align:right;font-size:12px;color:${cuadrado?'#6fcf97':'#eb5757'};font-weight:700">
+              ${cuadrado ? '✅ CUADRADO' : '⚠️ DESCUADRADO'}
+            </td>
+          </tr>
+        </tfoot>
       </table>
     </div>`;
-  }).join('') + `
-  <div style="background:#1a3a5c;color:#fff;padding:12px 16px;border-radius:10px;margin-top:8px;display:flex;justify-content:space-between;align-items:center">
-    <span style="font-weight:700;font-size:14px">TOTAL GENERAL</span>
-    <div style="display:flex;gap:24px">
-      <span style="font-family:monospace">Debe: $${totalDebe.toLocaleString('es-AR')}</span>
-      <span style="font-family:monospace">Haber: $${totalHaber.toLocaleString('es-AR')}</span>
-      <span style="font-weight:700;color:${Math.abs(totalDebe-totalHaber)<1?'#6fcf97':'#eb5757'}">${Math.abs(totalDebe-totalHaber)<1?'✅ CUADRADO':'⚠️ DESCUADRADO'}</span>
-    </div>
-  </div>`;
 }
 
 function exportarBalancePDF() {
@@ -1980,174 +2329,345 @@ function exportarBalancePDF() {
   const win = window.open('', '_blank');
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>Balance ${mes}</title>
-    <style>body{font-family:Arial,sans-serif;padding:20px;font-size:11px}h2{color:#1a3a5c}table{width:100%;border-collapse:collapse}@media print{button{display:none}}</style>
+    <style>body{font-family:Arial,sans-serif;padding:24px;font-size:10px}
+    h2{color:#1a3a5c}table{width:100%;border-collapse:collapse}
+    @media print{button{display:none!important}}</style>
     </head><body>
     <h2>Balance de Sumas y Saldos — ${mes}</h2>
-    <p>${STORE?.nombre||'Tienda'} · ${new Date().toLocaleDateString('es-AR')}</p>
+    <p style="color:#888;font-size:10px;margin-bottom:16px">TODO PYMES S.R.L. — Drugstore · ${new Date().toLocaleDateString('es-AR')}</p>
     ${content}
     <script>window.print();<\/script></body></html>`);
   win.document.close();
 }
 
-// ── LIBRO IVA DIGITAL RG 3685 ──
-const TIPO_CBTE = {
-  'Tarjeta': '006', 'Efectivo': '006', 'Transferencia': '006',
-  'MercadoPago': '006', 'Cuenta Corriente': '006',
-};
-// Default: Tique Factura B (008) for all unless configured
-const TIPO_CBTE_DEFAULT = '011'; // Factura C para consumidor final
-
-function padL(val, len, char='0') { return String(val).padStart(len, char); }
-function padR(val, len) { return String(val).padEnd(len, ' '); }
+// ══════════════════════════════════════════
+// LIBRO IVA DIGITAL — RG 3685
+// Formato confirmado desde archivos reales de TODO PYMES
+// ══════════════════════════════════════════
+function padL(val, len, char='0') { return String(val||'').padStart(len, char); }
+function padR(val, len)           { return String(val||'').padEnd(len, ' ').substring(0,len); }
+function fmtFecha(f)              { return (f||'').replace(/-/g,''); }
 function fmtMonto(val, len=15, dec=2) {
-  return padL(Math.round((val||0)*Math.pow(10,dec)), len);
+  return padL(Math.round(Math.abs(val||0) * Math.pow(10,dec)), len);
 }
-function fmtFecha(fecha) { return (fecha||'').replace(/-/g,''); }
 
 function generarIVA(tipo) {
   const periodo = document.getElementById('iva-periodo')?.value;
-  if(!periodo) { showToast('Seleccioná el período', 'err'); return; }
-  
+  if (!periodo) { showToast('Seleccioná el período', 'err'); return; }
+
   const [year, month] = periodo.split('-');
   const desde = `${year}-${month}-01`;
   const hasta = `${year}-${month}-31`;
-  
-  let contenido = '';
+  const ptoVta = padL(STORE?.punto_venta || '1', 5);
+
+  let lineas = [];
   let filename = '';
-  
-  if(tipo === 'ventas_cbte') {
-    filename = `LIBRO_IVA_DIGITAL_VENTAS_CBTE.txt`;
-    const ventasPeriodo = sales.filter(v => v.fecha >= desde && v.fecha <= hasta);
-    contenido = ventasPeriodo.map((v, i) => {
-      const nroFormatted = padL(i+1, 20);
-      const tipoCbte = '011'; // Factura C default
-      const ptoVta = padL(STORE?.punto_venta || '1', 5);
-      const total = fmtMonto(v.total || 0);
-      const neto = fmtMonto((v.total||0) / 1.21);
-      const iva = fmtMonto((v.total||0) / 1.21 * 0.21);
-      // cod_doc: 99=CF, 96=DNI, 80=CUIT
-      const codDoc = '99';
-      const nroDoc = padL('0', 20);
-      const denom = padR('CONSUMIDOR FINAL', 30);
-      
-      return fmtFecha(v.fecha) +    // [0:8]
-        tipoCbte +                   // [8:11]
-        ptoVta +                     // [11:16]
-        nroFormatted +               // [16:36] nro_desde
-        nroFormatted +               // [36:56] nro_hasta
-        codDoc +                     // [56:58]
-        nroDoc +                     // [58:78]
-        denom +                      // [78:108]
-        total +                      // [108:123]
-        padL(0,15) +                 // imp_tot_conc
-        neto +                       // imp_neto_grav
-        padL(0,15) +                 // liq_tur
-        padL(0,15) +                 // imp_int_liq
-        padL(0,15) +                 // perc_iva
-        padL(0,15) +                 // perc_nac
-        iva +                        // imp_iva (213-228)
-        padL(0,15) +                 // imp_internos
-        padL(0,15) +                 // gratuitos
-        '1' +                        // cant_alicuotas
-        ' ' +                        // cod_operacion
-        'PES' +                      // moneda
-        padL(10000,10) +             // tipo_cambio 1.0000
-        fmtFecha(v.fecha);           // fecha_cbte_asoc
-    }).join('\r\n');
-    
-  } else if(tipo === 'ventas_alic') {
-    filename = `LIBRO_IVA_DIGITAL_VENTAS_ALICUOTAS.txt`;
-    const ventasPeriodo = sales.filter(v => v.fecha >= desde && v.fecha <= hasta);
-    contenido = ventasPeriodo.map((v, i) => {
-      const tipoCbte = '011';
-      const ptoVta = padL(STORE?.punto_venta || '1', 5);
-      const nroFormatted = padL(i+1, 20);
-      const neto = fmtMonto((v.total||0)/1.21, 15, 3);
-      const alicId = '0005'; // 21%
+
+  if (tipo === 'ventas_cbte') {
+    filename = `LIBRO_IVA_DIGITAL_VENTAS_CBTE_${periodo.replace('-','')}.txt`;
+    const vents = sales.filter(v => v.fecha >= desde && v.fecha <= hasta)
+                       .sort((a,b) => a.fecha.localeCompare(b.fecha));
+    lineas = vents.map((v, i) => {
+      const nro    = padL(i+1, 20);
+      const total  = fmtMonto(v.total||0);
+      const iva    = fmtMonto((v.total||0)/1.21*0.21);
+      const neto   = fmtMonto((v.total||0)/1.21);
+      // Factura A si el cliente tiene CUIT registrado, sino Tique B
+      const tipoC  = v.cuit_comprador ? CONFIG_FISCAL.tipo_cbte_fac_a : CONFIG_FISCAL.tipo_cbte_ticket;
+      const codDoc = v.cuit_comprador ? '80' : '99';
+      const nroDoc = padL(v.cuit_comprador ? v.cuit_comprador.replace(/-/g,'') : '0', 20);
+      const denom  = padR(v.cliente || 'CONSUMIDOR FINAL', 30);
+      return [
+        fmtFecha(v.fecha),  // [0:8]   fecha
+        tipoC,              // [8:11]  tipo_cbte
+        ptoVta,             // [11:16] pto_vta
+        nro,                // [16:36] nro_cbte_desde
+        nro,                // [36:56] nro_cbte_hasta
+        codDoc,             // [56:58] cod_doc
+        nroDoc,             // [58:78] nro_doc
+        denom,              // [78:108] denominacion
+        total,              // [108:123] imp_total
+        padL(0,15),         // [123:138] imp_tot_conc
+        neto,               // [138:153] imp_neto_grav
+        padL(0,15),         // [153:168] liq_tur
+        padL(0,15),         // [168:183] imp_int
+        padL(0,15),         // [183:198] perc_iva
+        padL(0,15),         // [198:213] perc_nac
+        iva,                // [213:228] imp_iva
+        padL(0,15),         // [228:243] imp_internos
+        padL(0,15),         // [243:258] gratuitos
+        '1',                // [258:259] cant_alicuotas
+        ' ',                // [259:260] cod_operacion
+        'PES',              // [260:263] moneda
+        padL(10000,10),     // [263:273] tipo_cambio (1.0000 = 10000 con 4 dec)
+        fmtFecha(v.fecha),  // [273:281] fecha_cbte_asoc
+      ].join('');
+    });
+
+  } else if (tipo === 'ventas_alic') {
+    filename = `LIBRO_IVA_DIGITAL_VENTAS_ALICUOTAS_${periodo.replace('-','')}.txt`;
+    const vents = sales.filter(v => v.fecha >= desde && v.fecha <= hasta)
+                       .sort((a,b) => a.fecha.localeCompare(b.fecha));
+    lineas = vents.map((v, i) => {
+      const tipoC  = v.cuit_comprador ? CONFIG_FISCAL.tipo_cbte_fac_a : CONFIG_FISCAL.tipo_cbte_ticket;
+      const nro    = padL(i+1, 20);
+      const neto   = fmtMonto((v.total||0)/1.21, 15, 3);
       const ivaLiq = fmtMonto((v.total||0)/1.21*0.21, 15, 3);
-      return tipoCbte + ptoVta + nroFormatted + neto + alicId + ivaLiq;
-    }).join('\r\n');
-    
-  } else if(tipo === 'compras_cbte') {
-    filename = `LIBRO_IVA_DIGITAL_COMPRAS_CBTE.txt`;
-    const comprasPeriodo = compras.filter(c => c.fecha >= desde && c.fecha <= hasta);
-    contenido = comprasPeriodo.map((co, i) => {
-      const total = (co.precio_unitario||0)*(co.cantidad||0);
-      const neto = total/1.21;
-      const iva = neto*0.21;
-      const tipoCbte = '001'; // Factura A proveedor
-      const ptoVta = padL('00001', 5);
-      const nroFormatted = padL(i+1, 20);
-      const codDoc = '80'; // CUIT
-      const nroDoc = padL('0',20);
-      const denom = padR(co.proveedor||'PROVEEDOR', 30);
-      
-      return fmtFecha(co.fecha) + tipoCbte + ptoVta +
-        nroFormatted + nroFormatted + // desde/hasta
-        codDoc + nroDoc + denom +
-        fmtMonto(total) + padL(0,15) + fmtMonto(neto) +
-        padL(0,15) + padL(0,15) + padL(0,15) + padL(0,15) +
-        fmtMonto(iva) + padL(0,15) + padL(0,15) +
-        '1' + ' ' + 'PES' + padL(10000,10) + fmtFecha(co.fecha);
-    }).join('\r\n');
-    
-  } else if(tipo === 'compras_alic') {
-    filename = `LIBRO_IVA_DIGITAL_COMPRAS_ALICUOTAS.txt`;
-    const comprasPeriodo = compras.filter(c => c.fecha >= desde && c.fecha <= hasta);
-    contenido = comprasPeriodo.map((co, i) => {
-      const total = (co.precio_unitario||0)*(co.cantidad||0);
-      const neto = total/1.21;
-      const ivaLiq = neto*0.21;
-      const tipoCbte = '001';
-      const ptoVta = padL('00001', 5);
-      return tipoCbte + ptoVta + padL(i+1,20) + fmtMonto(neto,15,3) + '0005' + fmtMonto(ivaLiq,15,3);
-    }).join('\r\n');
+      return [tipoC, ptoVta, nro, neto, '0005', ivaLiq].join(''); // 0005 = 21%
+    });
+
+  } else if (tipo === 'compras_cbte') {
+    filename = `LIBRO_IVA_DIGITAL_COMPRAS_CBTE_${periodo.replace('-','')}.txt`;
+    const comps = compras.filter(c => c.fecha >= desde && c.fecha <= hasta)
+                         .sort((a,b) => a.fecha.localeCompare(b.fecha));
+    lineas = comps.map((co, i) => {
+      const total  = (co.precio_unitario||0)*(co.cantidad||0);
+      const iva    = fmtMonto(total/1.21*0.21);
+      const neto   = fmtMonto(total/1.21);
+      const totFmt = fmtMonto(total);
+      const nro    = padL(i+1, 20);
+      const ptoV2  = padL('00001', 5);
+      const denom  = padR(co.proveedor || 'PROVEEDOR', 30);
+      return [
+        fmtFecha(co.fecha),
+        CONFIG_FISCAL.tipo_cbte_fac_a,  // Facturas A de proveedores
+        ptoV2, nro, nro,                // pto_vta, nro_desde, nro_hasta
+        '80', padL('0',20),             // cod_doc CUIT, nro_doc (pendiente)
+        denom,                          // denominacion
+        totFmt,                         // imp_total
+        padL(0,15),                     // imp_tot_conc
+        neto,                           // imp_neto_grav
+        padL(0,15),padL(0,15),padL(0,15),padL(0,15),
+        iva,                            // imp_iva
+        padL(0,15),padL(0,15),
+        '1',' ','PES',padL(10000,10),
+        fmtFecha(co.fecha),
+      ].join('');
+    });
+
+  } else if (tipo === 'compras_alic') {
+    filename = `LIBRO_IVA_DIGITAL_COMPRAS_ALICUOTAS_${periodo.replace('-','')}.txt`;
+    const comps = compras.filter(c => c.fecha >= desde && c.fecha <= hasta)
+                         .sort((a,b) => a.fecha.localeCompare(b.fecha));
+    lineas = comps.map((co, i) => {
+      const total  = (co.precio_unitario||0)*(co.cantidad||0);
+      const neto   = fmtMonto(total/1.21, 15, 3);
+      const ivaLiq = fmtMonto(total/1.21*0.21, 15, 3);
+      return [CONFIG_FISCAL.tipo_cbte_fac_a, padL('00001',5), padL(i+1,20), neto, '0005', ivaLiq].join('');
+    });
   }
-  
-  // Download
-  const blob = new Blob([contenido], {type:'text/plain;charset=latin-1'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  a.click(); URL.revokeObjectURL(url);
-  
-  // Preview
-  const lines = contenido.split('\n').length;
-  document.getElementById('iva-preview').innerHTML = 
-    `<div style="background:#eaf5ee;border:1.5px solid #a5d6a7;border-radius:8px;padding:10px 12px;font-size:12px;color:#1a5c38">
-      ✅ <b>${filename}</b> generado — ${lines} registros
+
+  if (!lineas.length) {
+    showToast('Sin registros para el período seleccionado', 'err');
+    return;
+  }
+
+  const contenido = lineas.join('\r\n');
+  const blob = new Blob([contenido], {type:'text/plain;charset=utf-8'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+
+  document.getElementById('iva-preview').innerHTML =
+    `<div style="background:#eaf5ee;border:1.5px solid #a5d6a7;border-radius:8px;padding:10px 14px;font-size:12px;color:#1a5c38;margin-top:8px">
+      ✅ <b>${filename}</b> — ${lineas.length} registro${lineas.length!==1?'s':''} generado${lineas.length!==1?'s':''}
     </div>`;
   showToast(`✅ ${filename} descargado`, 'ok');
 }
 
 function generarIVATodos() {
   const periodo = document.getElementById('iva-periodo')?.value;
-  if(!periodo) { showToast('Seleccioná el período', 'err'); return; }
+  if (!periodo) { showToast('Seleccioná el período', 'err'); return; }
   ['ventas_cbte','ventas_alic','compras_cbte','compras_alic'].forEach((t,i) => {
-    setTimeout(() => generarIVA(t), i * 500);
+    setTimeout(() => generarIVA(t), i * 600);
   });
+  setTimeout(() => showToast('✅ Los 4 archivos descargados', 'ok'), 3000);
 }
 
-// ── RENDER PLAN DE CUENTAS ──
+// ══════════════════════════════════════════
+// PLAN DE CUENTAS — Render
+// ══════════════════════════════════════════
 function renderPlanCuentas() {
   const el = document.getElementById('plan-cuentas-list');
-  if(!el) return;
-  const tipos = ['Activo','Pasivo','Patrimonio','Ingreso','Egreso'];
+  if (!el) return;
+
   const tipoColor = {Activo:'#1565c0',Pasivo:'#c94040',Patrimonio:'#6a1b9a',Ingreso:'#1a5c38',Egreso:'#e65100'};
-  el.innerHTML = tipos.map(tipo => {
-    const ctas = PLAN_CUENTAS.filter(c => c.tipo === tipo);
-    return `<div style="margin-bottom:16px">
-      <div style="background:${tipoColor[tipo]};color:#fff;padding:8px 14px;border-radius:8px 8px 0 0;font-size:11px;font-weight:700;text-transform:uppercase">${tipo}</div>
-      ${ctas.map(c => `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid #f0f0f0;background:#fff">
-        <span style="font-family:monospace;font-size:11px;color:#888;min-width:60px">${c.codigo}</span>
-        <span style="font-size:13px;flex:1">${c.nombre}</span>
-        <span style="font-size:10px;color:#fff;background:${tipoColor[tipo]};padding:2px 8px;border-radius:10px">${c.naturaleza==='D'?'Deudora':'Acreedora'}</span>
-      </div>`).join('')}
-    </div>`;
-  }).join('');
+  const grupos = {};
+  PLAN_CUENTAS.forEach(c => {
+    const key = c.tipo + '|' + c.grupo;
+    if (!grupos[key]) grupos[key] = [];
+    grupos[key].push(c);
+  });
+
+  let html = '';
+  let curTipo = '';
+
+  Object.entries(grupos).forEach(([key, ctas]) => {
+    const [tipo, grupo] = key.split('|');
+    const color = tipoColor[tipo] || '#333';
+
+    if (tipo !== curTipo) {
+      curTipo = tipo;
+      html += `<div style="background:${color};color:#fff;padding:10px 14px;border-radius:8px 8px 0 0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-top:16px">${tipo}</div>`;
+    }
+
+    html += `<div style="padding:6px 14px;background:#f0f4ff;font-size:10px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.5px;border-left:3px solid ${color}">${grupo}</div>`;
+
+    ctas.forEach(c => {
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid #f5f5f5;background:#fff">
+        <span style="font-family:'DM Mono',monospace;font-size:10px;color:#888;min-width:75px">${c.codigo}</span>
+        <span style="font-size:11px;color:#555;min-width:90px">${c.jerarquia}</span>
+        <span style="font-size:12px;flex:1;font-weight:500">${c.nombre}</span>
+        <span style="font-size:10px;color:#fff;background:${color};padding:2px 8px;border-radius:10px;flex-shrink:0">${c.naturaleza==='D'?'Deudora':'Acreedora'}</span>
+      </div>`;
+    });
+  });
+
+  el.innerHTML = html;
 }
 
-// ── TABS NAVIGATION ──
+// ══════════════════════════════════════════
+// LIBRO DIARIO
+// ══════════════════════════════════════════
+function renderLibroDiario() {
+  const el = document.getElementById('cont-asientos-list');
+  if (!el) return;
+  const mes = document.getElementById('cont-mes')?.value || new Date().toISOString().substring(0,7);
+
+  nroAsiento = 1;
+  const asientos = generarAsientosPeriodo(mes);
+
+  if (!asientos.length) {
+    el.innerHTML = '<div class="empty">Sin movimientos en el período seleccionado</div>';
+    const rd = document.getElementById('cont-resumen-dia');
+    if (rd) rd.style.display = 'none';
+    return;
+  }
+
+  // Summary stats
+  const totalDebe  = asientos.reduce((s,a) => s + a.total_debe, 0);
+  const totalHaber = asientos.reduce((s,a) => s + a.total_haber, 0);
+  const cuadrado   = Math.abs(totalDebe - totalHaber) < 1;
+
+  const rd = document.getElementById('cont-resumen-dia');
+  const stats = document.getElementById('cont-dia-stats');
+  if (rd && stats) {
+    rd.style.display = 'block';
+    stats.innerHTML = `
+      <div style="text-align:center;padding:8px;background:#fff;border-radius:8px">
+        <div style="font-size:10px;color:#888;margin-bottom:3px">Asientos</div>
+        <div style="font-size:18px;font-weight:700;color:#1a3a5c">${asientos.length}</div>
+      </div>
+      <div style="text-align:center;padding:8px;background:#fff;border-radius:8px">
+        <div style="font-size:10px;color:#888;margin-bottom:3px">Total Debe</div>
+        <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:#c94040">$${totalDebe.toLocaleString('es-AR')}</div>
+      </div>
+      <div style="text-align:center;padding:8px;background:${cuadrado?'#eaf5ee':'#fdeaea'};border-radius:8px">
+        <div style="font-size:10px;color:#888;margin-bottom:3px">Estado</div>
+        <div style="font-size:13px;font-weight:700;color:${cuadrado?'#1a5c38':'#c94040'}">${cuadrado?'✅ Cuadra':'⚠️ Revisar'}</div>
+      </div>`;
+  }
+
+  // Render asientos
+  el.innerHTML = asientos.map(a => `
+    <div style="background:#fff;border:1.5px solid #e8e8e8;border-radius:12px;margin-bottom:10px;overflow:hidden">
+      <!-- Header del asiento -->
+      <div style="background:#f8f8f8;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-family:'DM Mono',monospace;font-size:10px;color:#1a3a5c;font-weight:700;background:#e8f0fe;padding:3px 8px;border-radius:10px">N° ${a.nro}</span>
+          <span style="font-size:11px;font-weight:600;color:#333">${a.descripcion}</span>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:10px;color:#888">${a.fecha} · ${a.comprobante}</div>
+          <div style="font-size:10px;font-weight:600;color:#1a3a5c;margin-top:1px">${a.tipo}</div>
+        </div>
+      </div>
+      <!-- Líneas del asiento -->
+      <div style="padding:8px 14px">
+        ${a.lineas.map(l => `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #fafafa">
+            <span style="font-family:'DM Mono',monospace;font-size:10px;color:#888;min-width:70px">${l.cuenta}</span>
+            <span style="font-size:11px;flex:1;color:#333">${l.nombre}</span>
+            <span style="font-size:10px;color:#aaa;min-width:80px">${l.detalle}</span>
+            <span style="font-family:'DM Mono',monospace;font-size:11px;font-weight:600;min-width:90px;text-align:right;color:${l.debe?'#c94040':'#ddd'}">${l.debe?'$'+l.importe.toLocaleString('es-AR'):''}</span>
+            <span style="font-family:'DM Mono',monospace;font-size:11px;font-weight:600;min-width:90px;text-align:right;color:${!l.debe?'#1a5c38':'#ddd'}">${!l.debe?'$'+l.importe.toLocaleString('es-AR'):''}</span>
+          </div>`).join('')}
+        <!-- Totales del asiento -->
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:6px 0 2px;font-family:'DM Mono',monospace;font-size:11px">
+          <span style="color:#c94040;font-weight:700">D: $${a.total_debe.toLocaleString('es-AR')}</span>
+          <span style="color:#aaa">·</span>
+          <span style="color:#1a5c38;font-weight:700">H: $${a.total_haber.toLocaleString('es-AR')}</span>
+          <span style="color:${Math.abs(a.total_debe-a.total_haber)<0.01?'#1a5c38':'#c94040'};margin-left:4px">
+            ${Math.abs(a.total_debe-a.total_haber)<0.01?'✅':'⚠️'}
+          </span>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function exportarLibroDiarioPDF() {
+  const mes = document.getElementById('cont-mes')?.value || new Date().toISOString().substring(0,7);
+  nroAsiento = 1;
+  const asientosData = generarAsientosPeriodo(mes);
+  if (!asientosData.length) { showToast('Sin asientos para exportar', 'err'); return; }
+
+  const totalDebe  = asientosData.reduce((s,a) => s+a.total_debe, 0);
+  const totalHaber = asientosData.reduce((s,a) => s+a.total_haber, 0);
+
+  const filas = asientosData.map(a => `
+    <tr style="background:#f5f5f5">
+      <td colspan="5" style="padding:6px 8px;font-size:10px;font-weight:700;color:#1a3a5c">
+        N° ${a.nro} · ${a.fecha} · ${a.tipo} — ${a.descripcion}
+      </td>
+    </tr>
+    ${a.lineas.map(l => `<tr>
+      <td style="padding:4px 8px;font-family:monospace;font-size:9px;color:#888">${l.cuenta}</td>
+      <td style="padding:4px 8px;font-size:10px">${l.nombre}</td>
+      <td style="padding:4px 8px;font-size:9px;color:#555">${l.detalle}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;font-size:10px;color:#c94040">${l.debe?'$'+l.importe.toLocaleString('es-AR'):''}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;font-size:10px;color:#1a5c38">${!l.debe?'$'+l.importe.toLocaleString('es-AR'):''}</td>
+    </tr>`).join('')}`).join('');
+
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Libro Diario ${mes}</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:20px;font-size:10px;color:#12100e}
+    h2{color:#1a3a5c;margin-bottom:4px}
+    .sub{font-size:9px;color:#888;margin-bottom:16px}
+    table{width:100%;border-collapse:collapse;font-size:10px}
+    th{background:#1a3a5c;color:#fff;padding:6px 8px;text-align:left}
+    th.r{text-align:right}
+    tr:nth-child(even) td{background:#fafafa}
+    .total{background:#1a3a5c;color:#fff;font-weight:700}
+    @media print{button{display:none!important}}
+  </style></head><body>
+  <h2>Libro Diario — ${mes}</h2>
+  <div class="sub">TODO PYMES S.R.L. — Drugstore · CUIT: 30-71140779-7 · Generado: ${new Date().toLocaleDateString('es-AR')}</div>
+  <table>
+    <thead><tr>
+      <th>Código</th><th>Cuenta</th><th>Detalle</th>
+      <th class="r" style="color:#ffcdd2">Debe</th>
+      <th class="r" style="color:#c8e6c9">Haber</th>
+    </tr></thead>
+    <tbody>${filas}</tbody>
+    <tfoot><tr class="total">
+      <td colspan="3" style="padding:8px">TOTALES GENERALES — ${asientosData.length} asientos</td>
+      <td style="text-align:right;padding:8px;font-family:monospace">$${totalDebe.toLocaleString('es-AR')}</td>
+      <td style="text-align:right;padding:8px;font-family:monospace">$${totalHaber.toLocaleString('es-AR')}</td>
+    </tr></tfoot>
+  </table>
+  <p style="margin-top:16px;color:${Math.abs(totalDebe-totalHaber)<1?'#1a5c38':'#c94040'};font-weight:700">
+    ${Math.abs(totalDebe-totalHaber)<1?'✅ Libro cuadrado — Debe = Haber':'⚠️ LIBRO DESCUADRADO — revisar asientos'}
+  </p>
+  <script>window.print();<\/script>
+  </body></html>`);
+  win.document.close();
+}
+
+// ══════════════════════════════════════════
+// TABS + INIT
+// ══════════════════════════════════════════
 function switchContTab(btn) {
   const tabName = btn.dataset.tab;
   document.querySelectorAll('.cont-tab').forEach(b => {
@@ -2158,46 +2678,56 @@ function switchContTab(btn) {
   btn.style.borderColor = '#1a3a5c';
   btn.style.background = '#e8f0fe';
   btn.style.color = '#1a3a5c';
-  
+
   ['asientos','mayor','balance','iva','ctas'].forEach(t => {
     const el = document.getElementById('cont-tab-'+t);
-    if(el) el.style.display = t === tabName ? 'block' : 'none';
+    if (el) el.style.display = t === tabName ? 'block' : 'none';
   });
-  
-  if(tabName === 'mayor') {
-    const sel = document.getElementById('mayor-cuenta-sel');
-    if(sel && sel.options.length <= 1) {
-      PLAN_CUENTAS.forEach(c => {
-        const opt = document.createElement('option');
-        opt.value = c.codigo;
-        opt.textContent = `${c.codigo} — ${c.nombre}`;
-        sel.appendChild(opt);
-      });
-    }
-    renderMayor();
-  }
-  if(tabName === 'balance') {
-    const el = document.getElementById('balance-mes');
-    if(el && !el.value) el.value = new Date().toISOString().substring(0,7);
-    renderBalance();
-  }
-  if(tabName === 'ctas') renderPlanCuentas();
-  if(tabName === 'iva') {
-    const el = document.getElementById('iva-periodo');
-    if(el && !el.value) el.value = new Date().toISOString().substring(0,7);
-  }
+
+  if (tabName === 'asientos') { renderLibroDiario(); agregarBtnLibroDiario(); }
+  if (tabName === 'mayor')    { popularSelectCuentas(); renderMayor(); }
+  if (tabName === 'balance')  { setDefaultMes('balance-mes'); renderBalance(); }
+  if (tabName === 'iva')      setDefaultMes('iva-periodo');
+  if (tabName === 'ctas')     renderPlanCuentas();
 }
 
-// ── INIT CONTABILIDAD ──
-function initContabilidad() {
-  const mesEl = document.getElementById('cont-mes');
-  if(mesEl && !mesEl.value) mesEl.value = new Date().toISOString().substring(0,7);
-  const mayorDesde = document.getElementById('mayor-mes-desde');
-  const mayorHasta = document.getElementById('mayor-mes-hasta');
-  const hoy = new Date().toISOString().substring(0,7);
-  if(mayorDesde && !mayorDesde.value) mayorDesde.value = hoy;
-  if(mayorHasta && !mayorHasta.value) mayorHasta.value = hoy;
+function popularSelectCuentas() {
+  const sel = document.getElementById('mayor-cuenta-sel');
+  if (!sel || sel.options.length > 1) return;
+  PLAN_CUENTAS.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.codigo;
+    opt.textContent = `${c.codigo} — ${c.nombre}`;
+    sel.appendChild(opt);
+  });
 }
+
+function setDefaultMes(id) {
+  const el = document.getElementById(id);
+  if (el && !el.value) el.value = new Date().toISOString().substring(0,7);
+}
+
+function initContabilidad() {
+  setDefaultMes('cont-mes');
+  setDefaultMes('mayor-mes-desde');
+  setDefaultMes('mayor-mes-hasta');
+  renderLibroDiario();
+}
+
+// Agregar botón "Exportar Libro Diario PDF" al tab de asientos
+// (se inyecta al switchContTab cuando se activa el tab)
+function agregarBtnLibroDiario() {
+  const btnArea = document.querySelector('#cont-tab-asientos');
+  if (!btnArea || document.getElementById('btn-libro-diario')) return;
+  const btn = document.createElement('button');
+  btn.id = 'btn-libro-diario';
+  btn.textContent = '📄 Exportar Libro Diario PDF';
+  btn.style.cssText = 'width:100%;margin-top:12px;padding:13px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:600;cursor:pointer';
+  btn.onclick = exportarLibroDiarioPDF;
+  btnArea.appendChild(btn);
+}
+
+
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -2339,7 +2869,7 @@ function updateDate(){
 
 function renderAll(){
   renderCats();renderProds();renderHist();renderCaja();
-  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();renderProyecciones();setTimeout(checkVencimientos,2000);
+  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();renderProyecciones();setTimeout(checkVencimientos,2000);cargarConfigFiscal();
 }
 
 // ══ SUPABASE CRUD ══
@@ -3893,6 +4423,53 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// ── CONFIGURACIÓN FISCAL ──
+function guardarConfigFiscal() {
+  const ptoVenta   = document.getElementById('cfg-pto-venta')?.value.trim();
+  const cuit        = document.getElementById('cfg-cuit')?.value.trim();
+  const condicion   = document.getElementById('cfg-condicion-iva')?.value;
+  const iibb        = parseFloat(document.getElementById('cfg-iibb')?.value) || 3;
+
+  if (!ptoVenta) { showToast('⚠️ Ingresá el punto de venta', 'err'); return; }
+
+  // Save to STORE object and Supabase
+  const updates = {
+    punto_venta: parseInt(ptoVenta),
+    cuit: cuit || null,
+    condicion_iva: condicion,
+    alicuota_iibb: iibb,
+  };
+
+  SB.from('tiendas').update(updates).eq('id', STORE.id).then(({error}) => {
+    if (error) { showToast('❌ Error al guardar', 'err'); return; }
+    STORE.punto_venta    = parseInt(ptoVenta);
+    STORE.cuit           = cuit;
+    STORE.condicion_iva  = condicion;
+    STORE.alicuota_iibb  = iibb;
+    // Update CONFIG_FISCAL
+    CONFIG_FISCAL.punto_venta    = String(parseInt(ptoVenta)).padStart(5,'0');
+    CONFIG_FISCAL.alicuota_iibb  = iibb / 100;
+    const msg = document.getElementById('fiscal-saved-msg');
+    if (msg) { msg.style.display = 'block'; setTimeout(() => msg.style.display = 'none', 3000); }
+    showToast('✅ Configuración fiscal guardada', 'ok');
+  });
+}
+
+function cargarConfigFiscal() {
+  if (!STORE) return;
+  const ptv = document.getElementById('cfg-pto-venta');
+  const cuit = document.getElementById('cfg-cuit');
+  const cond = document.getElementById('cfg-condicion-iva');
+  const iibb = document.getElementById('cfg-iibb');
+  if (ptv && STORE.punto_venta) ptv.value = STORE.punto_venta;
+  if (cuit && STORE.cuit) cuit.value = STORE.cuit;
+  if (cond && STORE.condicion_iva) cond.value = STORE.condicion_iva;
+  if (iibb) iibb.value = STORE.alicuota_iibb || 3;
+  // Update CONFIG_FISCAL with stored values
+  if (STORE.punto_venta) CONFIG_FISCAL.punto_venta = String(STORE.punto_venta).padStart(5,'0');
+  if (STORE.alicuota_iibb) CONFIG_FISCAL.alicuota_iibb = STORE.alicuota_iibb / 100;
+}
+
 function actualizarMargenPreview(){
   const precio = parseFloat(document.getElementById('np-price')?.value)||0;
   const costo = parseFloat(document.getElementById('np-costo')?.value)||0;
@@ -3926,6 +4503,8 @@ function gp(id,el){
     pg.style.display='block';
   }
   if(el) el.classList.add('on');
+  if(id==='pcont'){ initContabilidad(); agregarBtnLibroDiario(); }
+  if(id==='pcfg') cargarConfigFiscal();
   document.getElementById('cart').classList.remove('show');
   if(id==='pr')renderReportes();
   if(id==='pcc')renderCaja();
