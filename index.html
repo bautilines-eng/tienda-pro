@@ -1669,87 +1669,70 @@ function generarLinkMP() {
 
 // ── PLAN DE CUENTAS OFICIAL TODO PYMES S.R.L. ──
 // Solo las cuentas relevantes para el Drugstore
-const PLAN_CUENTAS = [
-  // ── ACTIVO CORRIENTE ──────────────────────────
-  // Disponibilidades
-  { codigo:'11101001', nombre:'CAJA EN PESOS',                        jerarquia:'1.1.1.01.001', tipo:'Activo', grupo:'Caja y Bancos',         naturaleza:'D' },
-  { codigo:'11102006', nombre:'BANCO PATAGONIA C/C',                  jerarquia:'1.1.1.02.006', tipo:'Activo', grupo:'Caja y Bancos',         naturaleza:'D' },
-  // Créditos
-  { codigo:'11301001', nombre:'CUENTA CORRIENTE (Clientes)',          jerarquia:'1.1.3.01.001', tipo:'Activo', grupo:'Créditos',              naturaleza:'D' },
-  { codigo:'11301002', nombre:'TARJETAS A COBRAR (Fiserv)',           jerarquia:'1.1.3.01.002', tipo:'Activo', grupo:'Créditos',              naturaleza:'D' },
-  { codigo:'11301005', nombre:'DEUDORES MOROSOS',                     jerarquia:'1.1.3.01.005', tipo:'Activo', grupo:'Créditos',              naturaleza:'D' },
-  // Impuestos a favor
-  { codigo:'11403001', nombre:'DGR RETENCIÓN INGRESOS BRUTOS',        jerarquia:'1.1.4.03.001', tipo:'Activo', grupo:'Créditos Fiscales',     naturaleza:'D' },
-  { codigo:'11403002', nombre:'DGR PERCEPCIÓN INGRESOS BRUTOS',       jerarquia:'1.1.4.03.002', tipo:'Activo', grupo:'Créditos Fiscales',     naturaleza:'D' },
-  { codigo:'11403005', nombre:'CRÉDITO FISCAL IVA 21%',               jerarquia:'1.1.4.03.005', tipo:'Activo', grupo:'Créditos Fiscales',     naturaleza:'D' },
-  { codigo:'11403006', nombre:'CRÉDITO FISCAL IVA 10.5%',             jerarquia:'1.1.4.03.006', tipo:'Activo', grupo:'Créditos Fiscales',     naturaleza:'D' },
-  { codigo:'11403019', nombre:'INGRESOS BRUTOS SALDO A FAVOR',        jerarquia:'1.1.4.03.019', tipo:'Activo', grupo:'Créditos Fiscales',     naturaleza:'D' },
-  // Bienes de cambio (Mercaderías Drugstore)
-  { codigo:'11501005', nombre:'MERCADERÍA — ART. LIMPIEZA/HIGIENE/PERFUMERÍA', jerarquia:'1.1.5.01.005', tipo:'Activo', grupo:'Bienes de Cambio', naturaleza:'D' },
-  { codigo:'11501008', nombre:'MERCADERÍA DE REVENTA (Drugstore)',     jerarquia:'1.1.5.01.008', tipo:'Activo', grupo:'Bienes de Cambio',      naturaleza:'D' },
-  { codigo:'11501007', nombre:'IMPUESTO INTERNO COMPRAS',              jerarquia:'1.1.5.01.007', tipo:'Activo', grupo:'Bienes de Cambio',      naturaleza:'D' },
-  // ── ACTIVO NO CORRIENTE ───────────────────────
-  { codigo:'12101',    nombre:'MUEBLES Y ÚTILES',                     jerarquia:'1.2.1.01.000', tipo:'Activo', grupo:'Bienes de Uso',         naturaleza:'D' },
-  { codigo:'12103',    nombre:'INSTALACIONES',                        jerarquia:'1.2.1.03.000', tipo:'Activo', grupo:'Bienes de Uso',         naturaleza:'D' },
-  { codigo:'12113',    nombre:'EQUIPOS DE INFORMÁTICA',               jerarquia:'1.2.1.13.000', tipo:'Activo', grupo:'Bienes de Uso',         naturaleza:'D' },
-  // ── PASIVO CORRIENTE ──────────────────────────
-  { codigo:'21101001', nombre:'PROVEEDORES',                          jerarquia:'2.1.1.01.001', tipo:'Pasivo', grupo:'Deudas Comerciales',    naturaleza:'H' },
-  { codigo:'21101004', nombre:'OTROS PROVEEDORES',                    jerarquia:'2.1.1.01.004', tipo:'Pasivo', grupo:'Deudas Comerciales',    naturaleza:'H' },
-  { codigo:'21301',    nombre:'SUELDOS Y JORNALES A PAGAR',           jerarquia:'2.1.3.01.000', tipo:'Pasivo', grupo:'Deudas Sociales',       naturaleza:'H' },
-  { codigo:'21302',    nombre:'REG. NAC. SEG. SOC. A PAGAR',          jerarquia:'2.1.3.02.000', tipo:'Pasivo', grupo:'Deudas Sociales',       naturaleza:'H' },
-  { codigo:'21303',    nombre:'REG. NAC. OBRA SOC. A PAGAR',          jerarquia:'2.1.3.03.000', tipo:'Pasivo', grupo:'Deudas Sociales',       naturaleza:'H' },
-  { codigo:'21404',    nombre:'IVA DÉBITO FISCAL (RI)',               jerarquia:'2.1.4.04.000', tipo:'Pasivo', grupo:'Deudas Fiscales',       naturaleza:'H' },
-  { codigo:'21412002', nombre:'INGRESOS BRUTOS A PAGAR',              jerarquia:'2.1.4.12.002', tipo:'Pasivo', grupo:'Deudas Fiscales',       naturaleza:'H' },
-  { codigo:'21415',    nombre:'RET. IIBB SOBRE PAGOS',               jerarquia:'2.1.4.15.000', tipo:'Pasivo', grupo:'Deudas Fiscales',       naturaleza:'H' },
-  // ── PATRIMONIO NETO ───────────────────────────
-  { codigo:'31101',    nombre:'CAPITAL',                              jerarquia:'3.1.1.01.000', tipo:'Patrimonio', grupo:'Capital',           naturaleza:'H' },
-  { codigo:'33101',    nombre:'RESULTADO DEL EJERCICIO',              jerarquia:'3.3.1.01.000', tipo:'Patrimonio', grupo:'Resultados',        naturaleza:'H' },
-  { codigo:'33201',    nombre:'RESULTADOS EJERCICIOS ANTERIORES',     jerarquia:'3.3.2.01.000', tipo:'Patrimonio', grupo:'Resultados',        naturaleza:'H' },
-  // ── INGRESOS ──────────────────────────────────
-  { codigo:'41101007', nombre:'VENTA DE MERCADERÍAS',                 jerarquia:'4.1.1.01.007', tipo:'Ingreso',   grupo:'Ventas',            naturaleza:'H' },
-  { codigo:'41103001', nombre:'DESCUENTOS OBTENIDOS',                 jerarquia:'4.1.1.03.001', tipo:'Ingreso',   grupo:'Ventas',            naturaleza:'H' },
-  { codigo:'41105',    nombre:'IMPUESTOS INTERNOS POR VENTAS',        jerarquia:'4.1.1.05.000', tipo:'Ingreso',   grupo:'Ventas',            naturaleza:'H' },
-  // ── COSTOS Y GASTOS ───────────────────────────
-  { codigo:'51101',    nombre:'COSTO DE MERCADERÍAS VENDIDAS',        jerarquia:'5.1.1.01.000', tipo:'Egreso',    grupo:'Costos',            naturaleza:'D' },
-  { codigo:'51103001', nombre:'SUELDOS',                              jerarquia:'5.1.1.03.001', tipo:'Egreso',    grupo:'Personal',          naturaleza:'D' },
-  { codigo:'51103002', nombre:'CARGAS SOCIALES',                      jerarquia:'5.1.1.03.002', tipo:'Egreso',    grupo:'Personal',          naturaleza:'D' },
-  { codigo:'51109004', nombre:'ELECTRICIDAD',                         jerarquia:'5.1.1.09.004', tipo:'Egreso',    grupo:'Servicios',         naturaleza:'D' },
-  { codigo:'51109002', nombre:'TELEFONÍA MÓVIL',                      jerarquia:'5.1.1.09.002', tipo:'Egreso',    grupo:'Servicios',         naturaleza:'D' },
-  { codigo:'51109003', nombre:'INTERNET',                             jerarquia:'5.1.1.09.003', tipo:'Egreso',    grupo:'Servicios',         naturaleza:'D' },
-  { codigo:'51109007', nombre:'OTROS SERVICIOS',                      jerarquia:'5.1.1.09.007', tipo:'Egreso',    grupo:'Servicios',         naturaleza:'D' },
-  { codigo:'51110001', nombre:'ALQUILER DE INMUEBLES',                jerarquia:'5.1.1.10.001', tipo:'Egreso',    grupo:'Alquileres',        naturaleza:'D' },
-  { codigo:'51112001', nombre:'COMBUSTIBLES',                         jerarquia:'5.1.1.12.001', tipo:'Egreso',    grupo:'Transporte',        naturaleza:'D' },
-  { codigo:'51107003', nombre:'FLETES VARIOS',                        jerarquia:'5.1.1.07.003', tipo:'Egreso',    grupo:'Transporte',        naturaleza:'D' },
-  { codigo:'51113003', nombre:'SEGURO MERCANTIL',                     jerarquia:'5.1.1.13.003', tipo:'Egreso',    grupo:'Seguros',           naturaleza:'D' },
-  { codigo:'51114003', nombre:'INGRESOS BRUTOS',                      jerarquia:'5.1.1.14.003', tipo:'Egreso',    grupo:'Impuestos',         naturaleza:'D' },
-  { codigo:'51114009', nombre:'IMPUESTOS VARIOS',                     jerarquia:'5.1.1.14.009', tipo:'Egreso',    grupo:'Impuestos',         naturaleza:'D' },
-  { codigo:'51116002', nombre:'PUBLICIDAD',                           jerarquia:'5.1.1.16.002', tipo:'Egreso',    grupo:'Comercialización',  naturaleza:'D' },
-  { codigo:'51116003', nombre:'PROMOCIONES Y DESCUENTOS',             jerarquia:'5.1.1.16.003', tipo:'Egreso',    grupo:'Comercialización',  naturaleza:'D' },
-  { codigo:'51117001', nombre:'PAPELERÍA Y LIBRERÍA',                 jerarquia:'5.1.1.17.001', tipo:'Egreso',    grupo:'Gastos Generales',  naturaleza:'D' },
-  { codigo:'51117003', nombre:'OTROS GASTOS',                         jerarquia:'5.1.1.17.003', tipo:'Egreso',    grupo:'Gastos Generales',  naturaleza:'D' },
-  { codigo:'51118',    nombre:'DIFERENCIA DE CAJA',                   jerarquia:'5.1.1.18.000', tipo:'Egreso',    grupo:'Gastos Generales',  naturaleza:'D' },
-  { codigo:'51119002', nombre:'GASTOS BANCARIOS',                     jerarquia:'5.1.1.19.002', tipo:'Egreso',    grupo:'Gastos Financieros', naturaleza:'D' },
+// ── PLAN DE CUENTAS DINÁMICO ──────────────────────────────────
+// Se carga desde Supabase según la tienda activa
+// Fallback al plan genérico si no hay datos en BD
+let PLAN_CUENTAS = [];
+
+// Plan genérico de fallback (Comercio Minorista)
+const PLAN_CUENTAS_FALLBACK = [
+  {codigo:'1.1.01',nombre:'Caja en Pesos',          tipo:'Activo',    grupo:'Caja y Bancos',    naturaleza:'D',jerarquia:'1.1.1.01'},
+  {codigo:'1.1.02',nombre:'Banco Cuenta Corriente',  tipo:'Activo',    grupo:'Caja y Bancos',    naturaleza:'D',jerarquia:'1.1.1.02'},
+  {codigo:'1.1.03',nombre:'MercadoPago',             tipo:'Activo',    grupo:'Caja y Bancos',    naturaleza:'D',jerarquia:'1.1.1.03'},
+  {codigo:'1.1.04',nombre:'Tarjetas a Cobrar',       tipo:'Activo',    grupo:'Créditos',         naturaleza:'D',jerarquia:'1.1.3.01'},
+  {codigo:'1.1.05',nombre:'Deudores por Ventas',     tipo:'Activo',    grupo:'Créditos',         naturaleza:'D',jerarquia:'1.1.3.02'},
+  {codigo:'1.1.06',nombre:'IVA Crédito Fiscal',      tipo:'Activo',    grupo:'Créditos Fiscales',naturaleza:'D',jerarquia:'1.1.4.01'},
+  {codigo:'1.1.07',nombre:'Percepción IIBB',         tipo:'Activo',    grupo:'Créditos Fiscales',naturaleza:'D',jerarquia:'1.1.4.02'},
+  {codigo:'1.2.01',nombre:'Mercaderías',             tipo:'Activo',    grupo:'Bienes de Cambio', naturaleza:'D',jerarquia:'1.1.5.01'},
+  {codigo:'2.1.01',nombre:'Proveedores',             tipo:'Pasivo',    grupo:'Deudas Comerciales',naturaleza:'H',jerarquia:'2.1.1.01'},
+  {codigo:'2.1.02',nombre:'IVA Débito Fiscal',       tipo:'Pasivo',    grupo:'Deudas Fiscales',  naturaleza:'H',jerarquia:'2.1.4.01'},
+  {codigo:'2.1.03',nombre:'IIBB a Pagar',            tipo:'Pasivo',    grupo:'Deudas Fiscales',  naturaleza:'H',jerarquia:'2.1.4.02'},
+  {codigo:'2.1.04',nombre:'Sueldos a Pagar',         tipo:'Pasivo',    grupo:'Deudas Sociales',  naturaleza:'H',jerarquia:'2.1.3.01'},
+  {codigo:'3.1.01',nombre:'Capital',                 tipo:'Patrimonio',grupo:'Capital',           naturaleza:'H',jerarquia:'3.1.1.01'},
+  {codigo:'3.1.02',nombre:'Resultados Acumulados',   tipo:'Patrimonio',grupo:'Resultados',        naturaleza:'H',jerarquia:'3.3.1.01'},
+  {codigo:'4.1.01',nombre:'Ventas',                  tipo:'Ingreso',   grupo:'Ventas',            naturaleza:'H',jerarquia:'4.1.1.01'},
+  {codigo:'5.1.01',nombre:'Costo de Mercaderías',    tipo:'Egreso',    grupo:'Costos',            naturaleza:'D',jerarquia:'5.1.1.01'},
+  {codigo:'5.2.01',nombre:'Sueldos y Jornales',      tipo:'Egreso',    grupo:'Personal',          naturaleza:'D',jerarquia:'5.1.1.03'},
+  {codigo:'5.2.02',nombre:'Servicios',               tipo:'Egreso',    grupo:'Servicios',         naturaleza:'D',jerarquia:'5.1.1.09'},
+  {codigo:'5.2.03',nombre:'Alquiler',                tipo:'Egreso',    grupo:'Alquileres',        naturaleza:'D',jerarquia:'5.1.1.10'},
+  {codigo:'5.2.04',nombre:'Transporte',              tipo:'Egreso',    grupo:'Transporte',        naturaleza:'D',jerarquia:'5.1.1.12'},
+  {codigo:'5.2.05',nombre:'Publicidad',              tipo:'Egreso',    grupo:'Comercialización',  naturaleza:'D',jerarquia:'5.1.1.16'},
+  {codigo:'5.2.06',nombre:'Impuestos y Tasas',       tipo:'Egreso',    grupo:'Impuestos',         naturaleza:'D',jerarquia:'5.1.1.14'},
+  {codigo:'5.2.07',nombre:'Gastos Bancarios',        tipo:'Egreso',    grupo:'Gastos Financieros',naturaleza:'D',jerarquia:'5.1.1.19'},
+  {codigo:'5.2.08',nombre:'Otros Gastos',            tipo:'Egreso',    grupo:'Gastos Generales',  naturaleza:'D',jerarquia:'5.1.1.17'},
 ];
 
-// ── MAPEO DE CUENTAS POR MÉTODO DE PAGO ──
-const METODO_CUENTA = {
-  'Efectivo':         '11101001', // CAJA EN PESOS
-  'Transferencia':    '11102006', // BANCO PATAGONIA
-  'MercadoPago':      '11102006', // BANCO PATAGONIA (acredita mismo día)
-  'Tarjeta':          '11301002', // TARJETAS A COBRAR (Fiserv)
-  'Cuenta Corriente': '11301001', // CUENTA CORRIENTE
+// ── MAPEO DE CUENTAS DINÁMICO ─────────────────────────────────
+// Se carga desde Supabase según la tienda activa
+// Los valores son códigos del plan de cuentas de la tienda
+let METODO_CUENTA = {
+  'Efectivo':         '1.1.01',
+  'Transferencia':    '1.1.02',
+  'MercadoPago':      '1.1.03',
+  'Tarjeta':          '1.1.04',
+  'Cuenta Corriente': '1.1.05',
 };
 
-// ── MAPEO DE CUENTAS POR CATEGORÍA DE GASTO ──
-const GASTO_CUENTA = {
-  'Servicios':   '51109007', // OTROS SERVICIOS
-  'Personal':    '51103001', // SUELDOS
-  'Alquiler':    '51110001', // ALQUILER DE INMUEBLES
-  'Transporte':  '51107003', // FLETES VARIOS
-  'Marketing':   '51116002', // PUBLICIDAD
-  'Impuestos':   '51114009', // IMPUESTOS VARIOS
-  'Proveedores': '21101001', // PROVEEDORES (pago)
-  'Otro':        '51117003', // OTROS GASTOS
+let GASTO_CUENTA = {
+  'Servicios':   '5.2.02',
+  'Personal':    '5.2.01',
+  'Alquiler':    '5.2.03',
+  'Transporte':  '5.2.04',
+  'Marketing':   '5.2.05',
+  'Impuestos':   '5.2.06',
+  'Proveedores': '2.1.01',
+  'Otro':        '5.2.08',
+};
+
+// Cuentas especiales (IVA, IIBB, etc.)
+let CUENTAS_ESPECIALES = {
+  'iva_debito':     '2.1.02',
+  'iva_credito':    '1.1.06',
+  'iibb_pagar':     '2.1.03',
+  'iibb_percepcion':'1.1.07',
+  'ventas':         '4.1.01',
+  'mercaderias':    '1.2.01',
+  'proveedores':    '2.1.01',
 };
 
 // ── CONFIGURACIÓN FISCAL ──
@@ -1778,20 +1761,20 @@ function asientoVenta(venta) {
   const iva    = Math.round(total / 1.21 * 0.21 * 100) / 100;
   const neto   = Math.round((total - iva) * 100) / 100;
   const iibb   = Math.round(total * CONFIG_FISCAL.alicuota_iibb * 100) / 100;
-  const ctaDebe = METODO_CUENTA[venta.metodo_pago] || '11101001';
+  const ctaDebe = METODO_CUENTA[venta.metodo_pago] || PLAN_CUENTAS.find(x=>x.grupo==='Caja y Bancos')?.codigo || '1.1.01';
   const ctaNombreDebe = PLAN_CUENTAS.find(c => c.codigo === ctaDebe)?.nombre || venta.metodo_pago;
 
   const lineas = [
     { debe: true,  cuenta: ctaDebe,    nombre: ctaNombreDebe,          importe: total, detalle: `Cobro ${venta.metodo_pago}` },
-    { debe: false, cuenta: '41101007', nombre: 'VENTA DE MERCADERÍAS', importe: neto,  detalle: 'Ventas netas s/IVA' },
-    { debe: false, cuenta: '21404',    nombre: 'IVA DÉBITO FISCAL',    importe: iva,   detalle: 'IVA 21% débito fiscal' },
+    { debe: false, cuenta: CUENTAS_ESPECIALES['ventas']||'4.1.01', nombre: 'Ventas', importe: neto, detalle: 'Ventas netas s/IVA' },
+    { debe: false, cuenta: CUENTAS_ESPECIALES['iva_debito']||'2.1.02', nombre: 'IVA Débito Fiscal', importe: iva, detalle: 'IVA 21% débito fiscal' },
   ];
 
   // IIBB: percepción sobre ventas (3%)
   if (iibb > 0) {
-    lineas.push({ debe: true, cuenta: '11403002', nombre: 'DGR PERCEPCIÓN IIBB', importe: iibb, detalle: 'Percepción IIBB 3% s/ventas' });
+    lineas.push({ debe: true, cuenta: CUENTAS_ESPECIALES['iibb_percepcion']||'1.1.07', nombre: 'Percepción IIBB', importe: iibb, detalle: 'Percepción IIBB s/ventas' });
     lineas[0].importe = Math.round((total - iibb) * 100) / 100; // neto cobrado
-    lineas.push({ debe: false, cuenta: '21412002', nombre: 'IIBB A PAGAR', importe: iibb, detalle: 'IIBB 3% a depositar DGR' });
+    lineas.push({ debe: false, cuenta: CUENTAS_ESPECIALES['iibb_pagar']||'2.1.03', nombre: 'IIBB a Pagar', importe: iibb, detalle: 'IIBB a depositar' });
   }
 
   return {
@@ -1861,9 +1844,9 @@ function asientoCompra(compra) {
     origen: 'compra',
     origen_id: compra.id,
     lineas: [
-      { debe: true,  cuenta: '11501008', nombre: 'MERCADERÍA DE REVENTA',  importe: neto,  detalle: compra.producto_nombre },
-      { debe: true,  cuenta: '11403005', nombre: 'CRÉDITO FISCAL IVA 21%', importe: iva,   detalle: 'IVA CF 21%' },
-      { debe: false, cuenta: '21101001', nombre: 'PROVEEDORES',            importe: total, detalle: compra.proveedor || 'Proveedor' },
+      { debe: true,  cuenta: CUENTAS_ESPECIALES['mercaderias']||'1.2.01', nombre: 'Mercaderías', importe: neto, detalle: compra.producto_nombre },
+      { debe: true,  cuenta: CUENTAS_ESPECIALES['iva_credito']||'1.1.06', nombre: 'IVA Crédito Fiscal', importe: iva, detalle: 'IVA CF 21%' },
+      { debe: false, cuenta: CUENTAS_ESPECIALES['proveedores']||'2.1.01', nombre: 'Proveedores', importe: total, detalle: compra.proveedor || 'Proveedor' },
     ],
     total_debe: total, total_haber: total,
   };
@@ -2739,7 +2722,7 @@ function switchContTab(btn) {
   if (tabName === 'mayor')    { popularSelectCuentas(); renderMayor(); }
   if (tabName === 'balance')  { setDefaultMes('balance-mes'); renderBalance(); }
   if (tabName === 'iva')      setDefaultMes('iva-periodo');
-  if (tabName === 'ctas')     renderPlanCuentas();
+  if (tabName === 'ctas')     { renderPlanCuentas(); renderSelectorTemplates(); }
 }
 
 function popularSelectCuentas() {
@@ -2758,10 +2741,185 @@ function setDefaultMes(id) {
   if (el && !el.value) el.value = new Date().toISOString().substring(0,7);
 }
 
+// ── CARGAR PLAN DE CUENTAS DESDE SUPABASE ──
+async function loadPlanCuentas() {
+  if (!STORE?.id) return;
+  try {
+    // 1. Intentar cargar desde tabla plan_cuentas de la tienda
+    const { data, error } = await SB
+      .from('plan_cuentas')
+      .select('*')
+      .eq('tienda_id', STORE.id)
+      .eq('activo', true)
+      .order('orden', { ascending: true });
+
+    if (!error && data && data.length > 0) {
+      // Tienda tiene plan propio
+      PLAN_CUENTAS = data.map(r => ({
+        codigo:     r.codigo,
+        nombre:     r.nombre,
+        tipo:       r.tipo,
+        grupo:      r.grupo,
+        naturaleza: r.naturaleza,
+        jerarquia:  r.jerarquia || r.codigo,
+      }));
+
+      // 2. Cargar mapeos contables de la tienda
+      const { data: mapeos } = await SB
+        .from('mapeo_contable')
+        .select('*')
+        .eq('tienda_id', STORE.id);
+
+      if (mapeos && mapeos.length > 0) {
+        mapeos.forEach(m => {
+          if (m.tipo_mapeo === 'metodo_pago')     METODO_CUENTA[m.clave]    = m.cuenta_codigo;
+          if (m.tipo_mapeo === 'categoria_gasto') GASTO_CUENTA[m.clave]     = m.cuenta_codigo;
+          if (m.tipo_mapeo === 'especial')        CUENTAS_ESPECIALES[m.clave] = m.cuenta_codigo;
+        });
+      }
+
+      console.log(`✅ Plan de cuentas cargado: ${PLAN_CUENTAS.length} cuentas`);
+    } else {
+      // Sin plan propio → usar fallback genérico y mostrar selector de templates
+      PLAN_CUENTAS = [...PLAN_CUENTAS_FALLBACK];
+      console.log('📋 Sin plan propio — mostrando selector de templates');
+      // Flag para mostrar selector al abrir Contabilidad
+      window._sinPlanCuentas = true;
+    }
+  } catch(e) {
+    PLAN_CUENTAS = [...PLAN_CUENTAS_FALLBACK];
+    console.warn('Plan de cuentas fallback activado:', e);
+  }
+}
+
+// ── APLICAR TEMPLATE A UNA TIENDA ──
+async function aplicarTemplateCuentas(templateId) {
+  if (!STORE?.id) return;
+  try {
+    // Obtener cuentas del template
+    const { data: cuentas } = await SB
+      .from('template_cuentas')
+      .select('*')
+      .eq('template_id', templateId)
+      .order('orden');
+
+    const { data: mapeos } = await SB
+      .from('template_mapeos')
+      .select('*')
+      .eq('template_id', templateId);
+
+    if (!cuentas?.length) { showToast('Template sin cuentas', 'err'); return; }
+
+    // Borrar plan anterior de la tienda
+    await SB.from('plan_cuentas').delete().eq('tienda_id', STORE.id);
+    await SB.from('mapeo_contable').delete().eq('tienda_id', STORE.id);
+
+    // Insertar nuevo plan
+    const nuevasCuentas = cuentas.map(c => ({
+      tienda_id:  STORE.id,
+      codigo:     c.codigo,
+      nombre:     c.nombre,
+      tipo:       c.tipo,
+      grupo:      c.grupo,
+      naturaleza: c.naturaleza,
+      jerarquia:  c.jerarquia,
+      orden:      c.orden,
+      activo:     true,
+    }));
+    await SB.from('plan_cuentas').insert(nuevasCuentas);
+
+    // Insertar mapeos
+    if (mapeos?.length) {
+      const nuevosMaps = mapeos.map(m => ({
+        tienda_id:     STORE.id,
+        tipo_mapeo:    m.tipo_mapeo,
+        clave:         m.clave,
+        cuenta_codigo: m.cuenta_codigo,
+      }));
+      await SB.from('mapeo_contable').insert(nuevosMaps);
+    }
+
+    // Recargar
+    await loadPlanCuentas();
+    showToast('✅ Plan de cuentas aplicado correctamente', 'ok');
+    renderPlanCuentas();
+  } catch(e) {
+    showToast('❌ Error al aplicar template', 'err');
+    console.error(e);
+  }
+}
+
+// ── CARGAR TEMPLATES DISPONIBLES ──
+async function loadTemplates() {
+  try {
+    const { data } = await SB
+      .from('templates_contables')
+      .select('*, template_cuentas(count)')
+      .eq('activo', true)
+      .order('orden');
+    return data || [];
+  } catch(e) { return []; }
+}
+
+async function renderSelectorTemplates() {
+  const el = document.getElementById('cont-tab-ctas');
+  if (!el) return;
+
+  const hasPlan = PLAN_CUENTAS.length > 0;
+  const templates = await loadTemplates();
+
+  const selectorHTML = `
+    <div style="background:#fff3e0;border:1.5px solid #ffb74d;border-radius:12px;padding:14px 16px;margin-bottom:16px">
+      <div style="font-size:12px;font-weight:700;color:#e65100;margin-bottom:8px">
+        🎯 ${hasPlan ? 'Cambiar template contable' : 'Elegí tu tipo de negocio'}
+      </div>
+      <div style="font-size:11px;color:#795548;margin-bottom:12px">
+        ${hasPlan 
+          ? 'Tu plan de cuentas actual tiene ' + PLAN_CUENTAS.length + ' cuentas. Podés cambiarlo eligiendo otro template.'
+          : 'Seleccioná el tipo de negocio para cargar el plan de cuentas automáticamente.'}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        ${templates.map(t => `
+          <button onclick="confirmarTemplate('${t.id}','${t.nombre}')"
+            style="padding:12px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;
+                   font-size:12px;font-weight:600;color:#333;cursor:pointer;text-align:left;
+                   display:flex;align-items:center;gap:8px">
+            <span style="font-size:18px">${t.icono||'📋'}</span>
+            <span>${t.nombre}</span>
+          </button>`).join('')}
+      </div>
+    </div>`;
+
+  // Prepend selector to plan cuentas tab
+  const listEl = document.getElementById('plan-cuentas-list');
+  if (listEl) {
+    const existing = document.getElementById('template-selector');
+    if (existing) existing.remove();
+    const div = document.createElement('div');
+    div.id = 'template-selector';
+    div.innerHTML = selectorHTML;
+    listEl.parentNode.insertBefore(div, listEl);
+  }
+}
+
+function confirmarTemplate(templateId, nombre) {
+  if (!confirm(`¿Aplicar el template "${nombre}"?\n\nEsto reemplazará el plan de cuentas actual de esta tienda.`)) return;
+  aplicarTemplateCuentas(templateId);
+}
+
 function initContabilidad() {
   setDefaultMes('cont-mes');
   setDefaultMes('mayor-mes-desde');
   setDefaultMes('mayor-mes-hasta');
+  // Si no tiene plan propio, ir directo al tab de cuentas para elegir template
+  if(window._sinPlanCuentas) {
+    const btnCtas = document.querySelector('.cont-tab[data-tab="ctas"]');
+    if(btnCtas) {
+      switchContTab(btnCtas);
+      window._sinPlanCuentas = false;
+      return;
+    }
+  }
   renderLibroDiario();
 }
 
@@ -3401,7 +3559,7 @@ function updateDate(){
 
 function renderAll(){
   renderCats();renderProds();renderHist();renderCaja();
-  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();renderProyecciones();setTimeout(checkVencimientos,2000);cargarConfigFiscal();
+  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();renderProyecciones();setTimeout(checkVencimientos,2000);cargarConfigFiscal();loadPlanCuentas();
 }
 
 // ══ SUPABASE CRUD ══
