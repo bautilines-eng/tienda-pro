@@ -3936,6 +3936,7 @@ async function registerSale(){
           fecha_limite: null,
           cliente_id: clienteId,
           venta_id: venta.id,
+          tipo: 'cliente',
         });
         deudas.unshift(deuda);
         renderDeudas();
