@@ -813,6 +813,11 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </button>
     </div>
 
+    <!-- Alerta facturas pendientes -->
+    <div id="alerta-facturas" style="display:none;margin:10px 20px 0;padding:10px 14px;
+      background:#fee2e2;border:1.5px solid #dc2626;border-radius:10px;
+      align-items:center;gap:8px;flex-wrap:wrap"></div>
+
     <div class="slabel"><span class="slabel-t">Últimas compras</span></div>
     <div class="clist" id="colist"><div class="empty">Sin compras aún</div></div>
   </div>
@@ -904,6 +909,190 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <button onclick="guardarGasto()"
           style="padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#4a1942,#2d0f29);color:#fff;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(74,25,66,.3)">
           Registrar gasto →
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CARGAR FACTURA -->
+<div class="overlay" id="ov-factura">
+  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
+    <div style="background:linear-gradient(135deg,#1a3a5c 0%,#0d1f33 100%);padding:20px 24px 16px">
+      <div class="modal-handle" style="background:rgba(255,255,255,.3);margin-bottom:12px"></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:40px;height:40px;background:rgba(255,255,255,.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🧾</div>
+        <div>
+          <div style="font-family:'Instrument Serif',serif;font-size:18px;color:#fff">Cargar Factura</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.7)" id="fac-compra-desc">Datos fiscales del comprobante</div>
+        </div>
+        <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-factura')">✕</span>
+      </div>
+    </div>
+    <div style="padding:16px 20px;overflow-y:auto;max-height:75vh">
+
+      <!-- Tipo y número -->
+      <div class="frow" style="margin-bottom:12px">
+        <div style="flex:1">
+          <div class="flabel">Tipo de comprobante</div>
+          <select class="inp" id="fac-tipo" style="cursor:pointer" onchange="updateFacTipo()">
+            <option value="FA">Factura A</option>
+            <option value="FB">Factura B</option>
+            <option value="FC">Factura C</option>
+            <option value="RE">Recibo</option>
+            <option value="OT">Otro</option>
+          </select>
+        </div>
+        <div style="flex:1">
+          <div class="flabel">Número de factura</div>
+          <input class="inp" id="fac-numero" placeholder="0001-00012345" style="font-family:'DM Mono',monospace">
+        </div>
+      </div>
+
+      <!-- Proveedor -->
+      <div class="frow" style="margin-bottom:12px">
+        <div style="flex:1">
+          <div class="flabel">Proveedor</div>
+          <input class="inp" id="fac-proveedor" placeholder="Razón social del proveedor">
+        </div>
+        <div style="flex:1">
+          <div class="flabel">CUIT proveedor</div>
+          <input class="inp" id="fac-cuit" placeholder="30-00000000-0" style="font-family:'DM Mono',monospace">
+        </div>
+      </div>
+
+      <!-- Fechas -->
+      <div class="frow" style="margin-bottom:12px">
+        <div>
+          <div class="flabel">Fecha factura</div>
+          <input class="inp" id="fac-fecha" type="date">
+        </div>
+        <div>
+          <div class="flabel">Fecha vencimiento</div>
+          <input class="inp" id="fac-vencimiento" type="date">
+        </div>
+      </div>
+
+      <!-- Importes -->
+      <div style="background:#f8f8f8;border-radius:12px;padding:14px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:#1a3a5c;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Importes fiscales</div>
+
+        <div class="frow" style="margin-bottom:8px">
+          <div style="flex:1">
+            <div class="flabel">Neto gravado</div>
+            <div style="position:relative">
+              <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
+              <input class="inp" id="fac-neto" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
+            </div>
+          </div>
+          <div>
+            <div class="flabel">Alícuota IVA</div>
+            <select class="inp" id="fac-alic-iva" style="cursor:pointer" onchange="calcularTotalesFac()">
+              <option value="21">21%</option>
+              <option value="10.5">10.5%</option>
+              <option value="27">27% (telefonía)</option>
+              <option value="0">0% (exento)</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <div class="flabel">IVA</div>
+            <div style="position:relative">
+              <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
+              <input class="inp" id="fac-iva" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace;background:#f0f8f0" readonly>
+            </div>
+          </div>
+        </div>
+
+        <!-- Percepciones -->
+        <div class="frow" style="margin-bottom:8px">
+          <div style="flex:1">
+            <div class="flabel">Percepción IVA (RG2408/5329)</div>
+            <div style="position:relative">
+              <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
+              <input class="inp" id="fac-perc-iva" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
+            </div>
+          </div>
+          <div style="flex:1">
+            <div class="flabel">Percepción IIBB</div>
+            <div style="position:relative">
+              <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
+              <input class="inp" id="fac-perc-iibb" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
+            </div>
+          </div>
+        </div>
+
+        <div class="frow" style="margin-bottom:0">
+          <div style="flex:1">
+            <div class="flabel">Impuestos internos</div>
+            <div style="position:relative">
+              <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
+              <input class="inp" id="fac-imp-int" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
+            </div>
+          </div>
+          <div style="flex:1">
+            <div class="flabel">No gravado</div>
+            <div style="position:relative">
+              <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
+              <input class="inp" id="fac-no-grav" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Total calculado -->
+      <div id="fac-total-preview" style="background:#1a3a5c;color:#fff;border-radius:10px;padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;opacity:.8">TOTAL FACTURA</span>
+        <span style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700" id="fac-total-display">$0</span>
+      </div>
+
+      <!-- Forma de pago -->
+      <div class="fgroup" style="margin-bottom:12px">
+        <div class="flabel">Forma de pago</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px" id="fac-pago-grid">
+          <button type="button" class="fac-pago-btn active" data-pago="Contado"
+            onclick="selectFacPago(this)"
+            style="padding:9px 4px;border-radius:8px;border:1.5px solid #1a5c38;background:#eaf5ee;font-size:11px;font-weight:600;color:#1a5c38;cursor:pointer">
+            💵 Contado
+          </button>
+          <button type="button" class="fac-pago-btn" data-pago="Cuenta Corriente"
+            onclick="selectFacPago(this)"
+            style="padding:9px 4px;border-radius:8px;border:1.5px solid #e0e0e0;background:#fff;font-size:11px;font-weight:600;color:#555;cursor:pointer">
+            📒 Cta. Cte.
+          </button>
+          <button type="button" class="fac-pago-btn" data-pago="Transferencia"
+            onclick="selectFacPago(this)"
+            style="padding:9px 4px;border-radius:8px;border:1.5px solid #e0e0e0;background:#fff;font-size:11px;font-weight:600;color:#555;cursor:pointer">
+            🏦 Transfer.
+          </button>
+        </div>
+      </div>
+
+      <!-- Aviso cta cte -->
+      <div id="fac-cc-aviso" style="display:none;margin-bottom:12px;padding:10px 12px;background:#fff3e0;border:1.5px solid #ffb74d;border-radius:8px;font-size:12px;color:#e65100">
+        📒 Se creará una deuda pendiente con el proveedor en Deudores
+      </div>
+
+      <!-- Observaciones -->
+      <div class="fgroup" style="margin-bottom:16px">
+        <div class="flabel">Observaciones <span style="font-weight:400;color:#aaa">(opcional)</span></div>
+        <input class="inp" id="fac-obs" placeholder="Notas sobre esta factura...">
+      </div>
+
+      <!-- CAE -->
+      <div class="fgroup" style="margin-bottom:16px">
+        <div class="flabel">CAE <span style="font-weight:400;color:#aaa">(opcional)</span></div>
+        <input class="inp" id="fac-cae" placeholder="Número de CAE" style="font-family:'DM Mono',monospace">
+      </div>
+
+      <!-- Botones -->
+      <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
+        <button onclick="closeModal('ov-factura')"
+          style="padding:13px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">
+          Cancelar
+        </button>
+        <button onclick="guardarFactura()"
+          style="padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#1a3a5c,#0d1f33);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+          💾 Guardar factura
         </button>
       </div>
     </div>
@@ -1550,7 +1739,8 @@ function exportarCierrePDF() {
 <title>Cierre de Caja - ${tienda}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=DM+Mono&display=swap');
-  *{margin:0;padding:0;box-sizing:border-box}
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{touch-action:manipulation}
   body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a1a0e;padding:40px;max-width:600px;margin:0 auto}
   .header{text-align:center;border-bottom:2px solid #1a1a0e;padding-bottom:24px;margin-bottom:28px}
   .logo{font-size:28px;font-weight:700;letter-spacing:-0.5px}
@@ -1603,7 +1793,7 @@ function exportarCierrePDF() {
   ${d.gastos_dia && d.gastos_dia.length > 0 ? `
   <div class="section">
     <div class="section-title">Gastos del día</div>
-    ${d.gastos_dia.map(g => `<div class="row"><span class="row-label">${g.categoria}${g.descripcion?' · '+g.descripcion:''}</span><span class="row-value" style="color:#c94040">-$${(g.monto||0).toLocaleString('es-AR')}</span></div>`).join('')}
+    ${d.gastos_dia.map(g => `<div class="row"><span class="row-label">${esc(g.categoria)}${g.descripcion?' · '+g.descripcion:''}</span><span class="row-value" style="color:#c94040">-$${(g.monto||0).toLocaleString('es-AR')}</span></div>`).join('')}
     <div class="row" style="border-top:2px solid #eee;margin-top:4px;padding-top:8px"><span class="row-label" style="font-weight:700">Total gastos</span><span class="row-value" style="color:#c94040">-$${d.gastos_dia.reduce((s,g)=>s+(g.monto||0),0).toLocaleString('es-AR')}</span></div>
   </div>
   ` : ''}
@@ -1624,7 +1814,7 @@ function exportarCierrePDF() {
         </span>
       </span>
     </div>
-    ${d.observaciones?`<div class="obs-box">📝 ${d.observaciones}</div>`:''}
+    ${d.observaciones?`<div class="obs-box">📝 ${esc(d.observaciones)}</div>`:''}
   </div>
 
   <div class="total-row">
@@ -1819,7 +2009,7 @@ function asientoGasto(gasto) {
     fecha: gasto.fecha,
     tipo: 'GASTO',
     comprobante: gasto.descripcion || 'Comprobante gasto',
-    descripcion: `Gasto — ${gasto.categoria}${gasto.descripcion ? ': ' + gasto.descripcion : ''}`,
+    descripcion: `Gasto — ${esc(gasto.categoria)}${gasto.descripcion ? ': ' + gasto.descripcion : ''}`,
     origen: 'gasto',
     origen_id: gasto.id,
     lineas: [
@@ -1840,7 +2030,7 @@ function asientoCompra(compra) {
     fecha: compra.fecha,
     tipo: 'COMPRA',
     comprobante: compra.numero_factura || 'S/N',
-    descripcion: `Compra — ${compra.producto_nombre}${compra.proveedor ? ' · ' + compra.proveedor : ''}`,
+    descripcion: `Compra — ${esc(compra.producto_nombre)}${compra.proveedor ? ' · ' + compra.proveedor : ''}`,
     origen: 'compra',
     origen_id: compra.id,
     lineas: [
@@ -1943,7 +2133,8 @@ function generarAsientoDia() {
 <title>Asiento Diario — ${hoy}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
-  *{margin:0;padding:0;box-sizing:border-box}
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{touch-action:manipulation}
   body{font-family:'DM Sans',Arial,sans-serif;padding:32px;max-width:750px;margin:0 auto;color:#12100e;font-size:13px}
   .header{border-bottom:3px solid #1a3a5c;padding-bottom:16px;margin-bottom:20px}
   .header-top{display:flex;justify-content:space-between;align-items:flex-start}
@@ -2074,9 +2265,9 @@ ${comprasHoy.length ? `
       const iva = Math.round(tot/1.21*0.21*100)/100;
       const neto = tot - iva;
       return `
-      <tr><td class="cod">11501008</td><td>MERCADERÍA DE REVENTA — ${co.producto_nombre}</td><td class="debe">$${neto.toLocaleString('es-AR')}</td><td class="vacio">—</td></tr>
+      <tr><td class="cod">11501008</td><td>MERCADERÍA DE REVENTA — ${esc(co.producto_nombre)}</td><td class="debe">$${neto.toLocaleString('es-AR')}</td><td class="vacio">—</td></tr>
       <tr><td class="cod">11403005</td><td>CRÉDITO FISCAL IVA 21%</td><td class="debe">$${iva.toLocaleString('es-AR')}</td><td class="vacio">—</td></tr>
-      <tr><td class="cod">21101001</td><td>PROVEEDORES — ${co.proveedor||'Proveedor'}</td><td class="vacio">—</td><td class="haber">$${tot.toLocaleString('es-AR')}</td></tr>`;
+      <tr><td class="cod">21101001</td><td>PROVEEDORES — ${esc(co.proveedor||'Proveedor')}</td><td class="vacio">—</td><td class="haber">$${tot.toLocaleString('es-AR')}</td></tr>`;
     }).join('')}
   </tbody>
 </table>` : ''}
@@ -2138,7 +2329,7 @@ function renderMayor() {
     const iva = Math.round((v.total||0)/1.21*0.21*100)/100;
     const neto = (v.total||0) - iva;
     const iibb = Math.round((v.total||0)*0.03*100)/100;
-    if (ct === cuentaCod)         movs.push({fecha:v.fecha, desc:`Venta ${v.metodo_pago}`, debe:v.total, haber:0, origen:'Venta'});
+    if (ct === cuentaCod)         movs.push({fecha:v.fecha, desc:`Venta ${esc(v.metodo_pago)}`, debe:v.total, haber:0, origen:'Venta'});
     if (cuentaCod==='41101007')   movs.push({fecha:v.fecha, desc:'Ventas netas', debe:0, haber:neto, origen:'Venta'});
     if (cuentaCod==='21404')      movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal 21%', debe:0, haber:iva, origen:'Venta'});
     if (cuentaCod==='11403002')   movs.push({fecha:v.fecha, desc:'Percepción IIBB 3%', debe:iibb, haber:0, origen:'Venta'});
@@ -2316,8 +2507,8 @@ function renderBalance() {
       }
 
       rows += `<tr style="border-bottom:1px solid #f5f5f5">
-        <td style="padding:6px 10px;font-family:'DM Mono',monospace;font-size:10px;color:#888">${c.codigo}</td>
-        <td style="padding:6px 10px;font-size:11px">${c.nombre}</td>
+        <td style="padding:6px 10px;font-family:'DM Mono',monospace;font-size:10px;color:#888">${esc(c.codigo)}</td>
+        <td style="padding:6px 10px;font-size:11px">${esc(c.nombre)}</td>
         <td style="padding:6px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:11px;color:#c94040">${t.debe?'$'+t.debe.toLocaleString('es-AR'):'-'}</td>
         <td style="padding:6px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:11px;color:#1a5c38">${t.haber?'$'+t.haber.toLocaleString('es-AR'):'-'}</td>
         <td style="padding:6px 10px;text-align:right;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:${tipoColor[c.tipo]||'#333'}">$${Math.abs(saldo).toLocaleString('es-AR')} <span style="font-size:9px;color:#aaa">${saldo>=0?'D':'H'}</span></td>
@@ -2550,9 +2741,9 @@ function renderPlanCuentas() {
 
     ctas.forEach(c => {
       html += `<div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid #f5f5f5;background:#fff">
-        <span style="font-family:'DM Mono',monospace;font-size:10px;color:#888;min-width:75px">${c.codigo}</span>
+        <span style="font-family:'DM Mono',monospace;font-size:10px;color:#888;min-width:75px">${esc(c.codigo)}</span>
         <span style="font-size:11px;color:#555;min-width:90px">${c.jerarquia}</span>
-        <span style="font-size:12px;flex:1;font-weight:500">${c.nombre}</span>
+        <span style="font-size:12px;flex:1;font-weight:500">${esc(c.nombre)}</span>
         <span style="font-size:10px;color:#fff;background:${color};padding:2px 8px;border-radius:10px;flex-shrink:0">${c.naturaleza==='D'?'Deudora':'Acreedora'}</span>
       </div>`;
     });
@@ -2610,11 +2801,11 @@ function renderLibroDiario() {
       <div style="background:#f8f8f8;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee">
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-family:'DM Mono',monospace;font-size:10px;color:#1a3a5c;font-weight:700;background:#e8f0fe;padding:3px 8px;border-radius:10px">N° ${a.nro}</span>
-          <span style="font-size:11px;font-weight:600;color:#333">${a.descripcion}</span>
+          <span style="font-size:11px;font-weight:600;color:#333">${esc(a.descripcion)}</span>
         </div>
         <div style="text-align:right">
-          <div style="font-size:10px;color:#888">${a.fecha} · ${a.comprobante}</div>
-          <div style="font-size:10px;font-weight:600;color:#1a3a5c;margin-top:1px">${a.tipo}</div>
+          <div style="font-size:10px;color:#888">${a.fecha} · ${esc(a.comprobante)}</div>
+          <div style="font-size:10px;font-weight:600;color:#1a3a5c;margin-top:1px">${esc(a.tipo)}</div>
         </div>
       </div>
       <!-- Líneas del asiento -->
@@ -2652,7 +2843,7 @@ function exportarLibroDiarioPDF() {
   const filas = asientosData.map(a => `
     <tr style="background:#f5f5f5">
       <td colspan="5" style="padding:6px 8px;font-size:10px;font-weight:700;color:#1a3a5c">
-        N° ${a.nro} · ${a.fecha} · ${a.tipo} — ${a.descripcion}
+        N° ${a.nro} · ${a.fecha} · ${esc(a.tipo)} — ${esc(a.descripcion)}
       </td>
     </tr>
     ${a.lineas.map(l => `<tr>
@@ -2731,7 +2922,7 @@ function popularSelectCuentas() {
   PLAN_CUENTAS.forEach(c => {
     const opt = document.createElement('option');
     opt.value = c.codigo;
-    opt.textContent = `${c.codigo} — ${c.nombre}`;
+    opt.textContent = `${esc(c.codigo)} — ${esc(c.nombre)}`;
     sel.appendChild(opt);
   });
 }
@@ -3047,8 +3238,8 @@ function renderHistorialProveedores() {
             const estadoColor = co.estado_pedido==='completo'?'#1a5c38':co.estado_pedido==='faltante'?'#e65100':'#c94040';
             return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #fafafa">
               <div>
-                <div style="font-size:12px;font-weight:600">${co.producto_nombre}</div>
-                <div style="font-size:10px;color:#999">${co.fecha} · ${co.cantidad} uds · ${co.forma_pago||'Contado'}${co.numero_factura?' · '+co.numero_factura:''}</div>
+                <div style="font-size:12px;font-weight:600">${esc(co.producto_nombre)}</div>
+                <div style="font-size:10px;color:#999">${co.fecha} · ${co.cantidad} uds · ${esc(co.forma_pago||'Contado')}${co.numero_factura?' · '+co.numero_factura:''}</div>
               </div>
               <div style="text-align:right">
                 <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600">$${total.toLocaleString('es-AR')}</div>
@@ -3130,12 +3321,12 @@ function renderSaldoProveedores() {
           const vencida = d.fecha_limite && new Date(d.fecha_limite) < new Date();
           return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #fafafa;font-size:11px">
             <div>
-              <span style="color:#555">${d.descripcion||'Deuda proveedor'}</span>
+              <span style="color:#555">${esc(d.descripcion)||'Deuda proveedor'}</span>
               ${d.fecha_limite?`<span style="margin-left:6px;color:${vencida?'#c94040':'#999'}">${vencida?'⚠️ Vencida':'📅'} ${new Date(d.fecha_limite+'T12:00:00').toLocaleDateString('es-AR')}</span>`:''}
             </div>
             <div style="display:flex;align-items:center;gap:8px">
               <span style="font-family:'DM Mono',monospace;font-weight:600;color:${vencida?'#c94040':'#1a3a5c'}">$${(d.monto||0).toLocaleString('es-AR')}</span>
-              <button onclick="abrirModalPago('${d.id}','${d.nombre_cliente||''}',${d.monto||0})"
+              <button onclick="abrirModalPago('${d.id}','${esc(d.nombre_cliente||'')}',${d.monto||0})"
                 style="padding:4px 10px;border-radius:6px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:10px;font-weight:600;cursor:pointer">
                 Pagar
               </button>
@@ -3184,7 +3375,7 @@ function renderOrdenCompra() {
       <div style="display:flex;gap:8px;margin-bottom:16px">
         <select class="inp" id="orden-prod-sel" style="flex:1;cursor:pointer;font-size:12px">
           <option value="">Seleccionar producto...</option>
-          ${prods.map(p=>`<option value="${p.id}" data-precio="${p.costo||0}">${p.nombre}</option>`).join('')}
+          ${prods.map(p=>`<option value="${p.id}" data-precio="${p.costo||0}">${esc(p.nombre)}</option>`).join('')}
         </select>
         <input class="inp" id="orden-qty" type="number" min="1" placeholder="Cant." style="width:70px;font-size:12px">
         <input class="inp" id="orden-precio-u" type="number" placeholder="Precio" style="width:90px;font-size:12px">
@@ -3292,7 +3483,8 @@ function generarOrdenPDF() {
 <title>Orden de Compra ${nroOrden}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
-  *{margin:0;padding:0;box-sizing:border-box}
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{touch-action:manipulation}
   body{font-family:'DM Sans',Arial,sans-serif;padding:32px;max-width:800px;margin:0 auto;color:#12100e;font-size:13px}
   .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:20px;border-bottom:3px solid #1a3a5c}
   .empresa{font-size:20px;font-weight:700;color:#1a3a5c}
@@ -3419,6 +3611,287 @@ ${obs?`<div class="obs-box">📝 <b>Observaciones:</b> ${obs}</div>`:''}
 
 
 
+// ══════════════════════════════════════════════════════
+// MÓDULO DE FACTURAS DE PROVEEDORES
+// ══════════════════════════════════════════════════════
+
+let facturas = [];
+let facCompraId = null;
+let facPagoActual = 'Contado';
+
+// ── Cargar facturas ──
+async function loadFacturas() {
+  try {
+    facturas = await sbGet('facturas_proveedor');
+  } catch(e) { facturas = []; }
+}
+
+// ── Abrir modal de factura para una compra ──
+function abrirModalFactura(compraId) {
+  facCompraId = compraId;
+  const compra = compras.find(c => c.id === compraId);
+  if (!compra) return;
+
+  // Pre-rellenar datos de la compra
+  const descEl = document.getElementById('fac-compra-desc');
+  if (descEl) descEl.textContent = `${compra.producto_nombre || ''} · ${compra.proveedor || ''}`;
+
+  const provEl = document.getElementById('fac-proveedor');
+  if (provEl && compra.proveedor) provEl.value = compra.proveedor;
+
+  const fechaEl = document.getElementById('fac-fecha');
+  if (fechaEl) fechaEl.value = compra.fecha || new Date().toISOString().split('T')[0];
+
+  const nroEl = document.getElementById('fac-numero');
+  if (nroEl && compra.numero_factura) nroEl.value = compra.numero_factura;
+
+  // Reset campos de importes
+  ['fac-neto','fac-iva','fac-perc-iva','fac-perc-iibb','fac-imp-int','fac-no-grav','fac-cae','fac-obs','fac-cuit'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+
+  // Pre-calcular neto desde el total de la compra
+  const total = (compra.precio_unitario || 0) * (compra.cantidad || 0);
+  const netoEl = document.getElementById('fac-neto');
+  if (netoEl && total > 0) {
+    netoEl.value = Math.round(total / 1.21 * 100) / 100;
+    calcularTotalesFac();
+  }
+
+  // Reset forma de pago
+  facPagoActual = compra.forma_pago || 'Contado';
+  document.querySelectorAll('.fac-pago-btn').forEach(b => {
+    const isActive = b.dataset.pago === facPagoActual;
+    b.style.borderColor = isActive ? '#1a5c38' : '#e0e0e0';
+    b.style.background  = isActive ? '#eaf5ee' : '#fff';
+    b.style.color       = isActive ? '#1a5c38' : '#555';
+  });
+  const aviso = document.getElementById('fac-cc-aviso');
+  if (aviso) aviso.style.display = facPagoActual === 'Cuenta Corriente' ? 'block' : 'none';
+
+  openModal('ov-factura');
+}
+
+// ── Seleccionar forma de pago ──
+function selectFacPago(btn) {
+  document.querySelectorAll('.fac-pago-btn').forEach(b => {
+    b.style.borderColor = '#e0e0e0';
+    b.style.background  = '#fff';
+    b.style.color       = '#555';
+  });
+  btn.style.borderColor = '#1a5c38';
+  btn.style.background  = '#eaf5ee';
+  btn.style.color       = '#1a5c38';
+  facPagoActual = btn.dataset.pago;
+  const aviso = document.getElementById('fac-cc-aviso');
+  if (aviso) aviso.style.display = facPagoActual === 'Cuenta Corriente' ? 'block' : 'none';
+}
+
+// ── Calcular totales automáticamente ──
+function calcularTotalesFac() {
+  const neto    = parseFloat(document.getElementById('fac-neto')?.value) || 0;
+  const alicPct = parseFloat(document.getElementById('fac-alic-iva')?.value) || 21;
+  const percIva = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
+  const percIIBB= parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
+  const impInt  = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
+  const noGrav  = parseFloat(document.getElementById('fac-no-grav')?.value) || 0;
+
+  const iva = Math.round(neto * (alicPct / 100) * 100) / 100;
+  const total = neto + iva + percIva + percIIBB + impInt + noGrav;
+
+  const ivaEl = document.getElementById('fac-iva');
+  if (ivaEl) ivaEl.value = iva.toFixed(2);
+
+  const totalEl = document.getElementById('fac-total-display');
+  if (totalEl) totalEl.textContent = '$' + total.toLocaleString('es-AR', {minimumFractionDigits:2});
+}
+
+// ── Guardar factura ──
+async function guardarFactura() {
+  if (!facCompraId) { showToast('Error: sin compra asociada', 'err'); return; }
+
+  const numero   = document.getElementById('fac-numero')?.value.trim();
+  const proveedor= document.getElementById('fac-proveedor')?.value.trim();
+  const cuit     = document.getElementById('fac-cuit')?.value.trim();
+  const fecha    = document.getElementById('fac-fecha')?.value;
+  const vence    = document.getElementById('fac-vencimiento')?.value || null;
+  const tipo     = document.getElementById('fac-tipo')?.value;
+  const alic     = parseFloat(document.getElementById('fac-alic-iva')?.value) || 21;
+  const neto     = parseFloat(document.getElementById('fac-neto')?.value) || 0;
+  const iva      = parseFloat(document.getElementById('fac-iva')?.value) || 0;
+  const percIva  = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
+  const percIIBB = parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
+  const impInt   = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
+  const noGrav   = parseFloat(document.getElementById('fac-no-grav')?.value) || 0;
+  const obs      = document.getElementById('fac-obs')?.value.trim() || null;
+  const cae      = document.getElementById('fac-cae')?.value.trim() || null;
+  const total    = neto + iva + percIva + percIIBB + impInt + noGrav;
+
+  if (!numero) { showToast('Ingresá el número de factura', 'err'); return; }
+  if (!neto && !total) { showToast('Ingresá al menos el importe neto', 'err'); return; }
+
+  try {
+    // Guardar factura
+    const factura = await sbInsert('facturas_proveedor', {
+      tienda_id:    STORE.id,
+      compra_id:    facCompraId,
+      tipo_cbte:    tipo,
+      numero:       numero,
+      proveedor:    proveedor || null,
+      cuit_prov:    cuit || null,
+      fecha:        fecha,
+      fecha_vence:  vence,
+      neto_gravado: neto,
+      alicuota_iva: alic,
+      importe_iva:  iva,
+      perc_iva:     percIva,
+      perc_iibb:    percIIBB,
+      imp_internos: impInt,
+      no_gravado:   noGrav,
+      total:        total,
+      forma_pago:   facPagoActual,
+      cae:          cae,
+      observaciones:obs,
+      estado:       'registrada',
+    });
+
+    facturas.unshift(factura);
+
+    // Marcar la compra como con factura cargada
+    await sbUpdate('compras', facCompraId, { factura_cargada: true });
+    const compra = compras.find(c => c.id === facCompraId);
+    if (compra) compra.factura_cargada = true;
+
+    // Si es Cuenta Corriente → crear deuda con proveedor
+    if (facPagoActual === 'Cuenta Corriente') {
+      const deuda = await sbInsert('deudas', {
+        tienda_id:      STORE.id,
+        nombre_cliente: proveedor || 'Proveedor',
+        monto:          total,
+        monto_original: total,
+        descripcion:    `Factura ${tipo} ${numero}${cuit?' · CUIT '+cuit:''}`,
+        estado:         'pendiente',
+        fecha_limite:   vence,
+        tipo:           'proveedor',
+        compra_id:      facCompraId,
+      });
+      deudas.unshift(deuda);
+      renderDeudas();
+      showToast(`📒 Factura guardada — Deuda $${total.toLocaleString('es-AR')} creada en Proveedores`, 'ok');
+    } else {
+      // Registrar como gasto pagado
+      await sbInsert('gastos', {
+        tienda_id:   STORE.id,
+        monto:       total,
+        categoria:   'Proveedores',
+        descripcion: `Factura ${tipo} ${numero} · ${proveedor || ''}`,
+        fecha:       fecha,
+      });
+      showToast(`✅ Factura ${numero} guardada correctamente`, 'ok');
+    }
+
+    closeModal('ov-factura');
+    renderCompraList();
+    renderGastos();
+
+    // Verificar alertas pendientes
+    checkAlertaFacturasPendientes();
+
+  } catch(e) {
+    showToast('❌ Error al guardar la factura', 'err');
+    console.error(e);
+  }
+}
+
+// ── Alerta de facturas pendientes ──
+function checkAlertaFacturasPendientes() {
+  const pendientes = compras.filter(c => !c.factura_cargada);
+  const alertBar = document.getElementById('alerta-facturas');
+  if (!alertBar) return;
+  if (pendientes.length > 0) {
+    alertBar.style.display = 'flex';
+    alertBar.innerHTML = `
+      <span style="font-size:12px;font-weight:600">⚠️ ${pendientes.length} compra${pendientes.length!==1?'s':''} sin factura cargada</span>
+      <button onclick="switchCoTab(document.querySelector('.co-tab[data-tab=\\'historial\\']'))"
+        style="font-size:11px;background:none;border:1.5px solid #dc2626;color:#dc2626;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:600;margin-left:auto">
+        Ver compras
+      </button>`;
+  } else {
+    alertBar.style.display = 'none';
+  }
+}
+
+function updateFacTipo() {
+  // Adjust alicuota hint based on tipo
+  const tipo = document.getElementById('fac-tipo')?.value;
+  // Telefonia suele ser 27%, el resto 21%
+}
+
+
+// ══════════════════════════════════
+// AUDITORÍA — LOG DE ACCIONES
+// ══════════════════════════════════
+async function auditLog(accion, tabla, registroId, datos = {}) {
+  try {
+    await SB.from('audit_log').insert({
+      tienda_id:  STORE?.id,
+      user_id:    USER?.id,
+      user_email: USER?.email,
+      accion,
+      tabla,
+      registro_id: registroId || null,
+      datos: datos,
+    });
+  } catch(e) {
+    // No bloquear la operación si el log falla
+    console.warn('Audit log failed (non-critical):', e.message);
+  }
+}
+
+// ══════════════════════════════════
+// SEGURIDAD — RATE LIMITING CLIENT
+// ══════════════════════════════════
+const _rateLimits = {};
+function rateLimitCheck(key, maxPerMinute = 30) {
+  const now = Date.now();
+  if (!_rateLimits[key]) _rateLimits[key] = [];
+  _rateLimits[key] = _rateLimits[key].filter(t => now - t < 60000);
+  if (_rateLimits[key].length >= maxPerMinute) {
+    showToast('⚠️ Demasiadas operaciones seguidas. Esperá un momento.', 'err');
+    return false;
+  }
+  _rateLimits[key].push(now);
+  return true;
+}
+
+// ══════════════════════════════════
+// MANEJO GLOBAL DE ERRORES
+// ══════════════════════════════════
+window.addEventListener('unhandledrejection', event => {
+  const err = event.reason;
+  const msg = err?.message || String(err);
+
+  // Detectar errores de auth
+  if (msg.includes('JWT') || msg.includes('401') || msg.includes('auth')) {
+    showToast('⚠️ Sesión expirada. Recargá la página.', 'err');
+    return;
+  }
+
+  // Detectar errores de conexión
+  if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+    showToast('⚠️ Sin conexión a internet. Verificá tu red.', 'err');
+    return;
+  }
+
+  // Log del error (no mostrar detalles técnicos al usuario)
+  console.error('Unhandled error:', err);
+});
+
+window.addEventListener('error', event => {
+  console.error('JS Error:', event.error);
+});
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(reg => {
@@ -3439,7 +3912,26 @@ window.onload = async () => {
 };
 
 function initSupabase(url, key) {
-  SB = supabase.createClient(url, key);
+  SB = supabase.createClient(url, key, {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false
+    }
+  });
+
+  // Manejar expiración de sesión automáticamente
+  SB.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+      if (event === 'SIGNED_OUT') {
+        showToast('⚠️ Tu sesión expiró. Por favor ingresá de nuevo.', 'err');
+        setTimeout(() => {
+          USER = null; STORE = null;
+          showLogin();
+        }, 2000);
+      }
+    }
+  });
 }
 
 function showSetup() { document.getElementById('setup-view').style.display='flex'; }
@@ -3559,7 +4051,7 @@ function updateDate(){
 
 function renderAll(){
   renderCats();renderProds();renderHist();renderCaja();
-  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();renderProyecciones();setTimeout(checkVencimientos,2000);cargarConfigFiscal();loadPlanCuentas();
+  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();renderProyecciones();setTimeout(checkVencimientos,2000);cargarConfigFiscal();loadPlanCuentas();checkAlertaFacturasPendientes();
 }
 
 // ══ SUPABASE CRUD ══
@@ -3655,10 +4147,10 @@ function renderDeudas(){
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div>
           <div style="display:flex;align-items:center;gap:6px">
-            <div style="font-size:13px;font-weight:600">${d.nombre_cliente||'Sin nombre'}</div>
+            <div style="font-size:13px;font-weight:600">${esc(d.nombre_cliente||'Sin nombre')}</div>
             ${d.tipo==='proveedor'?'<span style="font-size:10px;background:#e3f2fd;color:#1565c0;padding:2px 7px;border-radius:10px;font-weight:600">PROVEEDOR</span>':'<span style="font-size:10px;background:#fff3e0;color:#e65100;padding:2px 7px;border-radius:10px;font-weight:600">CLIENTE</span>'}
           </div>
-          ${d.telefono?`<div style="font-size:11px;color:var(--muted)">${d.telefono}</div>`:''}
+          ${d.telefono?`<div style="font-size:11px;color:var(--muted)">${esc(d.telefono)}</div>`:''}
         </div>
         <div style="text-align:right">
           <div style="font-family:DM Mono,monospace;font-size:18px;font-weight:700;color:${vencida?'var(--red)':'var(--amber)'}">$${(d.monto||0).toLocaleString('es-AR')}</div>
@@ -3673,15 +4165,15 @@ function renderDeudas(){
           <div style="background:var(--pine);height:100%;width:${pct}%;transition:width .3s"></div>
         </div>
       </div>`:''}
-      ${d.descripcion?`<div style="font-size:12px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:var(--cream);border-radius:6px">${d.descripcion}</div>`:''}
+      ${d.descripcion?`<div style="font-size:12px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:var(--cream);border-radius:6px">${esc(d.descripcion)}</div>`:''}
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
         <div style="font-size:11px;color:${vencida?'var(--red)':'var(--muted)'}">
           ${d.fecha_limite?`${vencida?'⚠️ Venció':'📅 Vence'}: ${new Date(d.fecha_limite).toLocaleDateString('es-AR')}`:'Sin fecha límite'}
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${d.telefono?`<a href="https://wa.me/${d.telefono.replace(/\D/g,'')}" target="_blank" class="btn btn-sm btn-outline">💬 WA</a>`:''}
-          <button class="btn btn-sm" style="background:#fff3e0;color:#e65100;border:1.5px solid #e65100" onclick="abrirModalPago('${d.id}','${d.nombre_cliente||''}',${d.monto||0})">💰 Pago</button>
-          <button class="btn btn-sm" style="background:var(--pine-l);color:var(--pine);border:1.5px solid var(--pine)" onclick="verHistorialPagos('${d.id}','${d.nombre_cliente||''}')">📋 Historial</button>
+          <button class="btn btn-sm" style="background:#fff3e0;color:#e65100;border:1.5px solid #e65100" onclick="abrirModalPago('${d.id}','${esc(d.nombre_cliente||'')}',${d.monto||0})">💰 Pago</button>
+          <button class="btn btn-sm" style="background:var(--pine-l);color:var(--pine);border:1.5px solid var(--pine)" onclick="verHistorialPagos('${d.id}','${esc(d.nombre_cliente||'')}')">📋 Historial</button>
           <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="eliminarDeuda('${d.id}')">🗑️</button>
         </div>
       </div>
@@ -3850,7 +4342,7 @@ async function verHistorialPagos(deudaId, nombre){
               <div style="width:36px;height:36px;background:linear-gradient(135deg,#e8f5e9,#c8e6c9);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${i === 0 ? '🟢' : '✅'}</div>
               <div>
                 <div style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:#1a5c38">+ $${Number(p.monto_abonado).toLocaleString('es-AR')}</div>
-                ${p.nota ? `<div style="font-size:11px;color:#666;margin-top:2px;background:#f8f8f8;padding:3px 8px;border-radius:6px;display:inline-block">${p.nota}</div>` : ''}
+                ${p.nota ? `<div style="font-size:11px;color:#666;margin-top:2px;background:#f8f8f8;padding:3px 8px;border-radius:6px;display:inline-block">${esc(p.nota)}</div>` : ''}
               </div>
             </div>
             <div style="text-align:right;flex-shrink:0">
@@ -3999,12 +4491,12 @@ function renderProds(){
     return `<div class="pc ${on?'on':''}" id="pc-${p.id}" data-prod-id="${p.id}">
       <div class="pc-em">${getEm(p.categoria)}</div>
       <div class="pc-info">
-        <div class="pc-name">${p.nombre}</div>
+        <div class="pc-name">${esc(p.nombre)}</div>
         <div class="pc-meta">
-          <span class="ptag">${p.categoria||'—'}</span>
+          <span class="ptag">${esc(p.categoria||'—')}</span>
           <span class="pprice">$${(p.precio||0).toLocaleString('es-AR')}</span>
           <span class="pstk ${sc}">${st}</span>
-          ${p.barcode?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:#aaa;letter-spacing:.5px">${p.barcode}</span>`:''}
+          ${p.barcode?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:#aaa;letter-spacing:.5px">${esc(p.barcode)}</span>`:''}
         </div>
       </div>
       <div class="qc">
@@ -4050,6 +4542,9 @@ function updateCart(){
 
 // ══ REGISTER SALE ══
 async function registerSale(){
+  // Rate limiting — previene ventas accidentales múltiples
+  if (!rateLimitCheck('registerSale', 20)) return;
+
   const sel=prods.filter(p=>(qtys[p.id]||0)>0);
   if(!sel.length)return;
   const btn=document.getElementById('c-btn');
@@ -4069,16 +4564,23 @@ async function registerSale(){
       metodo_pago:method,nota,cliente:clienteNom,
       items:JSON.stringify(items),
       fecha:new Date().toISOString().split('T')[0],
+      request_id: crypto.randomUUID(), // Idempotencia — previene ventas duplicadas
     });
 
-    // Update stock
+    // Update stock — ATÓMICO via RPC (previene race conditions)
     for(const p of sel){
-      const qty=qtys[p.id];
-      await sbUpdate('productos',p.id,{stock:Math.max(0,p.stock-qty)});
-      p.stock=Math.max(0,p.stock-qty);
+      const qty = qtys[p.id];
+      if(!p.es_combo) {
+        const { data: stockResult, error: stockErr } = await SB.rpc('descontar_stock', {
+          p_id: p.id, cantidad: qty, t_id: STORE.id
+        });
+        if(stockErr || !stockResult?.[0]?.exito) {
+          throw new Error(`Stock insuficiente para ${p.nombre}`);
+        }
+        p.stock = stockResult[0].nuevo_stock;
+      }
     }
-
-    sales.unshift(venta);
+        sales.unshift(venta);
 
     // Si es Cuenta Corriente → crear deuda automáticamente
     if(method === 'Cuenta Corriente'){
@@ -4247,7 +4749,7 @@ function renderCaja(){
         <div class="hc-dr"><span>Tarjeta</span><span>$${(c.tarjeta||0).toLocaleString('es-AR')}</span></div>
         <div class="hc-dr"><span>Efectivo en caja</span><span>$${(c.efectivo_caja||0).toLocaleString('es-AR')}</span></div>
         <div class="hc-dr"><span>Diferencia</span><span style="color:${(c.diferencia||0)>=0?'var(--pine)':'var(--red)'}">$${(c.diferencia||0).toLocaleString('es-AR')}</span></div>
-        ${c.observaciones?`<div style="margin-top:8px;font-size:11px;color:var(--muted);background:var(--cream);padding:8px;border-radius:6px">${c.observaciones}</div>`:''}
+        ${c.observaciones?`<div style="margin-top:8px;font-size:11px;color:var(--muted);background:var(--cream);padding:8px;border-radius:6px">${esc(c.observaciones)}</div>`:''}
       </div>
     </div>`).join('');
 }
@@ -4364,7 +4866,7 @@ function renderStock(f){
     const bc=isOut?'var(--red)':isLow?'var(--amber)':'var(--pine)';
     return `<div class="sc ${cls}">
       <div class="sc-top">
-        <div class="sc-left"><div style="font-size:18px">${getEm(p.categoria)}</div><div style="font-size:13px;font-weight:600">${p.nombre}</div></div>
+        <div class="sc-left"><div style="font-size:18px">${getEm(p.categoria)}</div><div style="font-size:13px;font-weight:600">${esc(p.nombre)}</div></div>
         <div style="display:flex;align-items:center;gap:6px">
           <div class="sc-dot ${dc}"></div>
           <button class="btn btn-sm btn-outline" onclick="editProduct('${p.id}')">✏️</button>
@@ -4372,7 +4874,7 @@ function renderStock(f){
         </div>
       </div>
       <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${p.stock} uds</div></div>
-      <div class="sc-meta"><span>${p.categoria||'—'}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${p.barcode?'🔖 '+p.barcode:''}</span><span>${p.costo>0?'Costo: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
+      <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${p.barcode?'🔖 '+p.barcode:''}</span><span>${p.costo>0?'Costo: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
       ${p.costo>0?`<div style="display:flex;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
         <span style="color:#1a5c38;font-weight:600">Margen: $${((p.precio||0)-(p.costo||0)).toLocaleString('es-AR')}</span>
         <span style="color:#999">·</span>
@@ -4479,13 +4981,13 @@ function renderClients(){
     <div class="clcard">
       <div class="cl-top">
         <div class="cl-av">${(c.nombre||'?')[0].toUpperCase()}</div>
-        <div style="flex:1"><div class="cl-name">${c.nombre}</div><div class="cl-meta">${c.telefono||''}${c.email?' · '+c.email:''}</div></div>
+        <div style="flex:1"><div class="cl-name">${esc(c.nombre)}</div><div class="cl-meta">${esc(c.telefono||'')}${c.email?' · '+c.email:''}</div></div>
         <div style="display:flex;gap:6px">
           <button class="btn btn-sm btn-outline" onclick="editClient('${c.id}')">✏️</button>
-          <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteClient('${c.id}','${c.nombre}')">🗑️</button>
+          <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteClient('${c.id}','${esc(c.nombre)}')">🗑️</button>
         </div>
       </div>
-      ${c.notas?`<div style="font-size:11px;color:var(--muted);margin-bottom:10px;padding:6px 8px;background:var(--cream);border-radius:6px">${c.notas}</div>`:''}
+      ${c.notas?`<div style="font-size:11px;color:var(--muted);margin-bottom:10px;padding:6px 8px;background:var(--cream);border-radius:6px">${esc(c.notas)}</div>`:''}
     </div>`).join('');
 }
 
@@ -4543,11 +5045,11 @@ async function saveClient(){
 // ══ COMPRAS ══
 function populateSelects(){
   document.getElementById('co-prod').innerHTML='<option value="">Seleccionar...</option>'+prods.map(p=>`<option value="${p.id}">${getEm(p.categoria)} ${p.nombre}</option>`).join('');
-  document.getElementById('v-cliente').innerHTML='<option value="">— Sin cliente —</option>'+clients.map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');
+  document.getElementById('v-cliente').innerHTML='<option value="">— Sin cliente —</option>'+clients.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
   const provSel=document.getElementById('co-prov');
-  if(provSel)provSel.innerHTML='<option value="">-- Sin proveedor --</option>'+clients.map(c=>`<option value="${c.nombre}">${c.nombre}</option>`).join('');
+  if(provSel)provSel.innerHTML='<option value="">-- Sin proveedor --</option>'+clients.map(c=>`<option value="${esc(c.nombre)}">${esc(c.nombre)}</option>`).join('');
   const deudaCliente=document.getElementById('de-cliente');
-  if(deudaCliente)deudaCliente.innerHTML='<option value="">Seleccionar cliente...</option>'+clients.map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');
+  if(deudaCliente)deudaCliente.innerHTML='<option value="">Seleccionar cliente...</option>'+clients.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
 }
 
 let selectedPagoCompra = 'Contado';
@@ -4661,20 +5163,27 @@ function renderCompraList(){
     const total = (co.precio_unitario||0)*(co.cantidad||0);
     const estadoColor = co.estado_pedido==='faltante'?'#e65100':co.estado_pedido==='roto'?'#c94040':'#1a5c38';
     const pagoColor = co.forma_pago==='Cuenta Corriente'?'#1565c0':co.forma_pago==='Transferencia'?'#1a5c38':'#555';
-    return `<div class="ccard">
+    const tieneFac = co.factura_cargada;
+    const facBadge = tieneFac
+      ? `<span style="font-size:10px;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:10px;font-weight:600">✅ Factura cargada</span>`
+      : `<button onclick="abrirModalFactura('${co.id}')" style="font-size:10px;background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:10px;font-weight:600;border:none;cursor:pointer">⚠️ Cargar factura</button>`;
+    return `<div class="ccard" style="border-left:3px solid ${tieneFac?'#16a34a':'#dc2626'}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <div class="cc-prod" style="font-weight:600">${co.producto_nombre||'—'}</div>
+        <div class="cc-prod" style="font-weight:600">${esc(co.producto_nombre||'—')}</div>
         ${total?`<div class="cc-total" style="font-family:'DM Mono',monospace;font-weight:700">$${total.toLocaleString('es-AR')}</div>`:''}
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px">
         <span style="font-size:10px;color:#888">${co.fecha||'—'}</span>
-        ${co.proveedor?`<span style="font-size:10px;background:#f0f0f0;padding:2px 7px;border-radius:10px;color:#555">🏭 ${co.proveedor}</span>`:''}
-        ${co.numero_factura?`<span style="font-size:10px;color:#888">📄 ${co.numero_factura}</span>`:''}
-        <span style="font-size:10px;font-weight:600;color:${pagoColor}">${co.forma_pago||'Contado'}</span>
+        ${co.proveedor?`<span style="font-size:10px;background:#f0f0f0;padding:2px 7px;border-radius:10px;color:#555">🏭 ${esc(co.proveedor)}</span>`:''}
+        ${co.numero_factura?`<span style="font-size:10px;color:#888">📄 ${esc(co.numero_factura)}</span>`:''}
+        <span style="font-size:10px;font-weight:600;color:${pagoColor}">${esc(co.forma_pago||'Contado')}</span>
         ${co.estado_pedido&&co.estado_pedido!=='completo'?`<span style="font-size:10px;font-weight:600;color:${estadoColor}">${co.estado_pedido==='faltante'?'⚠️ Faltante':'❌ Roto'}</span>`:''}
         ${co.vence_pago?`<span style="font-size:10px;color:#e65100">📅 Vence: ${co.vence_pago}</span>`:''}
       </div>
-      <div style="font-size:11px;color:#aaa;margin-top:3px">+${co.cantidad} uds · $${(co.precio_unitario||0).toLocaleString('es-AR')} c/u</div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:11px;color:#aaa">+${co.cantidad} uds · $${(co.precio_unitario||0).toLocaleString('es-AR')} c/u</div>
+        ${facBadge}
+      </div>
     </div>`;
   }).join('');
 }
@@ -4924,6 +5433,21 @@ function renderProyecciones() {
 }
 
 // ══════════════════════════════════
+// SEGURIDAD — ESCAPE XSS
+// ══════════════════════════════════
+function esc(str) {
+  if (str === null || str === undefined) return '';
+  const d = document.createElement('div');
+  d.appendChild(document.createTextNode(String(str)));
+  return d.innerHTML;
+}
+
+// Versión para atributos HTML
+function escAttr(str) {
+  return esc(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ══════════════════════════════════
 // GASTOS EVENTUALES
 
 // ══════════════════════════════════
@@ -5062,7 +5586,7 @@ function renderGastos() {
               <div style="width:40px;height:40px;background:${c.bg};border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${c.icon}</div>
               <div style="flex:1;min-width:0">
                 <div style="font-size:13px;font-weight:600;color:#1a1a0e">${g.descripcion || g.categoria}</div>
-                <div style="font-size:11px;color:#999;margin-top:2px">${g.categoria}</div>
+                <div style="font-size:11px;color:#999;margin-top:2px">${esc(g.categoria)}</div>
               </div>
               <div style="text-align:right;flex-shrink:0">
                 <div style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:${c.color}">-$${(g.monto||0).toLocaleString('es-AR')}</div>
@@ -5109,7 +5633,7 @@ function buscarPorBarcode(code) {
       prodCard.style.transition = 'background .3s';
       setTimeout(() => { prodCard.style.background = ''; }, 800);
     }
-    showToast(`✅ ${prod.nombre} agregado`, 'ok');
+    showToast(`✅ ${esc(prod.nombre)} agregado`, 'ok');
     // Mantener foco en el scanner
     setTimeout(() => document.getElementById('scan-input')?.focus(), 100);
   } else {
