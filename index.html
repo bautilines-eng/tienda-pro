@@ -2326,7 +2326,7 @@ function renderMayor() {
   // Ventas
   sales.filter(v => filtro(v.fecha)).forEach(v => {
     const ct = METODO_CUENTA[v.metodo_pago] || '11101001';
-    const iva = Math.round((v.total||0)/1.21*0.21*100)/100;
+    const iva = calcularIVA(v.total||0).iva;
     const neto = (v.total||0) - iva;
     const iibb = Math.round((v.total||0)*0.03*100)/100;
     if (ct === cuentaCod)         movs.push({fecha:v.fecha, desc:`Venta ${esc(v.metodo_pago)}`, debe:v.total, haber:0, origen:'Venta'});
@@ -2455,7 +2455,7 @@ function renderBalance() {
   // Ventas
   sales.filter(v => filtro(v.fecha)).forEach(v => {
     const ct = METODO_CUENTA[v.metodo_pago] || '11101001';
-    const iva = Math.round((v.total||0)/1.21*0.21*100)/100;
+    const iva = calcularIVA(v.total||0).iva;
     const neto = (v.total||0) - iva;
     const iibb = Math.round((v.total||0)*0.03*100)/100;
     if (totales[ct])        totales[ct].debe += v.total||0;
@@ -4077,7 +4077,7 @@ async function sbUpdate(table,id,fields){
 // ══ LOADERS ══
 async function loadProds(){
   try{
-    prods=await sbGet('productos');
+    prods=await sbGet('productos', {is_deleted: false});
     filtered=[...prods];
   }catch(e){console.error('loadProds',e);prods=[];}
 }
@@ -4559,25 +4559,46 @@ async function registerSale(){
     const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],emoji:getEm(p.categoria)}));
 
     // Insert venta
-    const venta=await sbInsert('ventas',{
-      total,subtotal:sub,descuento:desc,
-      metodo_pago:method,nota,cliente:clienteNom,
-      items:JSON.stringify(items),
-      fecha:new Date().toISOString().split('T')[0],
-      request_id: crypto.randomUUID(), // Idempotencia — previene ventas duplicadas
-    });
+    const venta=await (async () => {
+      // Obtener número correlativo de Supabase
+      const { data: nroData } = await SB.rpc('siguiente_nro_comprobante', {
+        p_tienda_id: STORE.id,
+        p_tipo: 'VENTA',
+        p_pto_venta: String(STORE.punto_venta || '00001').padStart(5,'0')
+      });
+      const nroCbte = nroData || null;
 
-    // Update stock — ATÓMICO via RPC (previene race conditions)
+      return SB.from('ventas').insert({
+        tienda_id: STORE.id,
+        total, subtotal: sub, descuento: desc,
+        metodo_pago: method, nota, cliente: clienteNom,
+        items: JSON.stringify(items),
+        fecha: new Date().toISOString().split('T')[0],
+        request_id: crypto.randomUUID(),
+        nro_comprobante: nroCbte,
+      }).select().single();
+    })().then(({data,error}) => { if(error) throw error; return data; })
+
+    // Update stock — ATÓMICO con Kardex (trazabilidad completa)
     for(const p of sel){
       const qty = qtys[p.id];
       if(!p.es_combo) {
-        const { data: stockResult, error: stockErr } = await SB.rpc('descontar_stock', {
-          p_id: p.id, cantidad: qty, t_id: STORE.id
+        const { data: kardexResult, error: kardexErr } = await SB.rpc('mover_stock_con_kardex', {
+          p_tienda_id:   STORE.id,
+          p_producto_id: p.id,
+          p_cantidad:    -qty,           // negativo = salida
+          p_tipo_mov:    'VENTA',
+          p_doc_tipo:    'VENTA',
+          p_doc_id:      null,           // se actualiza después con el ID de venta
+          p_doc_nro:     null,           // se actualiza con nro_comprobante
+          p_costo_unit:  p.costo || 0,
+          p_precio_unit: p.precio || 0,
+          p_observacion: `Venta a ${clienteNom || 'consumidor final'}`
         });
-        if(stockErr || !stockResult?.[0]?.exito) {
-          throw new Error(`Stock insuficiente para ${p.nombre}`);
+        if(kardexErr || !kardexResult?.exito) {
+          throw new Error(`Stock insuficiente para ${esc(p.nombre)}`);
         }
-        p.stock = stockResult[0].nuevo_stock;
+        p.stock = kardexResult.stock_nuevo;
       }
     }
         sales.unshift(venta);
@@ -4939,7 +4960,11 @@ async function updateProduct(id){
 async function deleteProduct(id,nombre){
   if(!confirm(`¿Eliminar "${nombre}"? Esta acción no se puede deshacer.`))return;
   try{
-    await SB.from('productos').delete().eq('id',id);
+    await SB.from('productos').update({
+    is_deleted: true,
+    deleted_at: new Date().toISOString(),
+    deleted_by: USER?.id
+  }).eq('id', id);
     prods=prods.filter(x=>x.id!=id);filtered=[...prods];
     renderCats();renderProds();renderStock(stockFilter);populateSelects();
     showToast('✅ Producto eliminado','ok');
@@ -5023,7 +5048,7 @@ async function updateClient(id){
 async function deleteClient(id,nombre){
   if(!confirm(`¿Eliminar a ${nombre}?`))return;
   try{
-    await SB.from('clientes').delete().eq('id',id);
+    await SB.from('clientes').update({is_deleted:true,deleted_at:new Date().toISOString()}).eq('id',id);
     clients=clients.filter(x=>x.id!=id);
     renderClients();populateSelects();
     showToast('✅ Cliente eliminado','ok');
@@ -5433,6 +5458,20 @@ function renderProyecciones() {
 }
 
 // ══════════════════════════════════
+// PRECISIÓN DECIMAL — evita errores IVA
+// ══════════════════════════════════
+function redondear(valor, decimales = 2) {
+  // Usa Number.EPSILON para evitar errores de floating point
+  return Math.round((valor + Number.EPSILON) * Math.pow(10, decimales)) / Math.pow(10, decimales);
+}
+
+function calcularIVA(total, alicuota = 21) {
+  const neto = redondear(total / (1 + alicuota / 100));
+  const iva  = redondear(total - neto);
+  return { neto, iva, total };
+}
+
+// ══════════════════════════════════
 // SEGURIDAD — ESCAPE XSS
 // ══════════════════════════════════
 function esc(str) {
@@ -5504,7 +5543,7 @@ async function guardarGasto() {
 async function eliminarGasto(id) {
   if (!confirm('¿Eliminar este gasto?')) return;
   try {
-    await SB.from('gastos').delete().eq('id', id);
+    await SB.from('gastos').update({is_deleted:true,deleted_at:new Date().toISOString()}).eq('id', id);
     gastos = gastos.filter(g => g.id !== id);
     renderGastos();
     showToast('✅ Gasto eliminado', 'ok');
