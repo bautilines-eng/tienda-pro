@@ -2575,7 +2575,7 @@ function renderMayor() {
   // Compras
   compras.filter(c => filtro(c.fecha)).forEach(co => {
     const total = (co.precio_unitario||0)*(co.cantidad||0);
-    const iva   = Math.round(total/1.21*0.21*100)/100;
+    const iva   = calcularIVA(total).iva;
     const neto  = total - iva;
     if (cuentaCod==='11501008') movs.push({fecha:co.fecha, desc:'Compra '+co.producto_nombre, debe:neto, haber:0, origen:'Compra'});
     if (cuentaCod==='11403005') movs.push({fecha:co.fecha, desc:'CF IVA 21% — '+co.proveedor, debe:iva, haber:0, origen:'Compra'});
@@ -2704,7 +2704,7 @@ function renderBalance() {
   // Compras
   compras.filter(c => filtro(c.fecha)).forEach(co => {
     const total = (co.precio_unitario||0)*(co.cantidad||0);
-    const iva   = Math.round(total/1.21*0.21*100)/100;
+    const iva   = calcularIVA(total).iva;
     const neto  = total - iva;
     if (totales['11501008'])totales['11501008'].debe += neto;
     if (totales['11403005'])totales['11403005'].debe += iva;
@@ -2875,8 +2875,8 @@ function generarIVA(tipo) {
                          .sort((a,b) => a.fecha.localeCompare(b.fecha));
     lineas = comps.map((co, i) => {
       const total  = (co.precio_unitario||0)*(co.cantidad||0);
-      const iva    = fmtMonto(total/1.21*0.21);
-      const neto   = fmtMonto(total/1.21);
+      const iva    = fmtMonto(calcularIVA(total).iva);
+      const neto   = fmtMonto(calcularIVA(total).neto);
       const totFmt = fmtMonto(total);
       const nro    = padL(i+1, 20);
       const ptoV2  = padL('00001', 5);
@@ -2904,8 +2904,8 @@ function generarIVA(tipo) {
                          .sort((a,b) => a.fecha.localeCompare(b.fecha));
     lineas = comps.map((co, i) => {
       const total  = (co.precio_unitario||0)*(co.cantidad||0);
-      const neto   = fmtMonto(total/1.21, 15, 3);
-      const ivaLiq = fmtMonto(total/1.21*0.21, 15, 3);
+      const neto   = fmtMonto(calcularIVA(total).neto, 15, 3);
+      const ivaLiq = fmtMonto(calcularIVA(total).iva, 15, 3);
       return [CONFIG_FISCAL.tipo_cbte_fac_a, padL('00001',5), padL(i+1,20), neto, '0005', ivaLiq].join('');
     });
   }
@@ -4547,6 +4547,43 @@ async function renderKardex() {
 
 
 
+// ══ TIPO DE COMPROBANTE ══
+let _cbteTipo = 'B';
+
+function selectCbteTipo(btn) {
+  document.querySelectorAll('.cbte-btn').forEach(b => {
+    b.style.borderColor = '#e0e0e0';
+    b.style.background  = '#fff';
+    b.style.color       = '#555';
+  });
+  btn.style.borderColor = '#1a5c38';
+  btn.style.background  = '#eaf5ee';
+  btn.style.color       = '#1a5c38';
+  _cbteTipo = btn.dataset.cbte;
+
+  const cuitRow = document.getElementById('cuit-cte-row');
+  if (cuitRow) cuitRow.style.display = _cbteTipo === 'A' ? 'block' : 'none';
+}
+
+// ══ VERIFICAR GAPS CORRELATIVOS (ejecutar mensualmente) ══
+async function verificarGapsCorrelativos() {
+  try {
+    const { data } = await SB.rpc('verificar_gaps_correlativos', {
+      p_tienda_id: STORE.id,
+      p_tipo: 'VENTA'
+    });
+    if (!data || data.length === 0) {
+      showToast('✅ Numeración correlativa sin gaps — todo correcto', 'ok');
+    } else {
+      console.warn('GAPS DETECTADOS:', data);
+      showToast(`⚠️ ${data.length} gap(s) detectado(s) en numeración — ver consola`, 'err');
+    }
+    return data;
+  } catch(e) {
+    console.error('Error verificando gaps:', e);
+  }
+}
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(reg => {
@@ -5223,6 +5260,17 @@ async function registerSale(){
       });
       const nroCbte = nroData || null;
 
+      const tipoCbte    = document.querySelector('.cbte-btn.active')?.dataset.cbte || 'B';
+      const cuitCte     = document.getElementById('cuit-cte-input')?.value.trim() || null;
+      const razonSocial = document.getElementById('razon-social-input')?.value.trim() || null;
+
+      if (tipoCbte === 'A' && !cuitCte) {
+        showToast('❌ Factura A requiere CUIT del comprador', 'err');
+        throw new Error('Factura A requiere CUIT');
+      }
+
+      const { neto, iva } = calcularIVA(total);
+
       return SB.from('ventas').insert({
         tienda_id: STORE.id,
         total, subtotal: sub, descuento: desc,
@@ -5231,6 +5279,13 @@ async function registerSale(){
         fecha: new Date().toISOString().split('T')[0],
         request_id: crypto.randomUUID(),
         nro_comprobante: nroCbte,
+        tipo_cbte:       tipoCbte,
+        cond_iva_cte:    tipoCbte === 'A' ? 'RI' : 'CF',
+        cuit_comprador:  cuitCte,
+        razon_social:    razonSocial,
+        neto_gravado:    neto,
+        importe_iva:     iva,
+        alicuota_iva:    21,
       }).select().single();
     })().then(({data,error}) => { if(error) throw error; return data; })
 
