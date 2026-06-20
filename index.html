@@ -5357,7 +5357,14 @@ function renderAll(){
 // ══ SUPABASE CRUD ══
 async function sbGet(table,filters={}){
   let q=SB.from(table).select('*').eq('tienda_id',STORE?.id||USER?.id);
-  Object.entries(filters).forEach(([k,v])=>q=q.eq(k,v));
+  Object.entries(filters).forEach(([k,v])=>{
+    if(k==='is_deleted' && v===false){
+      // is_deleted=false debe incluir NULL (registros anteriores al soft delete)
+      q=q.or('is_deleted.eq.false,is_deleted.is.null');
+    } else {
+      q=q.eq(k,v);
+    }
+  });
   const {data,error}=await q.order('created_at',{ascending:false});
   if(error)throw error;
   return data||[];
@@ -5385,17 +5392,17 @@ async function loadProds(){
 async function loadSales(){
   try{
     const data=await sbGet('ventas');
-    sales=data;
+    sales=data.filter(v=>!v.is_deleted);
   }catch(e){console.error('loadSales',e);sales=[];}
 }
 
 async function loadClients(){
-  try{clients=await sbGet('clientes');}
+  try{clients=await sbGet('clientes',{is_deleted:false});}
   catch(e){clients=[];}
 }
 
 async function loadCompras(){
-  try{compras=await sbGet('compras');}
+  try{compras=await sbGet('compras',{is_deleted:false});}
   catch(e){compras=[];}
 }
 
@@ -5403,7 +5410,7 @@ async function loadCompras(){
 let deudas = [];
 
 async function loadDeudas(){
-  try{ deudas = await sbGet('deudas'); }
+  try{ deudas = await sbGet('deudas',{is_deleted:false}); }
   catch(e){ deudas = []; }
 }
 
