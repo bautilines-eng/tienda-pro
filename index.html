@@ -708,6 +708,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
         🚛 Recepciones GRN
       </button>
+      <button class="stock-tab" data-tab="ajuste" onclick="switchStockTab(this)"
+        style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        ⚖️ Ajuste Manual
+      </button>
     </div>
 
     <!-- Kardex Panel -->
@@ -718,6 +722,38 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         </select>
       </div>
       <div id="kardex-content"></div>
+    </div>
+
+    <!-- Ajuste Manual Panel -->
+    <div id="panel-ajuste" style="display:none;padding:0 20px">
+      <div style="background:#fff3e0;border:1.5px solid #ffb74d;border-radius:10px;padding:12px 16px;margin:12px 0;font-size:12px;color:#e65100">
+        ⚠️ Los ajustes de stock quedan registrados en el Kardex con tu usuario y razón. Usá esto solo para correcciones después de un inventario físico.
+      </div>
+      <div class="fgroup" style="margin-bottom:10px">
+        <div class="flabel">Producto</div>
+        <select class="inp" id="aj-prod" style="cursor:pointer">
+          <option value="">Seleccioná un producto...</option>
+        </select>
+      </div>
+      <div class="frow" style="margin-bottom:10px">
+        <div style="flex:1">
+          <div class="flabel">Stock físico contado</div>
+          <input class="inp" id="aj-stock" type="number" min="0" placeholder="0">
+        </div>
+        <div style="flex:1;align-self:flex-end;padding-bottom:2px">
+          <div id="aj-diferencia" style="font-size:12px;color:#888;padding:10px 0">
+            Seleccioná producto y stock real
+          </div>
+        </div>
+      </div>
+      <div class="fgroup" style="margin-bottom:12px">
+        <div class="flabel">Razón del ajuste <span style="color:var(--red)">*</span></div>
+        <input class="inp" id="aj-razon" placeholder="Ej: Inventario físico mensual — faltante por rotura">
+      </div>
+      <button onclick="ejecutarAjusteManual()"
+        style="width:100%;padding:13px;border-radius:10px;border:none;background:linear-gradient(135deg,#e65100,#bf360c);color:#fff;font-size:13px;font-weight:700;cursor:pointer">
+        ⚖️ Confirmar Ajuste de Inventario
+      </button>
     </div>
 
     <!-- GRN Panel -->
@@ -5610,7 +5646,24 @@ async function ajustarStock(id, delta){
   const p=prods.find(x=>x.id==id);if(!p)return;
   const nuevoStock=Math.max(0,p.stock+delta);
   try{
-    await SB.from('productos').update({stock:nuevoStock}).eq('id',id);
+    // Stock no se edita directo — pasa por ajuste_manual_stock con razón
+// Si el usuario cambió el stock manualmente, llamar a ajuste_manual
+const stockEditado = parseInt(updates.stock);
+if (!isNaN(stockEditado) && stockEditado !== prodActual?.stock) {
+  const razon = prompt('Razón del ajuste de stock (requerida para auditoría):');
+  if (!razon?.trim()) { showToast('❌ La razón del ajuste es obligatoria', 'err'); return; }
+  const { data: ajResult } = await SB.rpc('ajuste_manual_stock', {
+    p_tienda_id:   STORE.id,
+    p_producto_id: id,
+    p_stock_real:  stockEditado,
+    p_razon:       razon.trim(),
+    p_autorizado_por: USER?.email
+  });
+  if (!ajResult?.exito) {
+    showToast('❌ ' + (ajResult?.error || 'Error en ajuste'), 'err'); return;
+  }
+  delete updates.stock; // No incluir en el update directo
+}
     p.stock=nuevoStock;
     renderStock(stockFilter);renderProds();checkAlertBar();
     showToast(`Stock actualizado: ${nuevoStock} uds`,'ok');
@@ -5824,7 +5877,18 @@ async function doCompra(){
       fecha: today,
     });
 
-    await sbUpdate('productos', pid, {stock: p.stock + qty});
+    const { data: dvResult } = await SB.rpc('mover_stock_con_kardex', {
+        p_tienda_id:   STORE.id,
+        p_producto_id: pid,
+        p_cantidad:    qty,
+        p_tipo_mov:    'DEVOLUCION_PROVEEDOR',
+        p_doc_tipo:    'DEVOLUCION_COMPRA',
+        p_doc_id:      null,
+        p_doc_nro:     'DEV-' + new Date().toISOString().split('T')[0],
+        p_costo_unit:  p?.costo || 0,
+        p_observacion: 'Devolución de mercadería a proveedor'
+      });
+      if (dvResult?.exito) { p.stock = dvResult.stock_nuevo; }
     p.stock += qty;
     compras.unshift(compra);
 
@@ -6104,7 +6168,9 @@ const _origRegisterComboStock = async (venta, sel) => {
         const prod = prods.find(x => x.id === item.id);
         if(prod) {
           const newStock = Math.max(0, prod.stock - item.cantidad * (qtys[p.id]||1));
-          await sbUpdate('productos', prod.id, {stock: newStock});
+          // Stock via GRN ya maneja mover_stock_con_kardex — este update no debería existir
+// Se mantiene como fallback solo si el RPC falla
+console.warn('KARDEX WARNING: Direct stock update bypassed Kardex for product', prod.id);
           prod.stock = newStock;
         }
       }
@@ -6928,6 +6994,96 @@ function verCatalogo(){
 
 // ══ TOAST ══
 function showToast(msg,type='ok'){const t=document.getElementById('toast');t.textContent=msg;t.className=`toast ${type} show`;setTimeout(()=>t.className=`toast ${type}`,2800);}
+// ══ AJUSTE MANUAL DE STOCK ══
+document.getElementById('aj-prod')?.addEventListener('change', function() {
+  const prod = prods.find(p => p.id === this.value);
+  const stockEl = document.getElementById('aj-stock');
+  const difEl   = document.getElementById('aj-diferencia');
+  if (!prod || !difEl) return;
+  if (stockEl) stockEl.value = prod.stock;
+  difEl.textContent = `Stock actual en sistema: ${prod.stock} uds`;
+  difEl.style.color = '#555';
+});
+
+document.getElementById('aj-stock')?.addEventListener('input', function() {
+  const prodId = document.getElementById('aj-prod')?.value;
+  const prod   = prods.find(p => p.id === prodId);
+  const difEl  = document.getElementById('aj-diferencia');
+  if (!prod || !difEl) return;
+  const nuevo = parseInt(this.value);
+  if (isNaN(nuevo)) return;
+  const diff = nuevo - prod.stock;
+  difEl.textContent = `${diff > 0 ? '+' : ''}${diff} uds respecto al sistema`;
+  difEl.style.color = diff > 0 ? '#1a5c38' : diff < 0 ? '#c94040' : '#888';
+});
+
+async function ejecutarAjusteManual() {
+  const prodId = document.getElementById('aj-prod')?.value;
+  const stock  = parseInt(document.getElementById('aj-stock')?.value);
+  const razon  = document.getElementById('aj-razon')?.value?.trim();
+
+  if (!prodId)          { showToast('Seleccioná un producto', 'err'); return; }
+  if (isNaN(stock))     { showToast('Ingresá el stock real contado', 'err'); return; }
+  if (!razon)           { showToast('La razón del ajuste es obligatoria', 'err'); return; }
+
+  const prod = prods.find(p => p.id === prodId);
+  if (prod && prod.stock === stock) {
+    showToast('El stock ya coincide — sin cambios', 'ok'); return;
+  }
+
+  if (!confirm(`¿Confirmar ajuste de stock?\n\nProducto: ${prod?.nombre}\nStock sistema: ${prod?.stock}\nStock real: ${stock}\nDiferencia: ${stock - (prod?.stock||0)} uds\n\nRazón: ${razon}`)) return;
+
+  try {
+    const { data, error } = await SB.rpc('ajuste_manual_stock', {
+      p_tienda_id:      STORE.id,
+      p_producto_id:    prodId,
+      p_stock_real:     stock,
+      p_razon:          razon,
+      p_autorizado_por: USER?.email
+    });
+
+    if (error || !data?.exito) {
+      showToast('❌ ' + (data?.error || error?.message || 'Error en ajuste'), 'err');
+      return;
+    }
+
+    if (prod) prod.stock = data.stock_nuevo;
+    document.getElementById('aj-prod').value  = '';
+    document.getElementById('aj-stock').value = '';
+    document.getElementById('aj-razon').value = '';
+    document.getElementById('aj-diferencia').textContent = 'Seleccioná producto y stock real';
+
+    renderStock(stockFilter);
+    renderProds();
+    showToast(`✅ Ajuste registrado en Kardex — Stock: ${data.stock_anterior} → ${data.stock_nuevo}`, 'ok');
+
+  } catch(e) {
+    showToast('❌ Error al ejecutar ajuste', 'err');
+    console.error(e);
+  }
+}
+
+// Poblar selector de productos en ajuste manual cuando se abre el tab
+const _origSwitchStockTab = switchStockTab;
+function switchStockTab(btn) {
+  _origSwitchStockTab(btn);
+  if (btn.dataset.tab === 'ajuste') {
+    const sel = document.getElementById('aj-prod');
+    if (sel && sel.options.length <= 1) {
+      prods.filter(p => !p.is_deleted).forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.nombre} (stock: ${p.stock} uds)`;
+        sel.appendChild(opt);
+      });
+    }
+    // Mostrar panel ajuste
+    document.getElementById('panel-ajuste').style.display = 'block';
+  } else {
+    const ajPanel = document.getElementById('panel-ajuste');
+    if (ajPanel) ajPanel.style.display = 'none';
+  }
+}
 </script>
 </body>
 </html>
