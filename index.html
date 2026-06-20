@@ -694,6 +694,42 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         </button>
       </div>
     </div>
+    <!-- Tabs Stock -->
+    <div style="display:flex;gap:6px;padding:8px 20px 0;overflow-x:auto">
+      <button class="stock-tab active" data-tab="stock" onclick="switchStockTab(this)"
+        style="padding:8px 16px;border-radius:20px;border:1.5px solid #1a5ec9;background:#eaf0fd;color:#1a5ec9;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        📦 Stock
+      </button>
+      <button class="stock-tab" data-tab="kardex" onclick="switchStockTab(this)"
+        style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        📊 Kardex
+      </button>
+      <button class="stock-tab" data-tab="grn" onclick="switchStockTab(this)"
+        style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        🚛 Recepciones GRN
+      </button>
+    </div>
+
+    <!-- Kardex Panel -->
+    <div id="panel-kardex" style="display:none;padding:0 20px">
+      <div style="margin:12px 0">
+        <select class="inp" id="kardex-prod-sel" onchange="renderKardex()" style="cursor:pointer">
+          <option value="">Seleccioná un producto para ver su kardex...</option>
+        </select>
+      </div>
+      <div id="kardex-content"></div>
+    </div>
+
+    <!-- GRN Panel -->
+    <div id="panel-grn" style="display:none;padding:0 20px">
+      <button onclick="openModal('ov-nueva-recepcion')"
+        style="width:100%;margin:12px 0;padding:13px;border-radius:10px;border:none;background:linear-gradient(135deg,#1a5c38,#0d3d20);color:#fff;font-size:13px;font-weight:700;cursor:pointer">
+        🚛 Nueva Recepción de Mercadería
+      </button>
+      <div id="grn-list"></div>
+    </div>
+
+    <div id="panel-stock" style="display:block">
     <div class="fbar">
       <div class="fb on" onclick="filtS('all',this)">Todos</div>
       <div class="fb" onclick="filtS('out',this)">🔴 Sin stock</div>
@@ -915,6 +951,54 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<!-- MODAL NOTA DE CRÉDITO -->
+<div class="overlay" id="ov-nota-credito">
+  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
+    <div style="background:linear-gradient(135deg,#c94040 0%,#7a1a1a 100%);padding:20px 24px 16px">
+      <div class="modal-handle" style="background:rgba(255,255,255,.3);margin-bottom:12px"></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:40px;height:40px;background:rgba(255,255,255,.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">📋</div>
+        <div>
+          <div style="font-family:'Instrument Serif',serif;font-size:18px;color:#fff">Nota de Crédito</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.7)">Reversión formal de venta — cumplimiento ARCA</div>
+        </div>
+        <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-nota-credito')">✕</span>
+      </div>
+    </div>
+    <div style="padding:16px 20px">
+      <div id="nc-preview"></div>
+      <div class="fgroup" style="margin-bottom:12px">
+        <div class="flabel">Motivo <span style="color:var(--red)">*</span></div>
+        <select class="inp" id="nc-motivo" style="cursor:pointer">
+          <option value="">Seleccioná el motivo...</option>
+          <option value="ERROR_PRECIO">Error en precio</option>
+          <option value="ERROR_PRODUCTO">Producto incorrecto</option>
+          <option value="DEVOLUCION">Devolución del cliente</option>
+          <option value="ANULACION">Anulación por error de carga</option>
+          <option value="OTRO">Otro</option>
+        </select>
+      </div>
+      <div class="fgroup" style="margin-bottom:16px">
+        <div class="flabel">Detalle adicional <span style="font-weight:400;color:#aaa">(opcional)</span></div>
+        <input class="inp" id="nc-detalle" placeholder="Describí el motivo con más detalle...">
+      </div>
+      <div style="background:#fff3e0;border:1.5px solid #ffb74d;border-radius:10px;padding:12px;margin-bottom:16px;font-size:11px;color:#e65100">
+        ⚠️ Esta acción es <strong>irreversible</strong>. Se emitirá una Nota de Crédito oficial, el stock se devolverá automáticamente y el asiento contable quedará reversado. La venta original permanece en el historial como ANULADA.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
+        <button onclick="closeModal('ov-nota-credito')"
+          style="padding:13px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">
+          Cancelar
+        </button>
+        <button id="nc-confirm-btn" onclick="confirmarNotaCredito()"
+          style="padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#c94040,#7a1a1a);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+          📋 Emitir Nota de Crédito
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL CARGAR FACTURA -->
 <div class="overlay" id="ov-factura">
   <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
@@ -1093,6 +1177,113 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <button onclick="guardarFactura()"
           style="padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#1a3a5c,#0d1f33);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
           💾 Guardar factura
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NUEVA RECEPCIÓN GRN -->
+<div class="overlay" id="ov-nueva-recepcion">
+  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0;max-height:90vh;overflow-y:auto">
+    <div style="background:linear-gradient(135deg,#1a5c38 0%,#0d3d20 100%);padding:20px 24px 16px;position:sticky;top:0;z-index:10">
+      <div class="modal-handle" style="background:rgba(255,255,255,.3);margin-bottom:12px"></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:40px;height:40px;background:rgba(255,255,255,.15);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🚛</div>
+        <div>
+          <div style="font-family:'Instrument Serif',serif;font-size:18px;color:#fff">Nueva Recepción</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.7)">Informe de recepción de mercadería (GRN)</div>
+        </div>
+        <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-nueva-recepcion')">✕</span>
+      </div>
+    </div>
+    <div style="padding:16px 20px">
+
+      <!-- Datos del proveedor -->
+      <div class="frow" style="margin-bottom:12px">
+        <div style="flex:1">
+          <div class="flabel">Proveedor <span style="color:var(--red)">*</span></div>
+          <input class="inp" id="grn-proveedor" placeholder="Nombre del proveedor" list="grn-prov-list">
+          <datalist id="grn-prov-list"></datalist>
+        </div>
+        <div>
+          <div class="flabel">Fecha de recepción</div>
+          <input class="inp" id="grn-fecha" type="date">
+        </div>
+      </div>
+
+      <!-- Número de remito -->
+      <div class="frow" style="margin-bottom:12px">
+        <div style="flex:1">
+          <div class="flabel">N° Remito del proveedor</div>
+          <input class="inp" id="grn-remito" placeholder="Ej: R-0001-00023781" style="font-family:'DM Mono',monospace">
+        </div>
+        <div style="flex:1">
+          <div class="flabel">N° Factura (si llegó junto)</div>
+          <input class="inp" id="grn-nro-factura" placeholder="Ej: A-0001-00012345" style="font-family:'DM Mono',monospace">
+        </div>
+      </div>
+
+      <!-- Productos recibidos -->
+      <div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">
+        Productos recibidos
+      </div>
+
+      <!-- Agregar producto -->
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        <select class="inp" id="grn-prod-sel" style="flex:1;cursor:pointer;font-size:12px">
+          <option value="">Seleccionar producto...</option>
+        </select>
+        <input class="inp" id="grn-qty-pedida" type="number" min="1" placeholder="Pedido" style="width:70px;font-size:12px">
+        <input class="inp" id="grn-qty-recibida" type="number" min="0" placeholder="Recibido" style="width:75px;font-size:12px">
+        <button onclick="addGrnItem()"
+          style="padding:10px 12px;border-radius:9px;background:#1a5c38;color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer">
+          +
+        </button>
+      </div>
+
+      <!-- Lista de items -->
+      <div id="grn-items-list" style="min-height:60px;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px;margin-bottom:14px">
+        <div style="color:#aaa;font-size:12px;text-align:center;padding:12px">Agregá productos a la recepción</div>
+      </div>
+
+      <!-- Estado general -->
+      <div class="fgroup" style="margin-bottom:12px">
+        <div class="flabel">Estado de la recepción</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+          <button type="button" class="grn-estado-btn active" data-estado="recibido_completo"
+            onclick="selectGrnEstado(this)"
+            style="padding:9px 4px;border-radius:8px;border:1.5px solid #1a5c38;background:#eaf5ee;font-size:11px;font-weight:600;color:#1a5c38;cursor:pointer">
+            ✅ Completa
+          </button>
+          <button type="button" class="grn-estado-btn" data-estado="recibido_parcial"
+            onclick="selectGrnEstado(this)"
+            style="padding:9px 4px;border-radius:8px;border:1.5px solid #e0e0e0;background:#fff;font-size:11px;font-weight:600;color:#555;cursor:pointer">
+            ⚠️ Parcial
+          </button>
+          <button type="button" class="grn-estado-btn" data-estado="rechazado"
+            onclick="selectGrnEstado(this)"
+            style="padding:9px 4px;border-radius:8px;border:1.5px solid #e0e0e0;background:#fff;font-size:11px;font-weight:600;color:#555;cursor:pointer">
+            ❌ Rechazada
+          </button>
+        </div>
+      </div>
+
+      <!-- Observaciones -->
+      <div class="fgroup" style="margin-bottom:16px">
+        <div class="flabel">Diferencias y observaciones</div>
+        <input class="inp" id="grn-obs" placeholder="Faltantes, rotos, diferencias de precio...">
+      </div>
+
+      <!-- Botones -->
+      <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
+        <button onclick="closeModal('ov-nueva-recepcion')"
+          style="padding:13px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">
+          Cancelar
+        </button>
+        <button onclick="guardarGRN()"
+          style="padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#1a5c38,#0d3d20);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+          🚛 Confirmar Recepción
         </button>
       </div>
     </div>
@@ -1374,6 +1565,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       style="position:fixed;bottom:24px;right:20px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#4a1942,#2d0f29);border:none;color:#fff;font-size:24px;cursor:pointer;box-shadow:0 4px 16px rgba(74,25,66,.4);z-index:300;display:flex;align-items:center;justify-content:center">
       +
     </button>
+    </div><!-- /panel-stock -->
   </div>
 
   <!-- ══ CONTABILIDAD PAGE ══ -->
@@ -3892,6 +4084,433 @@ window.addEventListener('error', event => {
   console.error('JS Error:', event.error);
 });
 
+// ══════════════════════════════════════════════════════════════
+// MÓDULO GRN — RECEPCIONES DE MERCADERÍA
+// ══════════════════════════════════════════════════════════════
+
+let recepciones = [];
+let grnItems    = [];
+let grnEstado   = 'recibido_completo';
+
+async function loadRecepciones() {
+  try {
+    const { data } = await SB.from('recepciones')
+      .select('*').eq('tienda_id', STORE.id)
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false });
+    recepciones = data || [];
+  } catch(e) { recepciones = []; }
+}
+
+function switchStockTab(btn) {
+  const tab = btn.dataset.tab;
+  document.querySelectorAll('.stock-tab').forEach(b => {
+    b.style.borderColor = '#e0e0e0';
+    b.style.background  = '#fff';
+    b.style.color       = '#555';
+  });
+  btn.style.borderColor = '#1a5ec9';
+  btn.style.background  = '#eaf0fd';
+  btn.style.color       = '#1a5ec9';
+
+  document.getElementById('panel-stock').style.display  = tab === 'stock'  ? 'block' : 'none';
+  document.getElementById('panel-kardex').style.display = tab === 'kardex' ? 'block' : 'none';
+  document.getElementById('panel-grn').style.display    = tab === 'grn'    ? 'block' : 'none';
+
+  if (tab === 'kardex')  initKardexSelector();
+  if (tab === 'grn')     renderGRNList();
+}
+
+// ── GRN: Agregar item ──
+function addGrnItem() {
+  const sel  = document.getElementById('grn-prod-sel');
+  const qped = parseInt(document.getElementById('grn-qty-pedida')?.value) || 0;
+  const qrec = parseInt(document.getElementById('grn-qty-recibida')?.value) || 0;
+  if (!sel?.value) { showToast('Seleccioná un producto', 'err'); return; }
+  if (qped <= 0)   { showToast('Ingresá la cantidad pedida', 'err'); return; }
+
+  const prod = prods.find(p => p.id === sel.value);
+  if (!prod) return;
+
+  if (grnItems.find(i => i.id === prod.id)) {
+    showToast('Ya está en la lista', 'err'); return;
+  }
+
+  const estado = qrec === 0 ? 'no_recibido'
+    : qrec < qped ? 'parcial'
+    : qrec === qped ? 'completo'
+    : 'exceso';
+
+  grnItems.push({
+    id: prod.id, nombre: prod.nombre,
+    qty_pedida: qped, qty_recibida: qrec,
+    estado, costo: prod.costo || 0,
+    vencimiento: null,
+  });
+
+  sel.value = '';
+  document.getElementById('grn-qty-pedida').value   = '';
+  document.getElementById('grn-qty-recibida').value = '';
+  renderGrnItems();
+}
+
+function removeGrnItem(id) {
+  grnItems = grnItems.filter(i => i.id !== id);
+  renderGrnItems();
+}
+
+function renderGrnItems() {
+  const el = document.getElementById('grn-items-list');
+  if (!el) return;
+  if (!grnItems.length) {
+    el.innerHTML = '<div style="color:#aaa;font-size:12px;text-align:center;padding:12px">Agregá productos a la recepción</div>';
+    return;
+  }
+  el.innerHTML = grnItems.map(i => {
+    const diffColor = i.estado === 'completo' ? '#1a5c38'
+      : i.estado === 'parcial'   ? '#e65100'
+      : i.estado === 'exceso'    ? '#1565c0'
+      : '#c94040';
+    const diffIcon = i.estado === 'completo' ? '✅'
+      : i.estado === 'parcial'   ? '⚠️'
+      : i.estado === 'exceso'    ? '📈'
+      : '❌';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f5f5f5;font-size:12px">
+      <div style="flex:1;font-weight:600">${esc(i.nombre)}</div>
+      <div style="color:#888">Ped: ${i.qty_pedida}</div>
+      <div style="font-weight:700;color:${diffColor}">${diffIcon} Rec: ${i.qty_recibida}</div>
+      <button onclick="removeGrnItem('${i.id}')" style="background:none;border:none;color:#ccc;cursor:pointer;font-size:14px">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function selectGrnEstado(btn) {
+  document.querySelectorAll('.grn-estado-btn').forEach(b => {
+    b.style.borderColor = '#e0e0e0';
+    b.style.background  = '#fff';
+    b.style.color       = '#555';
+  });
+  btn.style.borderColor = '#1a5c38';
+  btn.style.background  = '#eaf5ee';
+  btn.style.color       = '#1a5c38';
+  grnEstado = btn.dataset.estado;
+}
+
+// ── GRN: Guardar recepción ──
+async function guardarGRN() {
+  const proveedor  = document.getElementById('grn-proveedor')?.value.trim();
+  const fecha      = document.getElementById('grn-fecha')?.value;
+  const remito     = document.getElementById('grn-remito')?.value.trim() || null;
+  const nroFactura = document.getElementById('grn-nro-factura')?.value.trim() || null;
+  const obs        = document.getElementById('grn-obs')?.value.trim() || null;
+
+  if (!proveedor) { showToast('Ingresá el proveedor', 'err'); return; }
+  if (!grnItems.length) { showToast('Agregá al menos un producto', 'err'); return; }
+
+  try {
+    // Obtener número correlativo GRN
+    const { data: nroData } = await SB.rpc('siguiente_nro_comprobante', {
+      p_tienda_id: STORE.id,
+      p_tipo: 'GRN',
+    });
+
+    // Calcular diferencias
+    const diffs = grnItems.filter(i => i.estado !== 'completo').map(i => ({
+      producto: i.nombre,
+      pedido:   i.qty_pedida,
+      recibido: i.qty_recibida,
+      estado:   i.estado,
+    }));
+
+    // Insertar recepción
+    const { data: recep, error } = await SB.from('recepciones').insert({
+      tienda_id:       STORE.id,
+      nro_grn:         nroData,
+      proveedor,
+      fecha_recepcion: fecha,
+      nro_factura:     nroFactura,
+      estado:          nroFactura ? 'factura_recibida' : 'pendiente_factura',
+      items:           JSON.stringify(grnItems),
+      diferencias:     diffs.length ? JSON.stringify(diffs) : null,
+      observaciones:   obs,
+      usuario_id:      USER?.id,
+      usuario_email:   USER?.email,
+    }).select().single();
+
+    if (error) throw error;
+
+    // Actualizar stock con Kardex para items completos o parciales
+    for (const item of grnItems) {
+      if (item.qty_recibida > 0) {
+        const { data: kardexResult } = await SB.rpc('mover_stock_con_kardex', {
+          p_tienda_id:   STORE.id,
+          p_producto_id: item.id,
+          p_cantidad:    item.qty_recibida,  // positivo = entrada
+          p_tipo_mov:    'COMPRA',
+          p_doc_tipo:    'GRN',
+          p_doc_id:      recep.id,
+          p_doc_nro:     nroData,
+          p_costo_unit:  item.costo || 0,
+          p_observacion: `GRN ${nroData} · ${proveedor}${remito ? ' · Remito: '+remito : ''}`
+        });
+
+        // Actualizar stock local
+        const prod = prods.find(p => p.id === item.id);
+        if (prod && kardexResult?.exito) {
+          prod.stock = kardexResult.stock_nuevo;
+        }
+      }
+    }
+
+    recepciones.unshift(recep);
+
+    // Reset
+    grnItems = [];
+    grnEstado = 'recibido_completo';
+    ['grn-proveedor','grn-fecha','grn-remito','grn-nro-factura','grn-obs'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    renderGrnItems();
+
+    closeModal('ov-nueva-recepcion');
+    renderGRNList();
+    renderStock(stockFilter);
+    renderProds();
+
+    const hasDiffs = diffs.length > 0;
+    showToast(
+      `✅ GRN ${nroData} registrado${hasDiffs ? ` — ⚠️ ${diffs.length} diferencia(s)` : ' — Stock actualizado'}`,
+      hasDiffs ? 'err' : 'ok'
+    );
+
+  } catch(e) {
+    showToast('❌ Error al registrar la recepción', 'err');
+    console.error(e);
+  }
+}
+
+// ── GRN: Renderizar lista ──
+function renderGRNList() {
+  const el = document.getElementById('grn-list');
+  if (!el) return;
+
+  if (!recepciones.length) {
+    el.innerHTML = '<div class="empty" style="margin-top:16px">Sin recepciones registradas</div>';
+    return;
+  }
+
+  const estadoConfig = {
+    'pendiente_recepcion':  { icon: '📦', color: '#888',    label: 'Pendiente' },
+    'recibido_parcial':     { icon: '⚠️', color: '#e65100', label: 'Parcial' },
+    'recibido_completo':    { icon: '✅', color: '#1a5c38', label: 'Completo' },
+    'pendiente_factura':    { icon: '🧾', color: '#1565c0', label: 'Falta factura' },
+    'factura_recibida':     { icon: '📄', color: '#1565c0', label: 'Factura recibida' },
+    'aprobado':             { icon: '✅', color: '#1a5c38', label: 'Aprobado' },
+    'rechazado':            { icon: '❌', color: '#c94040', label: 'Rechazado' },
+  };
+
+  el.innerHTML = recepciones.map(r => {
+    const cfg   = estadoConfig[r.estado] || { icon: '📦', color: '#888', label: r.estado };
+    const items = typeof r.items === 'string' ? JSON.parse(r.items || '[]') : r.items || [];
+    const diffs = typeof r.diferencias === 'string' ? JSON.parse(r.diferencias || '[]') : r.diferencias || [];
+
+    return `<div style="background:#fff;border:1.5px solid ${diffs.length ? '#ffb74d' : '#e0e0e0'};border-radius:12px;margin-bottom:10px;overflow:hidden">
+      <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-size:13px;font-weight:700">🏭 ${esc(r.proveedor || '—')}</div>
+          <div style="font-size:11px;color:#888;margin-top:2px">
+            ${r.nro_grn ? `<span style="font-family:'DM Mono',monospace;margin-right:8px">${esc(r.nro_grn)}</span>` : ''}
+            ${r.fecha_recepcion} 
+            ${r.nro_factura ? `· Fac: ${esc(r.nro_factura)}` : ''}
+          </div>
+        </div>
+        <span style="font-size:11px;font-weight:600;color:${cfg.color};background:${cfg.color}22;padding:4px 10px;border-radius:10px">
+          ${cfg.icon} ${cfg.label}
+        </span>
+      </div>
+
+      <!-- Items -->
+      <div style="padding:0 16px 10px">
+        ${items.slice(0,4).map(i => {
+          const ok = i.qty_recibida === i.qty_pedida;
+          return `<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid #fafafa">
+            <span style="color:#555">${esc(i.nombre)}</span>
+            <span style="font-family:'DM Mono',monospace;color:${ok?'#1a5c38':'#e65100'}">
+              ${i.qty_recibida}/${i.qty_pedida} uds
+            </span>
+          </div>`;
+        }).join('')}
+        ${items.length > 4 ? `<div style="font-size:10px;color:#aaa;padding:4px 0">+ ${items.length-4} más...</div>` : ''}
+      </div>
+
+      ${diffs.length ? `
+      <div style="background:#fff3e0;padding:8px 16px;font-size:11px;color:#e65100;font-weight:600">
+        ⚠️ ${diffs.length} diferencia(s): ${diffs.map(d => esc(d.producto)).join(', ')}
+      </div>` : ''}
+
+      ${r.observaciones ? `
+      <div style="background:#f8f8f8;padding:8px 16px;font-size:11px;color:#888">
+        📝 ${esc(r.observaciones)}
+      </div>` : ''}
+
+      <!-- Acciones -->
+      ${r.estado === 'pendiente_factura' ? `
+      <div style="padding:10px 16px;border-top:1px solid #f0f0f0">
+        <button onclick="abrirFacturaDesdeGRN('${r.id}','${esc(r.proveedor||'')}','${esc(r.nro_grn||'')}')"
+          style="width:100%;padding:9px;border-radius:8px;border:1.5px solid #1565c0;background:#e3f2fd;color:#1565c0;font-size:12px;font-weight:600;cursor:pointer">
+          🧾 Cargar factura del proveedor
+        </button>
+      </div>` : ''}
+
+      ${r.estado === 'factura_recibida' ? `
+      <div style="padding:10px 16px;border-top:1px solid #f0f0f0">
+        <button onclick="aprobarGRN('${r.id}')"
+          style="width:100%;padding:9px;border-radius:8px;border:none;background:#1a5c38;color:#fff;font-size:12px;font-weight:600;cursor:pointer">
+          ✅ Aprobar y cerrar recepción
+        </button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function abrirFacturaDesdeGRN(recepId, proveedor, nroGrn) {
+  // Link the GRN to the factura modal
+  facCompraId = null; // No viene de una compra
+  document.getElementById('fac-proveedor').value = proveedor || '';
+  document.getElementById('fac-obs').value = `GRN: ${nroGrn}`;
+  openModal('ov-factura');
+}
+
+async function aprobarGRN(recepId) {
+  try {
+    await SB.from('recepciones').update({
+      estado:       'aprobado',
+      aprobado_por: USER?.id,
+      aprobado_at:  new Date().toISOString(),
+    }).eq('id', recepId);
+
+    const r = recepciones.find(x => x.id === recepId);
+    if (r) r.estado = 'aprobado';
+
+    renderGRNList();
+    showToast('✅ Recepción aprobada', 'ok');
+  } catch(e) {
+    showToast('❌ Error al aprobar', 'err');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO KARDEX — HISTORIAL DE MOVIMIENTOS DE STOCK
+// ══════════════════════════════════════════════════════════════
+
+let kardexData = [];
+
+function initKardexSelector() {
+  const sel = document.getElementById('kardex-prod-sel');
+  if (!sel || sel.options.length > 1) return;
+  prods.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = `${esc(p.nombre)} — Stock: ${p.stock} uds`;
+    sel.appendChild(opt);
+  });
+}
+
+async function renderKardex() {
+  const prodId = document.getElementById('kardex-prod-sel')?.value;
+  const el     = document.getElementById('kardex-content');
+  if (!el) return;
+
+  if (!prodId) {
+    el.innerHTML = '<div class="empty">Seleccioná un producto</div>';
+    return;
+  }
+
+  el.innerHTML = '<div class="empty">Cargando...</div>';
+
+  try {
+    const { data, error } = await SB.from('kardex')
+      .select('*')
+      .eq('producto_id', prodId)
+      .eq('tienda_id', STORE.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) throw error;
+    kardexData = data || [];
+
+  } catch(e) {
+    el.innerHTML = '<div class="empty">Error al cargar el Kardex</div>';
+    return;
+  }
+
+  if (!kardexData.length) {
+    el.innerHTML = '<div class="empty">Sin movimientos registrados para este producto</div>';
+    return;
+  }
+
+  const prod = prods.find(p => p.id === prodId);
+  const tipoConfig = {
+    'VENTA':               { icon: '🛒', color: '#c94040', label: 'Venta' },
+    'COMPRA':              { icon: '📦', color: '#1a5c38', label: 'Compra' },
+    'DEVOLUCION_CLIENTE':  { icon: '↩️', color: '#1565c0', label: 'Devolución' },
+    'DEVOLUCION_PROVEEDOR':{ icon: '↪️', color: '#e65100', label: 'Dev. Proveedor' },
+    'AJUSTE_ENTRADA':      { icon: '➕', color: '#1a5c38', label: 'Ajuste +' },
+    'AJUSTE_SALIDA':       { icon: '➖', color: '#c94040', label: 'Ajuste -' },
+    'TRANSFERENCIA':       { icon: '🔄', color: '#6a1b9a', label: 'Transferencia' },
+  };
+
+  el.innerHTML = `
+    <!-- Header resumen -->
+    <div style="background:#1a3a5c;color:#fff;border-radius:12px;padding:14px 16px;margin-bottom:12px">
+      <div style="font-size:12px;opacity:.7;margin-bottom:4px">${esc(prod?.nombre || '')}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:10px;opacity:.7">Stock actual</div>
+          <div style="font-family:'DM Mono',monospace;font-size:22px;font-weight:700">${prod?.stock ?? '—'} uds</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:10px;opacity:.7">Últimos movimientos</div>
+          <div style="font-size:16px;font-weight:700">${kardexData.length}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabla de movimientos -->
+    <div style="background:#fff;border-radius:12px;border:1.5px solid #e0e0e0;overflow:hidden">
+      <div style="background:#f8f8f8;padding:8px 14px;display:grid;grid-template-columns:80px 90px 1fr 60px 60px;gap:8px;font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px">
+        <span>Fecha</span><span>Tipo</span><span>Documento</span><span style="text-align:right">Cant.</span><span style="text-align:right">Stock</span>
+      </div>
+      ${kardexData.map(m => {
+        const cfg = tipoConfig[m.tipo_movimiento] || { icon: '•', color: '#888', label: m.tipo_movimiento };
+        const fecha = new Date(m.created_at).toLocaleDateString('es-AR', {day:'2-digit',month:'2-digit'});
+        const esEntrada = m.cantidad > 0;
+        return `<div style="padding:10px 14px;display:grid;grid-template-columns:80px 90px 1fr 60px 60px;gap:8px;align-items:center;border-top:1px solid #f5f5f5;font-size:11px">
+          <span style="color:#888">${fecha}</span>
+          <span style="color:${cfg.color};font-weight:600;font-size:10px">${cfg.icon} ${cfg.label}</span>
+          <div>
+            <div style="font-size:11px;color:#333">${esc(m.documento_nro || m.documento_tipo || '—')}</div>
+            ${m.usuario_email ? `<div style="font-size:10px;color:#aaa">${esc(m.usuario_email.split('@')[0])}</div>` : ''}
+          </div>
+          <span style="text-align:right;font-family:'DM Mono',monospace;font-weight:700;color:${esEntrada?'#1a5c38':'#c94040'}">
+            ${esEntrada?'+':''}${m.cantidad}
+          </span>
+          <span style="text-align:right;font-family:'DM Mono',monospace;font-weight:600;color:#1a3a5c">
+            ${m.stock_nuevo}
+          </span>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="text-align:center;font-size:10px;color:#aaa;margin-top:8px">
+      Mostrando últimos ${kardexData.length} movimientos
+    </div>`;
+}
+
+// GRN init logic moved into openModal
+
+
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(reg => {
@@ -4690,7 +5309,7 @@ function renderHist(){
     const rows=items.map(i=>`<div class="hc-dr"><span>${i.emoji||''} ${i.nombre} ×${i.cantidad}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
     return `<div class="hcard" onclick="this.classList.toggle('open')">
       <div class="hc-top">
-        <div><div class="hc-id">${s.cliente?'👤 '+s.cliente:'Venta anónima'}</div><div class="hc-date">${dStr}</div></div>
+        <div><div class="hc-id">${s.nro_comprobante?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:#888;margin-right:6px">${esc(s.nro_comprobante)}</span>`:''}${s.cliente?'👤 '+esc(s.cliente):'Venta anónima'}</div><div class="hc-date">${dStr}</div></div>
         <div><div class="hc-total">$${(s.total||0).toLocaleString('es-AR')}</div>${s.descuento>0?`<div style="font-size:10px;color:var(--muted);text-align:right">-${s.descuento}%</div>`:''}</div>
       </div>
       <div class="hc-tags">
@@ -4700,35 +5319,111 @@ function renderHist(){
       </div>
       <div class="hc-detail">${rows}<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">
           <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();reopenTicket('${s.id}')">🖨️ Ticket</button>
-          ${s.nota!=='ANULADA'?`<button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="anularVenta('${s.id}',event)">❌ Anular</button>`:'<span style="font-size:11px;color:var(--red);font-weight:700;padding:8px">ANULADA</span>'}
+          ${s.anulada
+  ? `<span style="font-size:11px;color:var(--red);font-weight:700;padding:4px 8px;background:#fee2e2;border-radius:6px">❌ ANULADA${s.nota_credito_id?'':''}</span>`
+  : `<button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="anularVenta('${s.id}',event)">📋 Nota de Crédito</button>`}
         </div></div>
     </div>`;
   }).join('');
 }
 function reopenTicket(id){const s=sales.find(x=>x.id==id);if(s)showTicket(s);}
 
-async function anularVenta(id,event){
+async function anularVenta(id, event) {
   event.stopPropagation();
-  const s=sales.find(x=>x.id==id);if(!s)return;
-  if(!confirm(`¿Anular venta #${s.id?.slice(-4)} de $${(s.total||0).toLocaleString('es-AR')}?\nEsto devolverá el stock automáticamente.`))return;
-  try{
-    // Devolver stock
-    const items=typeof s.items==='string'?JSON.parse(s.items||'[]'):s.items||[];
-    for(const item of items){
-      const p=prods.find(x=>x.id==item.producto_id);
-      if(p){
-        const nuevoStock=p.stock+item.cantidad;
-        await SB.from('productos').update({stock:nuevoStock}).eq('id',p.id);
-        p.stock=nuevoStock;
-      }
+  const s = sales.find(x => x.id == id);
+  if (!s) return;
+  // Abrir modal de nota de crédito en lugar de confirm directo
+  abrirModalNotaCredito(id);
+}
+
+let _ventaAnularId = null;
+
+function abrirModalNotaCredito(ventaId) {
+  _ventaAnularId = ventaId;
+  const s = sales.find(x => x.id === ventaId);
+  if (!s) return;
+  const items = typeof s.items === 'string' ? JSON.parse(s.items || '[]') : s.items || [];
+
+  // Fill modal
+  const preview = document.getElementById('nc-preview');
+  if (preview) {
+    preview.innerHTML = `
+      <div style="background:#f8f8f8;border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px">
+        <div style="font-weight:700;margin-bottom:6px">Venta a revertir:</div>
+        <div style="display:flex;justify-content:space-between">
+          <span>${s.nro_comprobante || 'Sin número'}</span>
+          <span style="font-family:'DM Mono',monospace;font-weight:700">$${(s.total||0).toLocaleString('es-AR')}</span>
+        </div>
+        <div style="color:#888;margin-top:2px">${s.fecha} · ${s.metodo_pago} · ${s.cliente || 'Consumidor final'}</div>
+        <div style="margin-top:8px">${items.map(i => `<div>• ${esc(i.nombre)} ×${i.cantidad}</div>`).join('')}</div>
+      </div>`;
+  }
+  document.getElementById('nc-motivo').value = '';
+  document.getElementById('nc-detalle').value = '';
+  openModal('ov-nota-credito');
+}
+
+async function confirmarNotaCredito() {
+  if (!_ventaAnularId) return;
+  const motivo  = document.getElementById('nc-motivo')?.value;
+  const detalle = document.getElementById('nc-detalle')?.value.trim();
+  if (!motivo) { showToast('Seleccioná el motivo', 'err'); return; }
+
+  const btn = document.getElementById('nc-confirm-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Procesando...'; }
+
+  try {
+    // Emitir nota de crédito via función de Supabase
+    const { data, error } = await SB.rpc('emitir_nota_credito', {
+      p_tienda_id: STORE.id,
+      p_venta_id:  _ventaAnularId,
+      p_motivo:    motivo,
+      p_detalle:   detalle || null,
+      p_devolver_stock: true,
+    });
+
+    if (error || !data?.exito) {
+      throw new Error(error?.message || data?.error || 'Error al emitir nota de crédito');
     }
-    // Marcar venta como anulada
-    await SB.from('ventas').update({nota:'ANULADA - '+(s.nota||''),total:0}).eq('id',id);
-    const idx=sales.findIndex(x=>x.id==id);
-    if(idx>=0)sales[idx]={...sales[idx],nota:'ANULADA',total:0};
-    renderHist();renderProds();renderStock(stockFilter);renderCaja();
-    showToast('✅ Venta anulada y stock devuelto','ok');
-  }catch(e){showToast('❌ Error al anular venta','err');console.error(e);}
+
+    // Devolver stock con Kardex
+    const s = sales.find(x => x.id === _ventaAnularId);
+    if (s) {
+      const items = typeof s.items === 'string' ? JSON.parse(s.items || '[]') : s.items || [];
+      for (const item of items) {
+        const p = prods.find(x => x.id === item.producto_id);
+        if (p) {
+          await SB.rpc('mover_stock_con_kardex', {
+            p_tienda_id:   STORE.id,
+            p_producto_id: p.id,
+            p_cantidad:    item.cantidad, // positivo = entrada (devolución)
+            p_tipo_mov:    'DEVOLUCION_CLIENTE',
+            p_doc_tipo:    'NOTA_CREDITO',
+            p_doc_id:      data.nota_credito_id,
+            p_doc_nro:     data.nro_nota,
+            p_costo_unit:  p.costo || 0,
+            p_precio_unit: p.precio || 0,
+            p_observacion: `Devolución por nota de crédito ${data.nro_nota}`
+          });
+          p.stock += item.cantidad;
+        }
+      }
+      // Marcar venta localmente
+      s.anulada = true;
+      s.nota_credito_id = data.nota_credito_id;
+    }
+
+    closeModal('ov-nota-credito');
+    renderHist(); renderProds(); renderStock(stockFilter); renderCaja();
+    showToast(`✅ Nota de crédito ${data.nro_nota} emitida correctamente`, 'ok');
+    _ventaAnularId = null;
+
+  } catch(e) {
+    showToast(`❌ ${e.message}`, 'err');
+    console.error(e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✅ Emitir Nota de Crédito'; }
+  }
 }
 
 // ══ CIERRE DE CAJA ══
@@ -5860,7 +6555,31 @@ function actualizarMargenPreview(){
   }
 }
 
-function openModal(id){document.getElementById(id).classList.add('show')}
+function openModal(id){
+  document.getElementById(id)?.classList.add('show');
+  // GRN init hook
+  if(id === 'ov-nueva-recepcion'){
+    grnItems  = [];
+    grnEstado = 'recibido_completo';
+    renderGrnItems();
+    const fechaEl = document.getElementById('grn-fecha');
+    if(fechaEl && !fechaEl.value) fechaEl.value = new Date().toISOString().split('T')[0];
+    const provList = document.getElementById('grn-prov-list');
+    if(provList){
+      const provs = [...new Set(compras.map(x=>x.proveedor).filter(Boolean))];
+      provList.innerHTML = provs.map(p=>`<option value="${esc(p)}">`).join('');
+    }
+    const sel = document.getElementById('grn-prod-sel');
+    if(sel && sel.options.length <= 1){
+      prods.filter(p=>!p.es_combo&&!p.is_deleted).forEach(p=>{
+        const o = document.createElement('option');
+        o.value = p.id;
+        o.textContent = `${p.nombre} (stock: ${p.stock})`;
+        sel.appendChild(o);
+      });
+    }
+  }
+}
 function closeModal(id){document.getElementById(id).classList.remove('show')}
 document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('show')}));
 
