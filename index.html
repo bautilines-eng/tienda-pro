@@ -490,6 +490,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="ntab" onclick="gp('pco',this)"><span>🚚</span>Compras</div>
       <div class="ntab" onclick="gp('pde',this)"><span>💸</span>Deudores</div>
       <div class="ntab" onclick="gp('pusu',this)"><span>👤</span>Usuarios</div>
+      <div class="ntab" onclick="gp('paud',this)"><span>🔍</span>Auditoría</div>
       <div class="ntab" onclick="gp('pgas',this)"><span>📋</span>Gastos</div>
       <div class="ntab" onclick="gp('pfin',this)"><span>💰</span>Finanzas</div>
       <div class="ntab" onclick="gp('pcont',this)"><span>📒</span>Contabilidad</div>
@@ -1602,6 +1603,77 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       +
     </button>
     </div><!-- /panel-stock -->
+  </div>
+
+  <!-- ══ AUDITORÍA PAGE ══ -->
+  <div id="paud" class="page">
+    <div class="hero h-ink" data-bg="AUDITORÍA">
+      <div class="hl">Trazabilidad completa</div>
+      <div class="ht">Log de Auditoría</div>
+      <div class="hs">Historial forense de todas las operaciones</div>
+    </div>
+    <div style="padding:14px 20px">
+
+      <!-- Alertas de actividad sospechosa -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:700">🚨 Alertas de seguridad</div>
+          <button onclick="cargarAlertas()"
+            style="padding:6px 12px;border-radius:8px;border:1.5px solid #e0e0e0;background:#fff;font-size:11px;font-weight:600;cursor:pointer">
+            🔄 Verificar
+          </button>
+        </div>
+        <div id="aud-alertas">
+          <div style="text-align:center;font-size:12px;color:#aaa;padding:16px">
+            Tocá "Verificar" para revisar actividad sospechosa
+          </div>
+        </div>
+      </div>
+
+      <!-- Filtros forenses -->
+      <div style="background:#f8f8f8;border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
+          Búsqueda forense
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div>
+            <div class="flabel">Tabla</div>
+            <select class="inp" id="aud-tabla" style="cursor:pointer;font-size:12px">
+              <option value="">Todas las tablas</option>
+              <option value="ventas">Ventas</option>
+              <option value="productos">Productos (Stock/Precio)</option>
+              <option value="clientes">Clientes</option>
+              <option value="deudas">Deudores</option>
+              <option value="compras">Compras</option>
+              <option value="gastos">Gastos</option>
+              <option value="cierres_caja">Cierres de Caja</option>
+              <option value="auth">Login/Logout</option>
+            </select>
+          </div>
+          <div>
+            <div class="flabel">Usuario</div>
+            <input class="inp" id="aud-usuario" placeholder="Email del usuario..." style="font-size:12px">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div>
+            <div class="flabel">Desde</div>
+            <input class="inp" id="aud-desde" type="datetime-local" style="font-size:12px">
+          </div>
+          <div>
+            <div class="flabel">Hasta</div>
+            <input class="inp" id="aud-hasta" type="datetime-local" style="font-size:12px">
+          </div>
+        </div>
+        <button onclick="buscarAuditoria()"
+          style="width:100%;padding:11px;border-radius:9px;border:none;background:#1a3a5c;color:#fff;font-size:13px;font-weight:600;cursor:pointer">
+          🔍 Buscar en el log
+        </button>
+      </div>
+
+      <!-- Resultados -->
+      <div id="aud-results"></div>
+    </div>
   </div>
 
   <!-- ══ CONTABILIDAD PAGE ══ -->
@@ -4060,16 +4132,35 @@ function updateFacTipo() {
 // ══════════════════════════════════
 // AUDITORÍA — LOG DE ACCIONES
 // ══════════════════════════════════
-async function auditLog(accion, tabla, registroId, datos = {}) {
+// Cache de IP para no pedir múltiples veces
+let _clientIP = null;
+async function getClientIP() {
+  if (_clientIP) return _clientIP;
   try {
+    const r = await fetch('https://api.ipify.org?format=json');
+    const d = await r.json();
+    _clientIP = d.ip;
+  } catch(e) { _clientIP = 'unknown'; }
+  return _clientIP;
+}
+
+async function auditLog(accion, tabla, registroId, datos = {}, oldValue = null, newValue = null) {
+  try {
+    const ip = await getClientIP();
     await SB.from('audit_log').insert({
-      tienda_id:  STORE?.id,
-      user_id:    USER?.id,
-      user_email: USER?.email,
+      tienda_id:   STORE?.id,
+      user_id:     USER?.id,
+      user_email:  USER?.email,
       accion,
       tabla,
       registro_id: registroId || null,
-      datos: datos,
+      datos:       datos,
+      old_value:   oldValue,
+      new_value:   newValue,
+      ip_address:  ip,
+      user_agent:  navigator.userAgent,
+      session_id:  (await SB.auth.getSession())?.data?.session?.access_token?.slice(-8) || null,
+      app_version: '2.0',
     });
   } catch(e) {
     // No bloquear la operación si el log falla
@@ -4582,6 +4673,137 @@ async function verificarGapsCorrelativos() {
   } catch(e) {
     console.error('Error verificando gaps:', e);
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO DE AUDITORÍA FORENSE
+// ══════════════════════════════════════════════════════════════
+
+async function cargarAlertas() {
+  const el = document.getElementById('aud-alertas');
+  if (!el) return;
+  el.innerHTML = '<div style="text-align:center;font-size:12px;color:#aaa;padding:16px">Verificando...</div>';
+
+  try {
+    const { data } = await SB.rpc('detectar_actividad_sospechosa', {
+      p_tienda_id: STORE.id,
+      p_ventana:   '01:00:00'
+    });
+
+    if (!data || !data.length) {
+      el.innerHTML = `<div style="background:#dcfce7;border:1.5px solid #16a34a;border-radius:10px;padding:12px 16px;font-size:12px;color:#15803d;font-weight:600">
+        ✅ Sin actividad sospechosa en la última hora
+      </div>`;
+      return;
+    }
+
+    el.innerHTML = data.map(a => `
+      <div style="background:#fee2e2;border:1.5px solid #dc2626;border-radius:10px;padding:12px 16px;margin-bottom:8px">
+        <div style="font-size:12px;font-weight:700;color:#dc2626">🚨 ${esc(a.tipo_alerta)}</div>
+        <div style="font-size:11px;color:#555;margin-top:4px">${esc(a.descripcion)}</div>
+        <div style="font-size:11px;color:#888;margin-top:4px">
+          Usuario: ${esc(a.user_email)} · ${a.cantidad} ocurrencias
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    el.innerHTML = '<div style="font-size:12px;color:#aaa;padding:12px">Error al cargar alertas</div>';
+  }
+}
+
+async function buscarAuditoria() {
+  const el    = document.getElementById('aud-results');
+  const tabla = document.getElementById('aud-tabla')?.value || null;
+  const user  = document.getElementById('aud-usuario')?.value?.trim() || null;
+  const desde = document.getElementById('aud-desde')?.value;
+  const hasta = document.getElementById('aud-hasta')?.value;
+
+  if (!el) return;
+  el.innerHTML = '<div style="text-align:center;padding:20px;font-size:12px;color:#aaa">Buscando...</div>';
+
+  try {
+    const params = {
+      p_tienda_id: STORE.id,
+      p_tabla:     tabla || null,
+      p_registro:  null,
+      p_usuario:   user  || null,
+      p_desde:     desde ? new Date(desde).toISOString() : new Date(Date.now() - 7*86400000).toISOString(),
+      p_hasta:     hasta ? new Date(hasta).toISOString() : new Date().toISOString(),
+    };
+
+    const { data, error } = await SB.rpc('historial_forense', params);
+    if (error) throw error;
+
+    if (!data || !data.length) {
+      el.innerHTML = '<div class="empty">Sin registros para los filtros seleccionados</div>';
+      return;
+    }
+
+    el.innerHTML = `
+      <div style="font-size:11px;color:#888;margin-bottom:8px">${data.length} registros encontrados</div>
+      <div style="background:#fff;border-radius:12px;border:1.5px solid #e0e0e0;overflow:hidden">
+        <div style="background:#1a3a5c;padding:10px 14px;display:grid;grid-template-columns:120px 140px 1fr 80px;gap:8px;font-size:10px;font-weight:700;color:#fff;text-transform:uppercase;letter-spacing:.5px">
+          <span>Timestamp</span><span>Usuario</span><span>Acción</span><span>IP</span>
+        </div>
+        ${data.map(r => {
+          const ts = new Date(r.timestamp_utc).toLocaleString('es-AR');
+          const accionColor = r.accion.includes('DELETE') ? '#dc2626'
+            : r.accion.includes('UPDATE') ? '#d97706'
+            : r.accion.includes('LOGIN')  ? '#1565c0'
+            : '#1a5c38';
+          const hasChanges = r.old_value || r.new_value;
+          return `<div style="padding:10px 14px;display:grid;grid-template-columns:120px 140px 1fr 80px;gap:8px;align-items:start;border-top:1px solid #f5f5f5;font-size:11px">
+            <span style="color:#888;font-family:'DM Mono',monospace;font-size:10px">${ts.replace(',','')}</span>
+            <span style="color:#555">${esc(r.usuario || '—')}</span>
+            <div>
+              <span style="font-size:10px;font-weight:700;color:${accionColor};background:${accionColor}22;padding:2px 7px;border-radius:10px">${esc(r.accion)}</span>
+              ${hasChanges ? `<button onclick="verCambios(this)"
+                data-old='${JSON.stringify(r.old_value||{})}'
+                data-new='${JSON.stringify(r.new_value||{})}'
+                style="margin-left:6px;font-size:10px;background:none;border:1px solid #ccc;color:#555;padding:2px 6px;border-radius:4px;cursor:pointer">
+                Ver cambios
+              </button>` : ''}
+            </div>
+            <span style="font-family:'DM Mono',monospace;font-size:10px;color:#aaa">${esc(r.ip_address || '—')}</span>
+          </div>`;
+        }).join('')}
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<div style="font-size:12px;color:#dc2626;padding:12px">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function verCambios(btn) {
+  const old = JSON.parse(btn.dataset.old || '{}');
+  const nw  = JSON.parse(btn.dataset.new  || '{}');
+
+  // Encontrar diferencias
+  const keys = new Set([...Object.keys(old), ...Object.keys(nw)]);
+  const diffs = [...keys].filter(k =>
+    JSON.stringify(old[k]) !== JSON.stringify(nw[k])
+  );
+
+  if (!diffs.length) {
+    showToast('Sin diferencias detectadas', 'ok');
+    return;
+  }
+
+  const msg = diffs.map(k =>
+    `${k}:\n  Antes: ${JSON.stringify(old[k])}\n  Ahora: ${JSON.stringify(nw[k])}`
+  ).join('\n\n');
+
+  alert('CAMBIOS DETECTADOS:\n\n' + msg);
+}
+
+// Verificar gaps al abrir la sección de auditoría
+async function initAuditoria() {
+  // Setear fechas por defecto (últimas 24 horas)
+  const ahora  = new Date();
+  const ayer   = new Date(ahora - 24*60*60*1000);
+  const dEl    = document.getElementById('aud-desde');
+  const hEl    = document.getElementById('aud-hasta');
+  if (dEl) dEl.value = ayer.toISOString().slice(0,16);
+  if (hEl) hEl.value = ahora.toISOString().slice(0,16);
+  await cargarAlertas();
 }
 
 if ('serviceWorker' in navigator) {
@@ -5745,7 +5967,8 @@ function editProduct(id){
 async function updateProduct(id){
   const nombre=document.getElementById('np-name').value.trim();
   if(!nombre){showToast('Ingresá el nombre','err');return;}
-  const updates={nombre,precio:parseFloat(document.getElementById('np-price').value)||0,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10};
+  const precioAnterior = prodActual?.precio || 0;
+    const updates={nombre,precio:parseFloat(document.getElementById('np-price').value)||0,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10};
   try{
     await SB.from('productos').update(updates).eq('id',id);
     const idx=prods.findIndex(x=>x.id==id);
@@ -5756,6 +5979,14 @@ async function updateProduct(id){
     document.querySelector('#ov-add-prod .btn-ink').textContent='Guardar producto';
     document.querySelector('#ov-add-prod .btn-ink').onclick=saveProduct;
     renderCats();renderProds();renderStock(stockFilter);populateSelects();
+    // Log de cambio de precio si cambió
+    if (updates.precio && updates.precio !== precioAnterior) {
+      await auditLog('CAMBIO_PRECIO', 'productos', id,
+        { nombre, precio_nuevo: updates.precio },
+        { precio: precioAnterior },
+        { precio: updates.precio }
+      );
+    }
     showToast('✅ Producto actualizado','ok');
   }catch(e){showToast('❌ Error al actualizar','err');console.error(e);}
 }
@@ -6706,6 +6937,7 @@ document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{
 
 // ══ NAV ══
 function gp(id,el){
+  if(id === 'paud') setTimeout(initAuditoria, 100);
   document.querySelectorAll('.page').forEach(p=>{
     p.classList.remove('on');
     p.style.display='none';
