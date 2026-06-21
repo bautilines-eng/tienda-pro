@@ -339,10 +339,6 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 </style>
 </head>
 <body>
-<div id="offline-bar" style="display:none;position:fixed;top:0;left:0;right:0;background:#c94040;color:#fff;text-align:center;padding:8px;font-size:12px;font-weight:600;z-index:9999">
-  ⚠️ Sin conexión — Las ventas se guardan localmente y se sincronizarán cuando vuelva la conexión
-</div>
-<div id="connection-status" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1a3a5c;color:#fff;padding:8px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:999;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
 
 <div class="toast" id="toast"></div>
 
@@ -2073,10 +2069,6 @@ body{touch-action:manipulation}
 </style>
 </head>
 <body>
-<div id="offline-bar" style="display:none;position:fixed;top:0;left:0;right:0;background:#c94040;color:#fff;text-align:center;padding:8px;font-size:12px;font-weight:600;z-index:9999">
-  ⚠️ Sin conexión — Las ventas se guardan localmente y se sincronizarán cuando vuelva la conexión
-</div>
-<div id="connection-status" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1a3a5c;color:#fff;padding:8px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:999;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
   <div class="header">
     <div class="logo">Tienda <span>Pro</span></div>
     <div class="subtitle">Cierre de Caja</div>
@@ -2487,10 +2479,6 @@ body{touch-action:manipulation}
 </style>
 </head>
 <body>
-<div id="offline-bar" style="display:none;position:fixed;top:0;left:0;right:0;background:#c94040;color:#fff;text-align:center;padding:8px;font-size:12px;font-weight:600;z-index:9999">
-  ⚠️ Sin conexión — Las ventas se guardan localmente y se sincronizarán cuando vuelva la conexión
-</div>
-<div id="connection-status" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1a3a5c;color:#fff;padding:8px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:999;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
 
 <div class="header">
   <div class="header-top">
@@ -2745,10 +2733,6 @@ function exportarMayorPDF() {
       @media print{button{display:none!important}}
     </style>
     </head><body>
-<div id="offline-bar" style="display:none;position:fixed;top:0;left:0;right:0;background:#c94040;color:#fff;text-align:center;padding:8px;font-size:12px;font-weight:600;z-index:9999">
-  ⚠️ Sin conexión — Las ventas se guardan localmente y se sincronizarán cuando vuelva la conexión
-</div>
-<div id="connection-status" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1a3a5c;color:#fff;padding:8px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:999;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
     <h2>Mayor Contable — ${cuenta.codigo} ${cuenta.nombre}</h2>
     <div class="sub">TODO PYMES S.R.L. — Drugstore · Período: ${mesDesde||'inicio'} a ${mesHasta||'hoy'} · Generado: ${new Date().toLocaleDateString('es-AR')}</div>
     ${content}
@@ -2874,10 +2858,6 @@ function exportarBalancePDF() {
     h2{color:#1a3a5c}table{width:100%;border-collapse:collapse}
     @media print{button{display:none!important}}</style>
     </head><body>
-<div id="offline-bar" style="display:none;position:fixed;top:0;left:0;right:0;background:#c94040;color:#fff;text-align:center;padding:8px;font-size:12px;font-weight:600;z-index:9999">
-  ⚠️ Sin conexión — Las ventas se guardan localmente y se sincronizarán cuando vuelva la conexión
-</div>
-<div id="connection-status" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1a3a5c;color:#fff;padding:8px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:999;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
     <h2>Balance de Sumas y Saldos — ${mes}</h2>
     <p style="color:#888;font-size:10px;margin-bottom:16px">TODO PYMES S.R.L. — Drugstore · ${new Date().toLocaleDateString('es-AR')}</p>
     ${content}
@@ -3187,10 +3167,6 @@ function exportarLibroDiarioPDF() {
     .total{background:#1a3a5c;color:#fff;font-weight:700}
     @media print{button{display:none!important}}
   </style></head><body>
-<div id="offline-bar" style="display:none;position:fixed;top:0;left:0;right:0;background:#c94040;color:#fff;text-align:center;padding:8px;font-size:12px;font-weight:600;z-index:9999">
-  ⚠️ Sin conexión — Las ventas se guardan localmente y se sincronizarán cuando vuelva la conexión
-</div>
-<div id="connection-status" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1a3a5c;color:#fff;padding:8px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:999;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
   <h2>Libro Diario — ${mes}</h2>
   <div class="sub">TODO PYMES S.R.L. — Drugstore · CUIT: 30-71140779-7 · Generado: ${new Date().toLocaleDateString('es-AR')}</div>
   <table>
@@ -3844,10 +3820,6 @@ body{touch-action:manipulation}
 </style>
 </head>
 <body>
-<div id="offline-bar" style="display:none;position:fixed;top:0;left:0;right:0;background:#c94040;color:#fff;text-align:center;padding:8px;font-size:12px;font-weight:600;z-index:9999">
-  ⚠️ Sin conexión — Las ventas se guardan localmente y se sincronizarán cuando vuelva la conexión
-</div>
-<div id="connection-status" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1a3a5c;color:#fff;padding:8px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:999;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
 
 <div class="header">
   <div>
@@ -5067,15 +5039,20 @@ const ConnectionMonitor = {
   },
 
   async ping() {
+    // No hacer ping si STORE no está cargado todavía
+    if (!STORE?.id) return;
     try {
       await withTimeout(
-        () => SB.from('tiendas').select('id').eq('id', STORE?.id).limit(1),
+        () => SB.from('tiendas').select('id').eq('id', STORE.id).limit(1),
         5000
       );
       this.lastSuccessfulPing = Date.now();
       if (!this.isOnline) this.handleOnline();
     } catch(e) {
-      if (this.isOnline) this.handleOffline();
+      // Solo marcar offline si es error de red, no de datos
+      if (e.message?.includes('Timeout') || e.message?.includes('fetch')) {
+        if (this.isOnline) this.handleOffline();
+      }
     }
   },
 
@@ -5187,10 +5164,13 @@ async function sbInsertRobust(table, fields) {
   return sbCallRobust(() => sbInsert(table, fields));
 }
 
-// Iniciar monitor al cargar
-document.addEventListener('DOMContentLoaded', () => {
-  ConnectionMonitor.start();
-});
+// Iniciar monitor DESPUÉS de que la app cargue (no antes)
+// Se llama desde initApp una vez que STORE está disponible
+function startConnectionMonitor() {
+  if (!ConnectionMonitor.heartbeatInterval) {
+    ConnectionMonitor.start();
+  }
+}
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -5338,9 +5318,22 @@ function showErr(msg){
 async function initApp(){
   updateDate();
   setInterval(updateDate,60000);
-  await Promise.all([loadProds(),loadSales(),loadClients(),loadCompras(),loadCierres(),loadDeudas()]);
+  await Promise.all([
+    loadProds(),
+    loadSales(),
+    loadClients(),
+    loadCompras(),
+    loadCierres(),
+    loadDeudas(),
+    loadGastos(),
+    loadCombos(),
+    loadFacturas(),
+    loadRecepciones(),
+  ]);
   loadUsuarios();
   renderAll();
+  // Iniciar monitor de conexión DESPUÉS de que todo esté cargado
+  setTimeout(startConnectionMonitor, 2000);
 }
 
 function updateDate(){
@@ -5357,14 +5350,7 @@ function renderAll(){
 // ══ SUPABASE CRUD ══
 async function sbGet(table,filters={}){
   let q=SB.from(table).select('*').eq('tienda_id',STORE?.id||USER?.id);
-  Object.entries(filters).forEach(([k,v])=>{
-    if(k==='is_deleted' && v===false){
-      // is_deleted=false debe incluir NULL (registros anteriores al soft delete)
-      q=q.or('is_deleted.eq.false,is_deleted.is.null');
-    } else {
-      q=q.eq(k,v);
-    }
-  });
+  Object.entries(filters).forEach(([k,v])=>q=q.eq(k,v));
   const {data,error}=await q.order('created_at',{ascending:false});
   if(error)throw error;
   return data||[];
@@ -5384,7 +5370,7 @@ async function sbUpdate(table,id,fields){
 // ══ LOADERS ══
 async function loadProds(){
   try{
-    prods=await sbGet('productos', {is_deleted: false});
+    prods=await sbGet('productos');
     filtered=[...prods];
   }catch(e){console.error('loadProds',e);prods=[];}
 }
@@ -5397,12 +5383,12 @@ async function loadSales(){
 }
 
 async function loadClients(){
-  try{clients=await sbGet('clientes',{is_deleted:false});}
+  try{clients=await sbGet('clientes');}
   catch(e){clients=[];}
 }
 
 async function loadCompras(){
-  try{compras=await sbGet('compras',{is_deleted:false});}
+  try{compras=await sbGet('compras');}
   catch(e){compras=[];}
 }
 
@@ -5410,7 +5396,7 @@ async function loadCompras(){
 let deudas = [];
 
 async function loadDeudas(){
-  try{ deudas = await sbGet('deudas',{is_deleted:false}); }
+  try{ deudas = await sbGet('deudas'); }
   catch(e){ deudas = []; }
 }
 
@@ -5993,10 +5979,7 @@ function showTicket(s){
 function printTicket(){
   const w=window.open('','_blank');
   w.document.write(`<html><head><title>Ticket</title><style>body{font-family:monospace;font-size:12px;width:300px;margin:0 auto;padding:10px}</style></head><body>
-<div id="offline-bar" style="display:none;position:fixed;top:0;left:0;right:0;background:#c94040;color:#fff;text-align:center;padding:8px;font-size:12px;font-weight:600;z-index:9999">
-  ⚠️ Sin conexión — Las ventas se guardan localmente y se sincronizarán cuando vuelva la conexión
-</div>
-<div id="connection-status" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1a3a5c;color:#fff;padding:8px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:999;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>${document.getElementById('ticket-content').innerHTML}</body></html>`);
+${document.getElementById('ticket-content').innerHTML}</body></html>`);
   w.print();w.close();
 }
 
@@ -6731,10 +6714,6 @@ Ventas: ${turnoSales.length}`)) return;
   @media print{button{display:none}}
 </style></head>
 <body>
-<div id="offline-bar" style="display:none;position:fixed;top:0;left:0;right:0;background:#c94040;color:#fff;text-align:center;padding:8px;font-size:12px;font-weight:600;z-index:9999">
-  ⚠️ Sin conexión — Las ventas se guardan localmente y se sincronizarán cuando vuelva la conexión
-</div>
-<div id="connection-status" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1a3a5c;color:#fff;padding:8px 16px;border-radius:20px;font-size:11px;font-weight:600;z-index:999;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
   <h2>🔄 Cierre de Turno</h2>
   <p><b>${STORE?.nombre || 'Tienda Pro'}</b><br>Fecha: ${today} · Hora: ${now}</p>
   <div class="row"><span>Ventas del turno</span><span>${turnoSales.length}</span></div>
