@@ -5894,26 +5894,21 @@ async function registerSale(){
       }).select().single();
     })().then(({data,error}) => { if(error) throw error; return data; })
 
-    // Update stock — ATÓMICO con Kardex (trazabilidad completa)
+    // Update stock — directo con validación
     for(const p of sel){
       const qty = qtys[p.id];
       if(!p.es_combo) {
-        const { data: kardexResult, error: kardexErr } = await SB.rpc('mover_stock_con_kardex', {
-          p_tienda_id:   STORE.id,
-          p_producto_id: p.id,
-          p_cantidad:    -qty,           // negativo = salida
-          p_tipo_mov:    'VENTA',
-          p_doc_tipo:    'VENTA',
-          p_doc_id:      null,           // se actualiza después con el ID de venta
-          p_doc_nro:     null,           // se actualiza con nro_comprobante
-          p_costo_unit:  p.costo || 0,
-          p_precio_unit: p.precio || 0,
-          p_observacion: `Venta a ${clienteNom || 'consumidor final'}`
-        });
-        if(kardexErr || !kardexResult?.exito) {
-          throw new Error(`Stock insuficiente para ${esc(p.nombre)}`);
+        // Verificar stock actual antes de descontar
+        const { data: prodActual } = await SB.from('productos')
+          .select('stock').eq('id', p.id).single();
+        if (!prodActual || prodActual.stock < qty) {
+          throw new Error(`Stock insuficiente para ${esc(p.nombre)}. Stock actual: ${prodActual?.stock || 0}, solicitado: ${qty}`);
         }
-        p.stock = kardexResult.stock_nuevo;
+        const nuevoStock = prodActual.stock - qty;
+        await SB.from('productos')
+          .update({ stock: nuevoStock, _kardex_autorizado: true })
+          .eq('id', p.id);
+        p.stock = nuevoStock;
       }
     }
         sales.unshift(venta);
