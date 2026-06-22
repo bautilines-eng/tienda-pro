@@ -5845,7 +5845,9 @@ async function registerSale(){
   const sel=prods.filter(p=>(qtys[p.id]||0)>0);
   if(!sel.length)return;
   const btn=document.getElementById('c-btn');
+  if(btn.disabled) return; // anti doble-click
   btn.disabled=true;btn.textContent='Guardando...';
+
   try{
     const sub=sel.reduce((s,p)=>s+p.precio*(qtys[p.id]||0),0);
     const desc=parseFloat(document.getElementById('v-desc').value)||0;
@@ -5853,98 +5855,87 @@ async function registerSale(){
     const clienteEl=document.getElementById('v-cliente');
     const clienteNom=clienteEl.value?(clienteEl.options[clienteEl.selectedIndex]?.text||''):'';
     const nota=document.getElementById('v-nota').value;
-    const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],emoji:getEm(p.categoria)}));
+    const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria)}));
 
-    // Insert venta
-    const venta=await (async () => {
-      // Obtener número correlativo de Supabase
-      const { data: nroData } = await SB.rpc('siguiente_nro_comprobante', {
-        p_tienda_id: STORE.id,
-        p_tipo: 'VENTA',
-        p_pto_venta: String(STORE.punto_venta || '00001').padStart(5,'0')
-      });
-      const nroCbte = nroData || null;
+    const tipoCbte    = document.querySelector('.cbte-btn.active')?.dataset.cbte || 'B';
+    const cuitCte     = document.getElementById('cuit-cte-input')?.value.trim() || null;
 
-      const tipoCbte    = document.querySelector('.cbte-btn.active')?.dataset.cbte || 'B';
-      const cuitCte     = document.getElementById('cuit-cte-input')?.value.trim() || null;
-      const razonSocial = document.getElementById('razon-social-input')?.value.trim() || null;
-
-      if (tipoCbte === 'A' && !cuitCte) {
-        showToast('❌ Factura A requiere CUIT del comprador', 'err');
-        throw new Error('Factura A requiere CUIT');
-      }
-
-      const { neto, iva } = calcularIVA(total);
-
-      return SB.from('ventas').insert({
-        tienda_id: STORE.id,
-        total, subtotal: sub, descuento: desc,
-        metodo_pago: method, nota, cliente: clienteNom,
-        items: JSON.stringify(items),
-        fecha: new Date().toISOString().split('T')[0],
-        request_id: crypto.randomUUID(),
-        nro_comprobante: nroCbte,
-        tipo_cbte:       tipoCbte,
-        cond_iva_cte:    tipoCbte === 'A' ? 'RI' : 'CF',
-        cuit_comprador:  cuitCte,
-        razon_social:    razonSocial,
-        neto_gravado:    neto,
-        importe_iva:     iva,
-        alicuota_iva:    21,
-      }).select().single();
-    })().then(({data,error}) => { if(error) throw error; return data; })
-
-    // Update stock — directo con validación
-    for(const p of sel){
-      const qty = qtys[p.id];
-      if(!p.es_combo) {
-        // Verificar stock actual antes de descontar
-        const { data: prodActual } = await SB.from('productos')
-          .select('stock').eq('id', p.id).single();
-        if (!prodActual || prodActual.stock < qty) {
-          throw new Error(`Stock insuficiente para ${esc(p.nombre)}. Stock actual: ${prodActual?.stock || 0}, solicitado: ${qty}`);
-        }
-        const nuevoStock = prodActual.stock - qty;
-        await SB.from('productos')
-          .update({ stock: nuevoStock, _kardex_autorizado: true })
-          .eq('id', p.id);
-        p.stock = nuevoStock;
-      }
+    if (tipoCbte === 'A' && !cuitCte) {
+      showToast('❌ Factura A requiere CUIT del comprador', 'err');
+      btn.disabled=false; btn.textContent='Confirmar →';
+      return;
     }
-        sales.unshift(venta);
 
-    // Si es Cuenta Corriente → crear deuda automáticamente
+    // ══ VENTA ATÓMICA ══
+    // Una sola transacción PostgreSQL: stock + venta + deuda CC
+    // Con FOR UPDATE (previene sobreventa) y rollback automático
+    // request_id garantiza idempotencia (anti doble-registro)
+    const { data: result, error } = await SB.rpc('procesar_venta_atomica', {
+      p_tienda_id:   STORE.id,
+      p_items:       items,
+      p_metodo_pago: method,
+      p_total:       total,
+      p_cliente:     clienteNom || null,
+      p_nota:        nota || null,
+      p_tipo_cbte:   tipoCbte,
+      p_cuit_cte:    cuitCte,
+      p_request_id:  crypto.randomUUID(),
+      p_pto_venta:   String(STORE.punto_venta || '00001').padStart(5,'0'),
+    });
+
+    if (error) throw error;
+    if (!result?.exito) {
+      throw new Error(result?.error || 'Error al procesar la venta');
+    }
+
+    // Construir objeto venta local con lo que devolvió la función
+    const venta = {
+      id:              result.venta_id,
+      tienda_id:       STORE.id,
+      total, subtotal: sub, descuento: desc,
+      metodo_pago:     method, nota, cliente: clienteNom,
+      items:           JSON.stringify(items),
+      fecha:           new Date().toISOString().split('T')[0],
+      nro_comprobante: result.nro_comprobante,
+      tipo_cbte:       tipoCbte,
+      neto_gravado:    result.neto,
+      importe_iva:     result.iva,
+      anulada:         false,
+    };
+    sales.unshift(venta);
+
+    // Actualizar stock local (la función ya lo descontó en la base)
+    for(const p of sel){
+      if(!p.es_combo) p.stock = Math.max(0, p.stock - qtys[p.id]);
+    }
+
+    // Si fue Cuenta Corriente, recargar deudas (la función ya creó la deuda)
     if(method === 'Cuenta Corriente'){
-      const clienteId = clienteEl.value || null;
-      try {
-        const deuda = await sbInsert('deudas',{
-          tienda_id: STORE.id,
-          nombre_cliente: clienteNom || 'Sin nombre',
-          monto: total,
-          monto_original: total,
-          descripcion: `Venta en cuenta corriente${nota?' — '+nota:''}`,
-          estado: 'pendiente',
-          fecha_limite: null,
-          cliente_id: clienteId,
-          venta_id: venta.id,
-          tipo: 'cliente',
-        });
-        deudas.unshift(deuda);
-        renderDeudas();
-        showToast(`📒 Venta en Cta. Cte. — $${total.toLocaleString('es-AR')} pasado a Deudores`,'ok');
-      } catch(e){ console.error('Error creando deuda CC:',e); }
+      await loadDeudas();
+      renderDeudas();
+      showToast(`📒 Venta en Cta. Cte. — $${total.toLocaleString('es-AR')} pasado a Deudores`,'ok');
     }
 
     qtys={};
     document.getElementById('v-desc').value='';
     document.getElementById('v-nota').value='';
+    const cuitInput = document.getElementById('cuit-cte-input');
+    if(cuitInput) cuitInput.value='';
     document.getElementById('cart').classList.remove('show');
     renderProds();renderHist();renderCaja();renderStock(stockFilter);checkAlertBar();
     showTicket({...venta,items});
     if(method !== 'Cuenta Corriente') showToast(`✅ Venta registrada — $${total.toLocaleString('es-AR')}`,'ok');
+
   }catch(e){
-    showToast('❌ Error al guardar','err');
-    console.error(e);
+    const msg = e.message || 'Error desconocido';
+    if (msg.includes('Stock insuficiente')) {
+      showToast('❌ ' + msg, 'err');
+    } else if (msg.includes('DUPLICADO')) {
+      showToast('⚠️ Esta venta ya fue registrada', 'err');
+    } else {
+      showToast('❌ Error al guardar la venta', 'err');
+    }
+    console.error('registerSale error:', e);
   }
   btn.disabled=false;btn.textContent='Confirmar →';
 }
