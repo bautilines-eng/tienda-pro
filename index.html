@@ -4801,26 +4801,127 @@ async function buscarAuditoria() {
   }
 }
 
+// Traduce nombres técnicos de campos a lenguaje humano
+const CAMPO_LABELS = {
+  nombre: 'Nombre', precio: 'Precio de venta', costo: 'Costo',
+  stock: 'Stock', stock_minimo: 'Stock mínimo', categoria: 'Categoría',
+  total: 'Total', subtotal: 'Subtotal', descuento: 'Descuento',
+  metodo_pago: 'Método de pago', cliente: 'Cliente', nota: 'Nota',
+  estado: 'Estado', monto: 'Monto', monto_original: 'Monto original',
+  nombre_cliente: 'Cliente', descripcion: 'Descripción',
+  cantidad: 'Cantidad', proveedor: 'Proveedor', vence: 'Vencimiento',
+  nro_comprobante: 'N° comprobante', tipo_cbte: 'Tipo comprobante',
+  neto_gravado: 'Neto gravado', importe_iva: 'IVA', anulada: 'Anulada',
+  telefono: 'Teléfono', email: 'Email', direccion: 'Dirección',
+  cuit: 'CUIT', cuit_comprador: 'CUIT comprador',
+};
+
+// Campos técnicos que no aportan al usuario — se ocultan
+const CAMPOS_OCULTOS = new Set([
+  'id','tienda_id','user_id','created_at','updated_at','request_id',
+  'is_deleted','deleted_at','_kardex_autorizado','venta_id','producto_id',
+  'cliente_id','compra_id','session_id','app_version',
+]);
+
+// Formatea un valor según su tipo/campo
+function fmtValor(campo, val) {
+  if (val === null || val === undefined || val === '') return '—';
+  // Precios y montos con $
+  if (['precio','costo','total','subtotal','monto','monto_original','neto_gravado','importe_iva'].includes(campo)) {
+    const n = parseFloat(val);
+    if (!isNaN(n)) return '$' + n.toLocaleString('es-AR');
+  }
+  // Fechas
+  if (campo === 'fecha' || campo === 'vence') {
+    try { return new Date(val).toLocaleDateString('es-AR'); } catch(e) {}
+  }
+  // Booleanos
+  if (val === true)  return 'Sí';
+  if (val === false) return 'No';
+  // Texto normal
+  return String(val);
+}
+
 function verCambios(btn) {
   const old = JSON.parse(btn.dataset.old || '{}');
   const nw  = JSON.parse(btn.dataset.new  || '{}');
 
-  // Encontrar diferencias
   const keys = new Set([...Object.keys(old), ...Object.keys(nw)]);
   const diffs = [...keys].filter(k =>
+    !CAMPOS_OCULTOS.has(k) &&
     JSON.stringify(old[k]) !== JSON.stringify(nw[k])
   );
 
-  if (!diffs.length) {
-    showToast('Sin diferencias detectadas', 'ok');
-    return;
+  // Detectar tipo de operación
+  const esCreacion   = Object.keys(old).length === 0 || !old.id;
+  const esEliminacion = Object.keys(nw).length === 0 || nw.is_deleted === true;
+
+  let titulo, subtitulo, contenido;
+
+  if (esCreacion && !esEliminacion) {
+    titulo = '🆕 Registro creado';
+    subtitulo = 'Se agregó un nuevo registro al sistema';
+    const campos = Object.keys(nw).filter(k => !CAMPOS_OCULTOS.has(k) && nw[k] !== null && nw[k] !== '');
+    contenido = campos.map(k => `
+      <div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f0f0f0">
+        <span style="font-size:12px;color:#777">${CAMPO_LABELS[k] || k}</span>
+        <span style="font-size:12px;font-weight:600;color:#1a5c38">${esc(fmtValor(k, nw[k]))}</span>
+      </div>`).join('');
+  } else if (esEliminacion) {
+    titulo = '🗑️ Registro eliminado';
+    subtitulo = 'Se marcó un registro como eliminado';
+    const campos = Object.keys(old).filter(k => !CAMPOS_OCULTOS.has(k) && old[k] !== null && old[k] !== '');
+    contenido = campos.map(k => `
+      <div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f0f0f0">
+        <span style="font-size:12px;color:#777">${CAMPO_LABELS[k] || k}</span>
+        <span style="font-size:12px;font-weight:600;color:#c94040;text-decoration:line-through">${esc(fmtValor(k, old[k]))}</span>
+      </div>`).join('');
+  } else {
+    titulo = '✏️ Registro modificado';
+    subtitulo = `${diffs.length} ${diffs.length === 1 ? 'campo cambió' : 'campos cambiaron'}`;
+    if (!diffs.length) {
+      contenido = '<div style="text-align:center;color:#aaa;padding:20px;font-size:12px">Sin cambios visibles en los datos principales</div>';
+    } else {
+      contenido = diffs.map(k => `
+        <div style="padding:11px 0;border-bottom:1px solid #f0f0f0">
+          <div style="font-size:12px;font-weight:700;color:#333;margin-bottom:7px">${CAMPO_LABELS[k] || k}</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="flex:1;background:#fdeaea;border-radius:8px;padding:8px 10px">
+              <div style="font-size:9px;color:#c94040;text-transform:uppercase;letter-spacing:.3px">Antes</div>
+              <div style="font-size:13px;font-weight:600;color:#c94040">${esc(fmtValor(k, old[k]))}</div>
+            </div>
+            <div style="color:#bbb;font-size:16px">→</div>
+            <div style="flex:1;background:#eaf6ee;border-radius:8px;padding:8px 10px">
+              <div style="font-size:9px;color:#1a5c38;text-transform:uppercase;letter-spacing:.3px">Ahora</div>
+              <div style="font-size:13px;font-weight:600;color:#1a5c38">${esc(fmtValor(k, nw[k]))}</div>
+            </div>
+          </div>
+        </div>`).join('');
+    }
   }
 
-  const msg = diffs.map(k =>
-    `${k}:\n  Antes: ${JSON.stringify(old[k])}\n  Ahora: ${JSON.stringify(nw[k])}`
-  ).join('\n\n');
-
-  alert('CAMBIOS DETECTADOS:\n\n' + msg);
+  // Modal limpio
+  let modal = document.getElementById('cambios-modal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'cambios-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:460px;width:100%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.3)">
+      <div style="background:#1a3a5c;color:#fff;padding:18px 20px">
+        <div style="font-size:16px;font-weight:700">${titulo}</div>
+        <div style="font-size:12px;opacity:.75;margin-top:3px">${subtitulo}</div>
+      </div>
+      <div style="padding:14px 20px;overflow-y:auto;flex:1">${contenido}</div>
+      <div style="padding:14px 20px;border-top:1px solid #eee">
+        <button onclick="document.getElementById('cambios-modal').remove()"
+          style="width:100%;padding:12px;border-radius:10px;border:none;background:#1a3a5c;color:#fff;font-size:14px;font-weight:600;cursor:pointer">
+          Cerrar
+        </button>
+      </div>
+    </div>`;
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
 }
 
 // Verificar gaps al abrir la sección de auditoría
