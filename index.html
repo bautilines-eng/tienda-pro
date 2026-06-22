@@ -1628,6 +1628,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
             Tocá "Verificar" para revisar actividad sospechosa
           </div>
         </div>
+        <div id="aud-resumen" style="margin-top:14px"></div>
       </div>
 
       <!-- Filtros forenses -->
@@ -4550,96 +4551,124 @@ async function renderKardex() {
   if (!el) return;
 
   if (!prodId) {
-    el.innerHTML = '<div class="empty">Seleccioná un producto</div>';
+    el.innerHTML = '<div class="empty">Seleccioná un producto para ver su historial de movimientos</div>';
     return;
   }
 
-  el.innerHTML = '<div class="empty">Cargando...</div>';
+  el.innerHTML = '<div class="empty">Cargando movimientos...</div>';
+
+  const prod = prods.find(p => p.id === prodId);
+  let movs = [], resumen = {};
 
   try {
-    const { data, error } = await SB.from('kardex')
-      .select('*')
-      .eq('producto_id', prodId)
-      .eq('tienda_id', STORE.id)
-      .order('created_at', { ascending: false })
-      .limit(50);
-
-    if (error) throw error;
-    kardexData = data || [];
-
+    // Cargar movimientos y resumen en paralelo
+    const [movResult, resResult] = await Promise.all([
+      SB.rpc('kardex_movimientos', {
+        p_tienda_id: STORE.id,
+        p_producto_id: prodId,
+        p_limit: 100,
+      }),
+      SB.rpc('kardex_resumen_producto', {
+        p_tienda_id: STORE.id,
+        p_producto_id: prodId,
+      }),
+    ]);
+    if (movResult.error) throw movResult.error;
+    movs = movResult.data || [];
+    resumen = resResult.data || {};
   } catch(e) {
+    console.error('Kardex error:', e);
     el.innerHTML = '<div class="empty">Error al cargar el Kardex</div>';
     return;
   }
 
-  if (!kardexData.length) {
-    el.innerHTML = '<div class="empty">Sin movimientos registrados para este producto</div>';
-    return;
-  }
-
-  const prod = prods.find(p => p.id === prodId);
   const tipoConfig = {
     'VENTA':               { icon: '🛒', color: '#c94040', label: 'Venta' },
     'COMPRA':              { icon: '📦', color: '#1a5c38', label: 'Compra' },
-    'DEVOLUCION_CLIENTE':  { icon: '↩️', color: '#1565c0', label: 'Devolución' },
-    'DEVOLUCION_PROVEEDOR':{ icon: '↪️', color: '#e65100', label: 'Dev. Proveedor' },
-    'AJUSTE_ENTRADA':      { icon: '➕', color: '#1a5c38', label: 'Ajuste +' },
-    'AJUSTE_SALIDA':       { icon: '➖', color: '#c94040', label: 'Ajuste -' },
+    'DEVOLUCION_CLIENTE':  { icon: '↩️', color: '#1565c0', label: 'Devolución cliente' },
+    'DEVOLUCION_PROVEEDOR':{ icon: '↪️', color: '#e65100', label: 'Dev. a proveedor' },
+    'AJUSTE_ENTRADA':      { icon: '➕', color: '#1a5c38', label: 'Ajuste entrada' },
+    'AJUSTE_SALIDA':       { icon: '➖', color: '#c94040', label: 'Ajuste salida' },
+    'AJUSTE':              { icon: '⚙️', color: '#6a1b9a', label: 'Ajuste' },
+    'RECEPCION':           { icon: '📥', color: '#1a5c38', label: 'Recepción' },
     'TRANSFERENCIA':       { icon: '🔄', color: '#6a1b9a', label: 'Transferencia' },
+    'ROLLBACK':            { icon: '⏪', color: '#888',    label: 'Reversión' },
   };
 
-  el.innerHTML = `
-    <!-- Header resumen -->
-    <div style="background:#1a3a5c;color:#fff;border-radius:12px;padding:14px 16px;margin-bottom:12px">
-      <div style="font-size:12px;opacity:.7;margin-bottom:4px">${esc(prod?.nombre || '')}</div>
-      <div style="display:flex;justify-content:space-between;align-items:center">
+  // ── HEADER: Stock actual + resumen del período ──
+  let html = `
+    <div style="background:linear-gradient(135deg,#1a3a5c,#0f2438);color:#fff;border-radius:14px;padding:16px 18px;margin-bottom:14px">
+      <div style="font-size:12px;opacity:.7;margin-bottom:8px">${esc(prod?.nombre || 'Producto')}</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end">
         <div>
-          <div style="font-size:10px;opacity:.7">Stock actual</div>
-          <div style="font-family:'DM Mono',monospace;font-size:22px;font-weight:700">${prod?.stock ?? '—'} uds</div>
+          <div style="font-size:10px;opacity:.7;text-transform:uppercase;letter-spacing:.5px">Stock actual</div>
+          <div style="font-family:'DM Mono',monospace;font-size:30px;font-weight:700;line-height:1">${prod?.stock ?? 0}</div>
         </div>
-        <div style="text-align:right">
-          <div style="font-size:10px;opacity:.7">Últimos movimientos</div>
-          <div style="font-size:16px;font-weight:700">${kardexData.length}</div>
+        <div style="text-align:right;font-size:11px;opacity:.85">
+          <div>Últimos 30 días</div>
+          <div style="margin-top:3px"><span style="color:#7fdca4">↑ ${resumen.total_entradas || 0}</span> &nbsp; <span style="color:#ff9b9b">↓ ${resumen.total_salidas || 0}</span></div>
         </div>
       </div>
     </div>
 
-    <!-- Tabla de movimientos -->
-    <div style="background:#fff;border-radius:12px;border:1.5px solid #e0e0e0;overflow:hidden">
-      <div style="background:#f8f8f8;padding:8px 14px;display:grid;grid-template-columns:80px 90px 1fr 60px 60px;gap:8px;font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px">
-        <span>Fecha</span><span>Tipo</span><span>Documento</span><span style="text-align:right">Cant.</span><span style="text-align:right">Stock</span>
+    <!-- Tarjetas de resumen -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+      <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px;text-align:center">
+        <div style="font-size:9px;color:#888;text-transform:uppercase">Vendido</div>
+        <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:#c94040">${resumen.ventas_cantidad || 0}</div>
       </div>
-      ${kardexData.map(m => {
-        const cfg = tipoConfig[m.tipo_movimiento] || { icon: '•', color: '#888', label: m.tipo_movimiento };
-        const fecha = new Date(m.created_at).toLocaleDateString('es-AR', {day:'2-digit',month:'2-digit'});
-        const esEntrada = m.cantidad > 0;
-        return `<div style="padding:10px 14px;display:grid;grid-template-columns:80px 90px 1fr 60px 60px;gap:8px;align-items:center;border-top:1px solid #f5f5f5;font-size:11px">
-          <span style="color:#888">${fecha}</span>
-          <span style="color:${cfg.color};font-weight:600;font-size:10px">${cfg.icon} ${cfg.label}</span>
-          <div>
-            <div style="font-size:11px;color:#333">${esc(m.documento_nro || m.documento_tipo || '—')}</div>
-            ${m.usuario_email ? `<div style="font-size:10px;color:#aaa">${esc(m.usuario_email.split('@')[0])}</div>` : ''}
+      <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px;text-align:center">
+        <div style="font-size:9px;color:#888;text-transform:uppercase">Comprado</div>
+        <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:#1a5c38">${resumen.compras_cantidad || 0}</div>
+      </div>
+      <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px;text-align:center">
+        <div style="font-size:9px;color:#888;text-transform:uppercase">Movimientos</div>
+        <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:#1a3a5c">${resumen.movimientos || 0}</div>
+      </div>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Historial de movimientos</div>
+  `;
+
+  if (!movs.length) {
+    html += '<div class="empty">Sin movimientos en el período</div>';
+    el.innerHTML = html;
+    return;
+  }
+
+  // ── TIMELINE de movimientos ──
+  html += '<div style="display:flex;flex-direction:column;gap:8px">';
+  for (const m of movs) {
+    const cfg = tipoConfig[m.tipo_movimiento] || { icon: '•', color: '#888', label: m.tipo_movimiento };
+    const fecha = new Date(m.fecha_hora);
+    const fechaStr = fecha.toLocaleDateString('es-AR') + ' ' + fecha.toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+    const signo = m.cantidad > 0 ? '+' : '';
+    const cantColor = m.cantidad > 0 ? '#1a5c38' : '#c94040';
+
+    html += `
+      <div style="background:#fff;border:1.5px solid #eee;border-left:3px solid ${cfg.color};border-radius:10px;padding:11px 13px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:14px">${cfg.icon}</span>
+              <span style="font-size:12px;font-weight:700;color:${cfg.color}">${cfg.label}</span>
+              ${m.documento_nro ? `<span style="font-size:10px;color:#aaa;font-family:'DM Mono',monospace">${esc(m.documento_nro)}</span>` : ''}
+            </div>
+            <div style="font-size:10px;color:#999;margin-top:4px">📅 ${fechaStr}</div>
+            ${m.usuario_email ? `<div style="font-size:10px;color:#999;margin-top:2px">👤 ${esc(m.usuario_email)}</div>` : ''}
+            ${m.observacion ? `<div style="font-size:10px;color:#777;margin-top:3px;font-style:italic">${esc(m.observacion)}</div>` : ''}
           </div>
-          <span style="text-align:right;font-family:'DM Mono',monospace;font-weight:700;color:${esEntrada?'#1a5c38':'#c94040'}">
-            ${esEntrada?'+':''}${m.cantidad}
-          </span>
-          <span style="text-align:right;font-family:'DM Mono',monospace;font-weight:600;color:#1a3a5c">
-            ${m.stock_nuevo}
-          </span>
-        </div>`;
-      }).join('')}
-    </div>
-    <div style="text-align:center;font-size:10px;color:#aaa;margin-top:8px">
-      Mostrando últimos ${kardexData.length} movimientos
-    </div>`;
+          <div style="text-align:right;min-width:90px">
+            <div style="font-family:'DM Mono',monospace;font-size:17px;font-weight:700;color:${cantColor}">${signo}${m.cantidad}</div>
+            <div style="font-size:9px;color:#aaa;font-family:'DM Mono',monospace">${m.stock_anterior} → ${m.stock_nuevo}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+  html += '</div>';
+
+  el.innerHTML = html;
 }
-
-// GRN init logic moved into openModal
-
-
-
-// ══ TIPO DE COMPROBANTE ══
-let _cbteTipo = 'B';
 
 function selectCbteTipo(btn) {
   document.querySelectorAll('.cbte-btn').forEach(b => {
@@ -4803,7 +4832,40 @@ async function initAuditoria() {
   const hEl    = document.getElementById('aud-hasta');
   if (dEl) dEl.value = ayer.toISOString().slice(0,16);
   if (hEl) hEl.value = ahora.toISOString().slice(0,16);
-  await cargarAlertas();
+  await Promise.all([cargarResumenAuditoria(), cargarAlertas()]);
+}
+
+// Resumen de auditoría — tarjetas con totales
+async function cargarResumenAuditoria() {
+  const el = document.getElementById('aud-resumen');
+  if (!el) return;
+  try {
+    const { data } = await SB.rpc('auditoria_resumen', {
+      p_tienda_id: STORE.id,
+    });
+    const r = data || {};
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+        <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:11px;text-align:center">
+          <div style="font-size:9px;color:#888;text-transform:uppercase">Acciones</div>
+          <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:#1a3a5c">${r.total_acciones || 0}</div>
+        </div>
+        <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:11px;text-align:center">
+          <div style="font-size:9px;color:#888;text-transform:uppercase">Cambios</div>
+          <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:#d97706">${r.updates || 0}</div>
+        </div>
+        <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:11px;text-align:center">
+          <div style="font-size:9px;color:#888;text-transform:uppercase">Precios</div>
+          <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:#c94040">${r.cambios_precio || 0}</div>
+        </div>
+        <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:11px;text-align:center">
+          <div style="font-size:9px;color:#888;text-transform:uppercase">Usuarios</div>
+          <div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:#1a5c38">${r.usuarios_activos || 0}</div>
+        </div>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = '';
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
