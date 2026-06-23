@@ -532,6 +532,18 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="flabel" style="margin-bottom:5px">Cliente (opcional)</div>
       <select class="inp" id="v-cliente" style="cursor:pointer" onchange="autocompletarCuitCliente()"><option value="">— Sin cliente —</option></select>
     </div>
+    <div style="padding:12px 20px 0">
+      <div class="flabel" style="margin-bottom:5px">Comprobante</div>
+      <div style="display:flex;gap:8px">
+        <button class="cbte-btn active" data-cbte="T" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #1a5c38;border-radius:9px;background:#eaf5ee;color:#1a5c38;font-size:12px;font-weight:600;cursor:pointer">Tique B</button>
+        <button class="cbte-btn" data-cbte="B" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">Factura B</button>
+        <button class="cbte-btn" data-cbte="A" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">Factura A</button>
+      </div>
+      <div id="cuit-cte-row" style="display:none;margin-top:10px">
+        <input class="inp" id="razon-social-input" placeholder="Razón social del comprador" style="margin-bottom:8px">
+        <input class="inp" id="cuit-cte-input" placeholder="CUIT del comprador (11 dígitos)" inputmode="numeric" maxlength="13" style="font-family:'DM Mono',monospace">
+      </div>
+    </div>
     <div style="padding:10px 20px 0;display:flex;gap:10px">
       <div style="flex:1"><div class="flabel" style="margin-bottom:5px">Descuento %</div><input class="inp" id="v-desc" type="number" min="0" max="100" placeholder="0" oninput="updateCart()"></div>
       <div style="flex:1"><div class="flabel" style="margin-bottom:5px">Nota</div><input class="inp" id="v-nota" type="text" placeholder="Opcional"></div>
@@ -904,6 +916,8 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 
     <div class="slabel"><span class="slabel-t">Últimas compras</span></div>
     <div class="clist" id="colist"><div class="empty">Sin compras aún</div></div>
+    <div id="co-prov-panel" style="display:none;padding:0 20px"></div>
+    <div id="co-orden-panel" style="display:none;padding:0 20px"></div>
   </div>
 
   <!-- DEUDORES -->
@@ -928,9 +942,15 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         </div>
       </div>
     </div>
+    <div style="padding:10px 20px 0;display:flex;gap:8px">
+      <button class="de-tab active" data-tab="clientes" onclick="switchDeTab(this)" style="flex:1;padding:9px 4px;border:1.5px solid #c97f1a;border-radius:9px;background:#fdf5ea;color:#c97f1a;font-size:12px;font-weight:600;cursor:pointer">👤 Clientes</button>
+      <button class="de-tab" data-tab="proveedores" onclick="switchDeTab(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">🏭 Proveedores</button>
+      <button class="de-tab" data-tab="saldos" onclick="switchDeTab(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">📊 Saldos</button>
+    </div>
     <div style="padding:0 20px;display:flex;flex-direction:column;gap:8px" id="de-list">
       <div class="empty">Sin deudas registradas</div>
     </div>
+    <div id="de-saldos" style="display:none;padding:0 20px"></div>
   </div>
 
   <!-- MODAL NUEVO GASTO -->
@@ -3451,10 +3471,12 @@ function switchDeTab(btn) {
     b.style.borderColor = '#e0e0e0';
     b.style.background  = '#fff';
     b.style.color       = '#555';
+    b.classList.remove('active');
   });
   btn.style.borderColor = '#c97f1a';
   btn.style.background  = '#fdf5ea';
   btn.style.color       = '#c97f1a';
+  btn.classList.add('active');
   renderDeudas();
 }
 
@@ -4701,10 +4723,12 @@ function selectCbteTipo(btn) {
     b.style.borderColor = '#e0e0e0';
     b.style.background  = '#fff';
     b.style.color       = '#555';
+    b.classList.remove('active');
   });
   btn.style.borderColor = '#1a5c38';
   btn.style.background  = '#eaf5ee';
   btn.style.color       = '#1a5c38';
+  btn.classList.add('active');
   _cbteTipo = btn.dataset.cbte;
 
   const cuitRow = document.getElementById('cuit-cte-row');
@@ -6103,11 +6127,20 @@ async function registerSale(){
 
     const tipoCbte    = document.querySelector('.cbte-btn.active')?.dataset.cbte || 'B';
     const cuitCte     = document.getElementById('cuit-cte-input')?.value.trim() || null;
+    const razonSocial = document.getElementById('razon-social-input')?.value.trim() || null;
+    const cuitDigits  = (cuitCte || '').replace(/\D/g, '');
 
-    if (tipoCbte === 'A' && !cuitCte) {
-      showToast('❌ Factura A requiere CUIT del comprador', 'err');
-      btn.disabled=false; btn.textContent='Confirmar →';
-      return;
+    if (tipoCbte === 'A') {
+      if (cuitDigits.length !== 11) {
+        showToast('❌ Factura A requiere CUIT válido del comprador (11 dígitos)', 'err');
+        btn.disabled=false; btn.textContent='Confirmar →';
+        return;
+      }
+      if (!razonSocial && !clienteNom) {
+        showToast('❌ Factura A requiere razón social o cliente del comprador', 'err');
+        btn.disabled=false; btn.textContent='Confirmar →';
+        return;
+      }
     }
 
     // ══ VENTA ATÓMICA ══
@@ -6119,10 +6152,10 @@ async function registerSale(){
       p_items:       items,
       p_metodo_pago: method,
       p_total:       total,
-      p_cliente:     clienteNom || null,
+      p_cliente:     (tipoCbte === 'A' ? (razonSocial || clienteNom) : clienteNom) || null,
       p_nota:        nota || null,
       p_tipo_cbte:   tipoCbte,
-      p_cuit_cte:    cuitCte,
+      p_cuit_cte:    (tipoCbte === 'A' ? cuitDigits : (cuitCte || null)),
       p_request_id:  crypto.randomUUID(),
       p_pto_venta:   String(STORE.punto_venta || '00001').padStart(5,'0'),
     });
@@ -6165,6 +6198,11 @@ async function registerSale(){
     document.getElementById('v-nota').value='';
     const cuitInput = document.getElementById('cuit-cte-input');
     if(cuitInput) cuitInput.value='';
+    const razonInput = document.getElementById('razon-social-input');
+    if(razonInput) razonInput.value='';
+    // Reset del comprobante a Tique B (evita arrastrar Factura A + CUIT del comprador anterior)
+    const btnCbteDefault = document.querySelector('.cbte-btn[data-cbte="T"]');
+    if(btnCbteDefault) selectCbteTipo(btnCbteDefault);
     document.getElementById('cart').classList.remove('show');
     renderProds();renderHist();renderCaja();renderStock(stockFilter);checkAlertBar();
     showTicket({...venta,items});
@@ -6420,6 +6458,7 @@ function prepararCierre(){
   const efCaja=parseFloat(document.getElementById('arq-ef').value)||0;
   const dif=efCaja-ef;
   const obs=document.getElementById('arq-obs').value;
+  const gastosHoyCierre = gastos.filter(g => g.fecha === today); // declarado ANTES de usarse (evita TDZ)
 
   document.getElementById('cierre-content').innerHTML=`
     <div style="background:var(--cream);border-radius:12px;padding:16px;margin-bottom:16px">
@@ -6438,7 +6477,6 @@ function prepararCierre(){
     <div style="font-size:13px;color:var(--red);font-weight:500">⚠️ Esta acción registrará el cierre oficial del día. No se puede deshacer.</div>`;
 
   // Store cierre data for confirm
-  const gastosHoyCierre = gastos.filter(g => g.fecha === today);
   window._cierreData={fecha:today,total,ventas_count:todaySales.length,efectivo:ef,transferencia:tr,tarjeta:td,mercadopago:mp,efectivo_caja:efCaja,diferencia:dif,observaciones:obs,gastos_dia:gastosHoyCierre};
   openModal('ov-cierre');
 }
