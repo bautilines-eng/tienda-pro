@@ -414,6 +414,15 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div class="fgroup"><div class="flabel">Nombre</div><input class="inp" id="cl-name" placeholder="Ej: María García"></div>
     <div class="fgroup"><div class="flabel">Teléfono</div><input class="inp" id="cl-phone" type="tel" placeholder="+54 9 381..."></div>
     <div class="fgroup"><div class="flabel">Email</div><input class="inp" id="cl-email" type="email" placeholder="correo@mail.com"></div>
+    <div class="fgroup"><div class="flabel">CUIT / CUIL <span style="color:var(--muted);font-weight:400">(para Factura A)</span></div><input class="inp" id="cl-cuit" placeholder="30-12345678-9"></div>
+    <div class="fgroup"><div class="flabel">Condición IVA</div>
+      <select class="inp" id="cl-condiva" style="cursor:pointer">
+        <option value="CF">Consumidor Final</option>
+        <option value="RI">Responsable Inscripto</option>
+        <option value="MO">Monotributista</option>
+        <option value="EX">Exento</option>
+      </select>
+    </div>
     <div class="fgroup"><div class="flabel">Notas</div><input class="inp" id="cl-notes" placeholder="Cliente frecuente, mayorista..."></div>
     <button class="btn btn-ink btn-full" onclick="saveClient()">Guardar cliente</button>
   </div>
@@ -520,7 +529,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <div style="padding:12px 20px 0">
       <div class="flabel" style="margin-bottom:5px">Cliente (opcional)</div>
-      <select class="inp" id="v-cliente" style="cursor:pointer"><option value="">— Sin cliente —</option></select>
+      <select class="inp" id="v-cliente" style="cursor:pointer" onchange="autocompletarCuitCliente()"><option value="">— Sin cliente —</option></select>
     </div>
     <div style="padding:10px 20px 0;display:flex;gap:10px">
       <div style="flex:1"><div class="flabel" style="margin-bottom:5px">Descuento %</div><input class="inp" id="v-desc" type="number" min="0" max="100" placeholder="0" oninput="updateCart()"></div>
@@ -4685,6 +4694,30 @@ function selectCbteTipo(btn) {
   if (cuitRow) cuitRow.style.display = _cbteTipo === 'A' ? 'block' : 'none';
 }
 
+// Autocompletar CUIT y razón social cuando se elige un cliente con CUIT
+function autocompletarCuitCliente() {
+  const sel = document.getElementById('v-cliente');
+  const clienteId = sel?.value;
+  if (!clienteId) return;
+  const cliente = clients.find(c => c.id === clienteId);
+  if (!cliente) return;
+
+  const cuitInput  = document.getElementById('cuit-cte-input');
+  const razonInput = document.getElementById('razon-social-input');
+
+  // Si el cliente tiene CUIT cargado, completarlo
+  if (cliente.cuit) {
+    if (cuitInput)  cuitInput.value  = cliente.cuit;
+    if (razonInput) razonInput.value = cliente.nombre;
+    // Si además es Responsable Inscripto, sugerir Factura A
+    if (cliente.condicion_iva === 'RI') {
+      const btnA = document.querySelector('.cbte-btn[data-cbte="A"]');
+      if (btnA) selectCbteTipo(btnA);
+      showToast('💡 Cliente Responsable Inscripto — Factura A seleccionada', 'ok');
+    }
+  }
+}
+
 // ══ VERIFICAR GAPS CORRELATIVOS (ejecutar mensualmente) ══
 async function verificarGapsCorrelativos() {
   try {
@@ -5859,34 +5892,63 @@ function renderUsuarios(){
 }
 
 async function saveUsuario(){
-  const email = document.getElementById('usu-email').value.trim();
+  const email = document.getElementById('usu-email').value.trim().toLowerCase();
   const nombre = document.getElementById('usu-nombre').value.trim();
   const rol = document.getElementById('usu-rol').value;
   const pass = document.getElementById('usu-pass').value;
   if(!email || !pass){ showToast('Completá email y contraseña','err'); return; }
   if(pass.length < 6){ showToast('La contraseña debe tener al menos 6 caracteres','err'); return; }
+
+  const btn = document.querySelector('#ov-add-usuario .btn-ink');
+  if(btn){ btn.disabled = true; btn.textContent = 'Creando usuario...'; }
+
   try{
-    // Create auth user
-    const {data, error} = await SB.auth.admin?.createUser?.({email, password:pass, email_confirm:true}) || {error:{message:'No permitido desde cliente'}};
-    
-    // Fallback: save to usuarios_tienda table
-    const u = await sbInsert('usuarios_tienda', { email, nombre, rol, activo:true });
+    // 1. Guardar la sesión actual del dueño (signUp la va a reemplazar)
+    const { data: sesActual } = await SB.auth.getSession();
+    const tokenDueno = sesActual?.session;
+
+    // 2. Crear el usuario REAL de login con signUp
+    const { data: signUpData, error: signUpError } = await SB.auth.signUp({
+      email,
+      password: pass,
+      options: { data: { nombre, rol, tienda_id: STORE.id } }
+    });
+
+    // 3. Restaurar INMEDIATAMENTE la sesión del dueño
+    if(tokenDueno){
+      await SB.auth.setSession({
+        access_token:  tokenDueno.access_token,
+        refresh_token: tokenDueno.refresh_token
+      });
+    }
+
+    if(signUpError){
+      // Email ya registrado u otro error
+      if(signUpError.message.includes('already registered') || signUpError.message.includes('already been registered')){
+        showToast('⚠️ Ese email ya tiene una cuenta. Usá otro.','err');
+      } else {
+        showToast('❌ '+signUpError.message,'err');
+      }
+      if(btn){ btn.disabled=false; btn.textContent='Crear usuario'; }
+      return;
+    }
+
+    // 4. Vincular el usuario a la tienda en usuarios_tienda
+    const u = await sbInsert('usuarios_tienda', {
+      email, nombre, rol, activo:true,
+      auth_user_id: signUpData?.user?.id || null
+    });
     usuarios.push(u);
+
     closeModal('ov-add-usuario');
     renderUsuarios();
     ['usu-email','usu-nombre','usu-pass'].forEach(id=>document.getElementById(id).value='');
-    showToast(`✅ Usuario ${nombre||email} agregado`,'ok');
-  }catch(e){ 
-    // Still save locally even if auth fails
-    try{
-      const u = await sbInsert('usuarios_tienda', { email, nombre, rol, activo:true });
-      usuarios.push(u);
-      closeModal('ov-add-usuario');
-      renderUsuarios();
-      ['usu-email','usu-nombre','usu-pass'].forEach(id=>document.getElementById(id).value='');
-      showToast(`✅ Usuario registrado. Enviá las credenciales manualmente.`,'ok');
-    }catch(e2){ showToast('❌ Error al crear usuario','err'); console.error(e2); }
+    showToast(`✅ Usuario ${nombre||email} creado. Le llegó un email de confirmación — debe confirmarlo antes de poder ingresar.`,'ok');
+  }catch(e){
+    showToast('❌ Error al crear usuario: '+(e.message||''),'err');
+    console.error(e);
   }
+  if(btn){ btn.disabled=false; btn.textContent='Crear usuario'; }
 }
 
 async function eliminarUsuario(id, nombre){
@@ -6626,11 +6688,11 @@ async function saveClient(){
   const nombre=document.getElementById('cl-name').value.trim();
   if(!nombre){showToast('Ingresá el nombre','err');return;}
   try{
-    const c=await sbInsert('clientes',{nombre,telefono:document.getElementById('cl-phone').value,email:document.getElementById('cl-email').value,notas:document.getElementById('cl-notes').value});
+    const c=await sbInsert('clientes',{nombre,telefono:document.getElementById('cl-phone').value,email:document.getElementById('cl-email').value,cuit:document.getElementById('cl-cuit').value.trim()||null,condicion_iva:document.getElementById('cl-condiva').value,notas:document.getElementById('cl-notes').value});
     clients.push(c);
     closeModal('ov-add-client');renderClients();populateSelects();
     showToast('✅ Cliente guardado','ok');
-    ['cl-name','cl-phone','cl-email','cl-notes'].forEach(id=>document.getElementById(id).value='');
+    ['cl-name','cl-phone','cl-email','cl-cuit','cl-notes'].forEach(id=>document.getElementById(id).value='');
   }catch(e){showToast('❌ Error al guardar cliente. Intentá de nuevo.','err');console.error(e);}
 }
 
