@@ -5412,6 +5412,7 @@ function startConnectionMonitor() {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(reg => {
+        console.log('%c🟢 Tienda Pro — build 2026-06-23 · FacturaA+Compras+Deudores+cierre','color:#1a5c38;font-weight:bold;font-size:13px');
       console.log('SW registered:', reg.scope);
     }).catch(err => {
       console.log('SW registration failed:', err);
@@ -5498,22 +5499,7 @@ async function doLogin(){
   showApp();
 }
 
-async function doRegister(){
-  const tienda=document.getElementById('r-tienda').value.trim();
-  const email=document.getElementById('r-email').value.trim();
-  const pass=document.getElementById('r-pass').value;
-  if(!tienda||!email||!pass){showErr('Completá todos los campos');return;}
-  if(pass.length<6){showErr('La contraseña debe tener al menos 6 caracteres');return;}
-  document.getElementById('r-btn').disabled=true;
-  document.getElementById('r-btn').textContent='Creando cuenta...';
-  const {data,error}=await SB.auth.signUp({email,password:pass,options:{data:{tienda_name:tienda}}});
-  if(error){showErr(error.message);document.getElementById('r-btn').disabled=false;document.getElementById('r-btn').textContent='Crear cuenta →';return;}
-  USER=data.user;
-  // Create store
-  await SB.from('tiendas').insert({user_id:USER.id,name:tienda,email});
-  await loadStore();
-  showApp();
-}
+
 
 async function loadStore(){
   try{
