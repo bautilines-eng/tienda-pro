@@ -6071,8 +6071,10 @@ async function registerSale(){
   const sel=prods.filter(p=>(qtys[p.id]||0)>0);
   if(!sel.length)return;
   const btn=document.getElementById('c-btn');
-  if(btn.disabled) return; // anti doble-click
-  btn.disabled=true;btn.textContent='Guardando...';
+  // El anti-doble-click lo maneja withLoadingButton (deshabilita el botón
+  // antes de llamar y lo re-habilita en su finally). NO repetir la guarda
+  // `if(btn.disabled) return;` aquí: el botón YA está disabled y abortaría la venta.
+  btn.textContent='Guardando...';
 
   try{
     const sub=sel.reduce((s,p)=>s+p.precio*(qtys[p.id]||0),0);
