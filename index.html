@@ -4251,12 +4251,28 @@ function switchStockTab(btn) {
   btn.style.background  = '#eaf0fd';
   btn.style.color       = '#1a5ec9';
 
-  document.getElementById('panel-stock').style.display  = tab === 'stock'  ? 'block' : 'none';
-  document.getElementById('panel-kardex').style.display = tab === 'kardex' ? 'block' : 'none';
-  document.getElementById('panel-grn').style.display    = tab === 'grn'    ? 'block' : 'none';
+  // Mostrar SOLO el panel de la pestaña elegida, ocultar los otros 3.
+  // Loop sobre los 4 paneles: así nunca se vuelve a "olvidar" uno.
+  const panels = { stock:'panel-stock', kardex:'panel-kardex', grn:'panel-grn', ajuste:'panel-ajuste' };
+  for (const t in panels) {
+    const el = document.getElementById(panels[t]);
+    if (el) el.style.display = (tab === t) ? 'block' : 'none';
+  }
 
   if (tab === 'kardex')  initKardexSelector();
   if (tab === 'grn')     renderGRNList();
+  if (tab === 'ajuste') {
+    // Poblar el selector de productos la primera vez que se abre
+    const sel = document.getElementById('aj-prod');
+    if (sel && sel.options.length <= 1) {
+      prods.filter(p => !p.is_deleted).forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.nombre} (stock: ${p.stock} uds)`;
+        sel.appendChild(opt);
+      });
+    }
+  }
 }
 
 // ── GRN: Agregar item ──
@@ -7948,27 +7964,7 @@ async function ejecutarAjusteManual() {
   }
 }
 
-// Poblar selector de productos en ajuste manual cuando se abre el tab
-const _origSwitchStockTab = switchStockTab;
-function switchStockTab(btn) {
-  _origSwitchStockTab(btn);
-  if (btn.dataset.tab === 'ajuste') {
-    const sel = document.getElementById('aj-prod');
-    if (sel && sel.options.length <= 1) {
-      prods.filter(p => !p.is_deleted).forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = `${p.nombre} (stock: ${p.stock} uds)`;
-        sel.appendChild(opt);
-      });
-    }
-    // Mostrar panel ajuste
-    document.getElementById('panel-ajuste').style.display = 'block';
-  } else {
-    const ajPanel = document.getElementById('panel-ajuste');
-    if (ajPanel) ajPanel.style.display = 'none';
-  }
-}
+// (El manejo de la pestaña 'ajuste' se integró en switchStockTab — wrapper recursivo eliminado)
 </script>
 </body>
 </html>
