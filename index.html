@@ -407,6 +407,37 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<div class="overlay" id="ov-add-prov">
+  <div class="modal" style="position:relative">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-add-prov')">✕</button>
+    <div class="modal-title">Nuevo Proveedor</div>
+    <div class="fgroup"><div class="flabel">Razón social *</div><input class="inp" id="pr-razon" placeholder="Ej: PRODUNOA S.A."></div>
+    <div class="fgroup"><div class="flabel">CUIT</div><input class="inp" id="pr-cuit" placeholder="30-12345678-9" inputmode="numeric"></div>
+    <div class="fgroup"><div class="flabel">Condición IVA</div>
+      <select class="inp" id="pr-condiva" style="cursor:pointer">
+        <option value="RI">Responsable Inscripto</option>
+        <option value="MO">Monotributista</option>
+        <option value="EX">Exento</option>
+        <option value="CF">Consumidor Final</option>
+      </select>
+    </div>
+    <div class="fgroup"><div class="flabel">IIBB</div><input class="inp" id="pr-iibb" placeholder="N° de inscripción IIBB"></div>
+    <div class="fgroup"><div class="flabel">Provincia</div><input class="inp" id="pr-provincia" placeholder="Santiago del Estero"></div>
+    <div class="fgroup"><div class="flabel">Domicilio</div><input class="inp" id="pr-domicilio" placeholder="Calle, número, localidad"></div>
+    <div class="fgroup"><div class="flabel">Teléfono</div><input class="inp" id="pr-telefono" type="tel" placeholder="+54 9 385..."></div>
+    <div class="fgroup"><div class="flabel">Email</div><input class="inp" id="pr-email" type="email" placeholder="correo@mail.com"></div>
+    <div class="fgroup"><div class="flabel">Forma de pago</div>
+      <select class="inp" id="pr-formapago" style="cursor:pointer">
+        <option value="Cuenta Corriente">Cuenta Corriente</option>
+        <option value="Contado">Contado</option>
+      </select>
+    </div>
+    <div class="fgroup"><div class="flabel">Cuenta contable</div>
+      <input class="inp" id="pr-cuenta" value="21101001 — PROVEEDORES" disabled style="background:#f4f4f4;color:#777"></div>
+    <button class="btn btn-ink btn-full" onclick="saveProveedor()">Guardar proveedor</button>
+  </div>
+</div>
 <div class="overlay" id="ov-add-client">
   <div class="modal" style="position:relative">
     <div class="modal-handle"></div>
@@ -830,8 +861,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           <div><div class="flabel">Precio unitario</div><input class="inp" id="co-precio" type="number" placeholder="$0"></div>
         </div>
         <div class="fgroup"><div class="flabel">Proveedor</div>
-          <input class="inp" id="co-prov-nombre" placeholder="Nombre del proveedor" list="co-prov-list">
-          <datalist id="co-prov-list"></datalist>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select class="inp" id="co-prov-select" style="flex:1;cursor:pointer"><option value="">— Elegí un proveedor —</option></select>
+            <button type="button" onclick="openModal('ov-add-prov')" style="padding:10px 12px;border:1.5px solid #c94f1a;border-radius:9px;background:#fdf0ea;color:#c94f1a;font-weight:700;cursor:pointer;white-space:nowrap">+ Nuevo</button>
+          </div>
         </div>
         <div class="frow" style="margin-bottom:10px">
           <div><div class="flabel">Número de Factura</div><input class="inp" id="co-factura" placeholder="FAC-2026-001"></div>
@@ -2050,7 +2083,7 @@ let USER = null;
 let STORE = null;
 
 // ══ STATE ══
-let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[];
+let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[];
 let qtys={}, activeCat='all', filtered=[], method='Efectivo', periodo='semana';
 let stockFilter='all', histFilter='all';
 
@@ -3513,7 +3546,7 @@ function switchCoTab(btn) {
     if(provPanel) provPanel.style.display  = 'block';
     if(ordenPanel)ordenPanel.style.display = 'none';
     slabels.forEach(s => s.style.display = 'none');
-    renderHistorialProveedores();
+    renderProveedores();
   } else if (coTabActual === 'orden') {
     if(colistEl)  colistEl.style.display  = 'none';
     if(provPanel) provPanel.style.display  = 'none';
@@ -5546,6 +5579,7 @@ async function initApp(){
     loadSales(),
     loadClients(),
     loadCompras(),
+      loadProveedores(),
     loadCierres(),
     loadDeudas(),
     loadGastos(),
@@ -6739,6 +6773,62 @@ async function saveClient(){
   }catch(e){showToast('❌ Error al guardar cliente. Intentá de nuevo.','err');console.error(e);}
 }
 
+// ══ PROVEEDORES ══
+async function loadProveedores(){
+  try{ proveedores = await sbGet('proveedores'); }
+  catch(e){ proveedores = []; }
+  populateProveedoresSelect();
+}
+function populateProveedoresSelect(){
+  const sel = document.getElementById('co-prov-select');
+  if(!sel) return;
+  const actual = sel.value;
+  sel.innerHTML = '<option value="">— Elegí un proveedor —</option>' +
+    proveedores.filter(p=>!p.is_deleted)
+      .map(p=>`<option value="${p.id}">${p.razon_social}${p.cuit?' · '+p.cuit:''}</option>`).join('');
+  if(actual) sel.value = actual;
+}
+async function saveProveedor(){
+  const razon = document.getElementById('pr-razon').value.trim();
+  if(!razon){ showToast('Ingresá la razón social','err'); return; }
+  const cuit = document.getElementById('pr-cuit').value.trim();
+  if(cuit && cuit.replace(/\D/g,'').length !== 11){ showToast('El CUIT debe tener 11 dígitos','err'); return; }
+  try{
+    const prov = await sbInsert('proveedores',{
+      razon_social: razon,
+      cuit: cuit || null,
+      condicion_iva: document.getElementById('pr-condiva').value,
+      iibb: document.getElementById('pr-iibb').value.trim() || null,
+      provincia: document.getElementById('pr-provincia').value.trim() || null,
+      domicilio: document.getElementById('pr-domicilio').value.trim() || null,
+      telefono: document.getElementById('pr-telefono').value.trim() || null,
+      email: document.getElementById('pr-email').value.trim() || null,
+      forma_pago: document.getElementById('pr-formapago').value,
+      cuenta_contable: '21101001',
+    });
+    proveedores.push(prov);
+    closeModal('ov-add-prov');
+    populateProveedoresSelect();
+    const sel=document.getElementById('co-prov-select'); if(sel) sel.value=prov.id;
+    renderProveedores();
+    showToast('✅ Proveedor guardado','ok');
+    ['pr-razon','pr-cuit','pr-iibb','pr-provincia','pr-domicilio','pr-telefono','pr-email'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  }catch(e){ showToast('❌ Error al guardar proveedor','err'); console.error(e); }
+}
+function renderProveedores(){
+  const el = document.getElementById('co-prov-panel');
+  if(!el) return;
+  const list = proveedores.filter(p=>!p.is_deleted);
+  el.innerHTML =
+    `<button class="btn btn-ink btn-full" style="margin-bottom:12px" onclick="openModal('ov-add-prov')">+ Nuevo Proveedor</button>` +
+    (list.length ? list.map(p=>`
+      <div style="padding:12px;border:1px solid #eee;border-radius:10px;margin-bottom:8px">
+        <div style="font-weight:700">${p.razon_social}</div>
+        <div style="font-size:12px;color:var(--muted)">${p.cuit?('CUIT '+p.cuit+' · '):''}${p.condicion_iva||''}${p.provincia?(' · '+p.provincia):''}</div>
+        <div style="font-size:12px;color:var(--muted)">Pago: ${p.forma_pago||'—'} · Cuenta ${p.cuenta_contable||'21101001'}</div>
+      </div>`).join('') : '<div class="empty">Sin proveedores cargados aún</div>');
+}
+
 // ══ COMPRAS ══
 function populateSelects(){
   document.getElementById('co-prod').innerHTML='<option value="">Seleccionar...</option>'+prods.map(p=>`<option value="${p.id}">${getEm(p.categoria)} ${p.nombre}</option>`).join('');
@@ -6770,11 +6860,14 @@ async function doCompra(){
   const qty     = parseInt(document.getElementById('co-qty').value);
   const precio  = parseFloat(document.getElementById('co-precio').value)||0;
   const factura = document.getElementById('co-factura').value.trim();
-  const prov    = document.getElementById('co-prov-nombre')?.value.trim() || document.getElementById('co-prov')?.value.trim() || '';
+  const provId  = document.getElementById('co-prov-select')?.value || '';
+  const provObj = proveedores.find(x=>x.id===provId);
+  const prov    = provObj ? provObj.razon_social : '';
   const vencePago = document.getElementById('co-vence-pago')?.value || null;
 
   if(!pid||!qty||qty<=0){ showToast('Completá producto y cantidad','err'); return; }
   if(!precio){ showToast('Ingresá el precio unitario','err'); return; }
+  if(!provId){ showToast('Elegí un proveedor (o cargá uno con "+ Nuevo")','err'); return; }
 
   const p = prods.find(x=>x.id==pid);
   if(!p){ showToast('Producto no encontrado','err'); return; }
@@ -6794,6 +6887,7 @@ async function doCompra(){
       precio_unitario: precio,
       numero_factura: factura || null,
       proveedor: prov || null,
+      proveedor_id: provId || null,
       forma_pago: selectedPagoCompra,
       vence_pago: vencePago,
       estado_pedido: estadoPedido,
@@ -6801,19 +6895,20 @@ async function doCompra(){
       fecha: today,
     });
 
-    const { data: dvResult } = await SB.rpc('mover_stock_con_kardex', {
+    // Ingreso de mercadería del remito al stock (cantidad POSITIVA = entrada).
+    const { data: kResult } = await SB.rpc('mover_stock_con_kardex', {
         p_tienda_id:   STORE.id,
         p_producto_id: pid,
         p_cantidad:    qty,
-        p_tipo_mov:    'DEVOLUCION_PROVEEDOR',
-        p_doc_tipo:    'DEVOLUCION_COMPRA',
-        p_doc_id:      null,
-        p_doc_nro:     'DEV-' + new Date().toISOString().split('T')[0],
-        p_costo_unit:  p?.costo || 0,
-        p_observacion: 'Devolución de mercadería a proveedor'
+        p_tipo_mov:    'COMPRA',
+        p_doc_tipo:    'COMPRA',
+        p_doc_id:      compra.id,
+        p_doc_nro:     factura || ('COMPRA-' + today),
+        p_costo_unit:  precio,
+        p_observacion: 'Ingreso de mercadería' + (prov ? ' — ' + prov : '')
       });
-      if (dvResult?.exito) { p.stock = dvResult.stock_nuevo; }
-    p.stock += qty;
+      if (kResult?.exito) { p.stock = kResult.stock_nuevo; }
+      else { showToast('⚠️ ' + (kResult?.error || 'No se pudo actualizar el stock'), 'err'); }
     compras.unshift(compra);
 
     // ── Si es Cuenta Corriente → crear deuda con el proveedor ──
@@ -6841,7 +6936,7 @@ async function doCompra(){
       const el = document.getElementById(id);
       if(el) el.value = '';
     });
-    const provEl = document.getElementById('co-prov-nombre') || document.getElementById('co-prov');
+    const provEl = document.getElementById('co-prov-select');
     if(provEl) provEl.value = '';
     const venceEl = document.getElementById('co-vence-pago');
     if(venceEl) venceEl.value = '';
