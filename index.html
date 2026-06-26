@@ -1810,6 +1810,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           style="padding:8px 14px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
           📑 Plan Cuentas
         </button>
+        <button class="cont-tab" data-tab="minutas" onclick="switchContTab(this)"
+          style="padding:8px 14px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+          🧾 Minutas
+        </button>
       </div>
 
       <!-- TAB: ASIENTOS -->
@@ -1908,6 +1912,25 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
 
       <!-- TAB: PLAN DE CUENTAS -->
+      <div id="cont-tab-minutas" style="display:none">
+        <div style="padding:0 4px">
+          <div style="background:#f8f8f8;border-radius:10px;padding:12px;margin-bottom:12px">
+            <div style="display:flex;gap:6px;margin-bottom:10px">
+              <button id="min-tipo-e" onclick="setMinutaTipo('E')" style="flex:1;padding:9px;border-radius:9px;border:1.5px solid #c0392b;background:#fdecea;color:#c0392b;font-weight:700;cursor:pointer">➖ Egreso</button>
+              <button id="min-tipo-i" onclick="setMinutaTipo('I')" style="flex:1;padding:9px;border-radius:9px;border:1.5px solid #ddd;background:#fff;color:#888;font-weight:700;cursor:pointer">➕ Ingreso</button>
+            </div>
+            <div class="fgroup"><div class="flabel">Fecha</div><input type="date" id="min-fecha" class="inp"></div>
+            <div class="fgroup"><div class="flabel">Concepto</div><select id="min-concepto" class="inp" onchange="onMinutaConceptoChange()"></select></div>
+            <div class="fgroup" id="min-otra-wrap" style="display:none"><div class="flabel">Cuenta del plan</div><select id="min-otra-cuenta" class="inp"></select></div>
+            <div class="fgroup"><div class="flabel">Medio de pago</div><select id="min-medio" class="inp"></select></div>
+            <div class="fgroup"><div class="flabel">Monto</div><input type="number" id="min-monto" class="inp" placeholder="$0"></div>
+            <div class="fgroup"><div class="flabel">Detalle</div><input type="text" id="min-detalle" class="inp" placeholder="Descripción (opcional)"></div>
+            <button onclick="saveMinuta()" class="btn btn-ink btn-full">Guardar minuta</button>
+          </div>
+          <button onclick="exportarMinutasExcel()" style="width:100%;margin-bottom:10px;padding:10px;border-radius:9px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:12px;font-weight:700;cursor:pointer">📊 Exportar lista de minutas a Excel</button>
+          <div id="min-list"></div>
+        </div>
+      </div>
       <div id="cont-tab-ctas" style="display:none">
         <div id="plan-cuentas-list"></div>
       </div>
@@ -2130,7 +2153,7 @@ let USER = null;
 let STORE = null;
 
 // ══ STATE ══
-let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[];
+let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[], minutas=[];
 let qtys={}, activeCat='all', filtered=[], method='Efectivo', periodo='semana';
 let stockFilter='all', histFilter='all';
 
@@ -2486,18 +2509,22 @@ function generarAsientosPeriodo(mesAno) {
                             .sort((a,b) => a.fecha.localeCompare(b.fecha));
   const comprasFilt = compras.filter(c => c.fecha >= desde && c.fecha <= hasta)
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
+  const minutasFilt = (minutas||[]).filter(m => !m.is_deleted && !m.anulada && m.fecha >= desde && m.fecha <= hasta)
+                             .sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   // Merge and sort all by date
   const movs = [
     ...ventasFilt.map(v => ({fecha: v.fecha, tipo: 'v', data: v})),
     ...gastosFilt.map(g => ({fecha: g.fecha, tipo: 'g', data: g})),
     ...comprasFilt.map(c => ({fecha: c.fecha, tipo: 'c', data: c})),
+    ...minutasFilt.map(m => ({fecha: m.fecha, tipo: 'm', data: m})),
   ].sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   movs.forEach(m => {
     if (m.tipo === 'v') todos.push(asientoVenta(m.data));
     if (m.tipo === 'g') todos.push(asientoGasto(m.data));
     if (m.tipo === 'c') todos.push(asientoCompra(m.data));
+    if (m.tipo === 'm') todos.push(asientoMinuta(m.data));
   });
 
   return todos;
@@ -2962,6 +2989,193 @@ function exportarVentasDetalleExcel(){
   rows.push(['','','','','','TOTALES',_csvNum(T.neto),_csvNum(T.iva),_csvNum(T.nograv),_csvNum(T.iibb),_csvNum(T.total)].join(SEP));
   _descargarCSV(rows, 'ventas_detalle_'+(desde||'desde')+'_'+(hasta||'hasta')+'.csv');
   showToast('Detalle de ventas exportado ✅','ok');
+}
+
+// ══ MINUTAS (comprobantes internos de egreso/ingreso) ══
+let minutaTipo = 'E';
+
+async function loadMinutas(){
+  try{ minutas = await sbGet('minutas'); }
+  catch(e){ minutas = []; }
+}
+
+function _siguienteNumeroMinuta(tipo){
+  const pref = tipo==='E' ? 'ME-0-' : 'MI-0-';
+  let max = 0;
+  (minutas||[]).filter(m=>m.tipo===tipo && !m.is_deleted).forEach(m=>{
+    const n = parseInt(String(m.numero||'').replace(pref,'')) || 0;
+    if(n>max) max=n;
+  });
+  return pref + String(max+1).padStart(4,'0');
+}
+
+function setMinutaTipo(t){
+  minutaTipo = t;
+  const be=document.getElementById('min-tipo-e'), bi=document.getElementById('min-tipo-i');
+  if(be && bi){
+    if(t==='E'){ be.style.borderColor='#c0392b'; be.style.background='#fdecea'; be.style.color='#c0392b';
+                 bi.style.borderColor='#ddd'; bi.style.background='#fff'; bi.style.color='#888'; }
+    else       { bi.style.borderColor='#1a5c38'; bi.style.background='#eaf5ee'; bi.style.color='#1a5c38';
+                 be.style.borderColor='#ddd'; be.style.background='#fff'; be.style.color='#888'; }
+  }
+  _populateMinutaConceptos();
+}
+
+function _populateMinutaConceptos(){
+  const sel = document.getElementById('min-concepto');
+  if(!sel) return;
+  let opts;
+  if(minutaTipo==='E'){
+    opts = Object.entries(GASTO_CUENTA||{}).map(([k,v])=>`<option value="${v}">${k}</option>`);
+  } else {
+    opts = ['<option value="31101">Aporte de capital</option>'];
+  }
+  sel.innerHTML = opts.join('') + '<option value="__otra__">— Otra cuenta del plan —</option>';
+  onMinutaConceptoChange();
+}
+
+function onMinutaConceptoChange(){
+  const sel = document.getElementById('min-concepto');
+  const wrap = document.getElementById('min-otra-wrap');
+  if(wrap) wrap.style.display = (sel && sel.value==='__otra__') ? 'block' : 'none';
+}
+
+function _populateMinutaForm(){
+  const med = document.getElementById('min-medio');
+  if(med && !med.options.length){
+    const e=(METODO_CUENTA && METODO_CUENTA['Efectivo'])||'11101001';
+    const t=(METODO_CUENTA && METODO_CUENTA['Transferencia'])||'11102006';
+    const mp=(METODO_CUENTA && METODO_CUENTA['MercadoPago'])||'11102006';
+    med.innerHTML = `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option>`;
+  }
+  const oc = document.getElementById('min-otra-cuenta');
+  if(oc && !oc.options.length){
+    oc.innerHTML = '<option value="">— Elegí una cuenta —</option>' +
+      PLAN_CUENTAS.slice().sort((a,b)=>(a.orden||0)-(b.orden||0))
+        .map(c=>`<option value="${c.codigo}">${c.codigo} — ${c.nombre}</option>`).join('');
+  }
+  const f = document.getElementById('min-fecha');
+  if(f && !f.value) f.value = new Date().toISOString().split('T')[0];
+  setMinutaTipo(minutaTipo);
+}
+
+async function saveMinuta(){
+  const tipo = minutaTipo;
+  const fecha = document.getElementById('min-fecha').value;
+  if(!fecha){ showToast('Elegí la fecha','err'); return; }
+  const cSel = document.getElementById('min-concepto');
+  let cuenta_concepto, concepto;
+  if(cSel.value === '__otra__'){
+    cuenta_concepto = document.getElementById('min-otra-cuenta').value;
+    if(!cuenta_concepto){ showToast('Elegí una cuenta del plan','err'); return; }
+    concepto = (PLAN_CUENTAS.find(x=>x.codigo===cuenta_concepto)?.nombre) || cuenta_concepto;
+  } else {
+    cuenta_concepto = cSel.value;
+    concepto = cSel.options[cSel.selectedIndex].text;
+  }
+  const mSel = document.getElementById('min-medio');
+  const cuenta_medio = mSel.value;
+  const medio_pago = mSel.options[mSel.selectedIndex].text;
+  const monto = parseFloat(document.getElementById('min-monto').value) || 0;
+  if(monto <= 0){ showToast('Ingresá un monto válido','err'); return; }
+  const detalle = document.getElementById('min-detalle').value.trim();
+  const numero = _siguienteNumeroMinuta(tipo);
+  try{
+    const m = await sbInsert('minutas', {
+      tipo, numero, fecha, concepto, cuenta_concepto, medio_pago, cuenta_medio,
+      monto, detalle: detalle || null, usuario_email: (typeof USER!=='undefined' && USER) ? USER.email : null
+    });
+    minutas.push(m);
+    showToast('✅ ' + numero + ' guardada','ok');
+    document.getElementById('min-monto').value='';
+    document.getElementById('min-detalle').value='';
+    renderMinutas();
+  }catch(e){ showToast('❌ Error al guardar la minuta','err'); console.error(e); }
+}
+
+function renderMinutas(){
+  const el = document.getElementById('min-list');
+  if(!el) return;
+  const list = (minutas||[]).filter(m=>!m.is_deleted)
+    .sort((a,b)=> b.fecha.localeCompare(a.fecha) || String(b.numero).localeCompare(String(a.numero)));
+  if(!list.length){ el.innerHTML='<div class="empty" style="padding:16px;text-align:center;color:#aaa">Sin minutas cargadas</div>'; return; }
+  el.innerHTML = list.map(m=>{
+    const esE = m.tipo==='E';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid #eee;border-radius:10px;margin-bottom:8px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700">${esc(m.numero)} <span style="font-size:11px;color:${esE?'#c0392b':'#1a5c38'}">${esE?'EGRESO':'INGRESO'}</span></div>
+        <div style="font-size:12px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.concepto)}${m.detalle?' · '+esc(m.detalle):''}</div>
+        <div style="font-size:11px;color:#999">${esc(m.fecha)} · ${esc(m.medio_pago||'')}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:14px;font-weight:700;color:${esE?'#c0392b':'#1a5c38'}">${esE?'-':'+'}$${(m.monto||0).toLocaleString('es-AR')}</div>
+        <button onclick="exportarMinutaPDF('${m.id}')" style="margin-top:4px;padding:4px 10px;border-radius:7px;border:1px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:11px;cursor:pointer">📄 PDF</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function asientoMinuta(m){
+  const nombreDe = (cod)=> (PLAN_CUENTAS.find(x=>x.codigo===cod)?.nombre) || cod;
+  const monto = m.monto || 0;
+  const lineas = [];
+  if(m.tipo === 'E'){
+    lineas.push({ debe:true,  cuenta:m.cuenta_concepto, nombre:nombreDe(m.cuenta_concepto), importe:monto, detalle:m.concepto });
+    lineas.push({ debe:false, cuenta:m.cuenta_medio,    nombre:nombreDe(m.cuenta_medio),    importe:monto, detalle:m.medio_pago });
+  } else {
+    lineas.push({ debe:true,  cuenta:m.cuenta_medio,    nombre:nombreDe(m.cuenta_medio),    importe:monto, detalle:m.medio_pago });
+    lineas.push({ debe:false, cuenta:m.cuenta_concepto, nombre:nombreDe(m.cuenta_concepto), importe:monto, detalle:m.concepto });
+  }
+  return {
+    nro: getNroAsiento(),
+    fecha: m.fecha,
+    tipo: m.tipo==='E' ? 'MIN-EGRESO' : 'MIN-INGRESO',
+    comprobante: m.numero,
+    descripcion: (m.tipo==='E'?'Minuta Egreso ':'Minuta Ingreso ') + m.numero + (m.detalle?' — '+m.detalle:''),
+    origen: 'minuta', origen_id: m.id,
+    lineas,
+    total_debe: monto,
+    total_haber: monto,
+  };
+}
+
+function exportarMinutaPDF(id){
+  const m = (minutas||[]).find(x=>x.id===id);
+  if(!m){ showToast('Minuta no encontrada','err'); return; }
+  const a = asientoMinuta(m);
+  const fmt = (n)=> '$'+(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const filas = a.lineas.map(l=>`<tr><td>${l.cuenta}</td><td>${l.nombre}</td><td style="text-align:right">${l.debe?fmt(l.importe):''}</td><td style="text-align:right">${!l.debe?fmt(l.importe):''}</td></tr>`).join('');
+  const win = window.open('', '_blank');
+  if(!win){ showToast('Permití las ventanas emergentes para el PDF','err'); return; }
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+m.numero+'</title>'
+    +'<style>body{font-family:Arial,sans-serif;padding:32px;color:#222}h1{font-size:18px;margin:0}'
+    +'table{width:100%;border-collapse:collapse;margin-top:14px}th,td{border:1px solid #ccc;padding:6px 8px;font-size:13px}'
+    +'.head{display:flex;justify-content:space-between;border-bottom:2px solid #333;padding-bottom:10px;margin-bottom:14px}</style></head><body>'
+    +'<div class="head"><div><h1>'+(m.tipo==='E'?'MINUTA DE EGRESO':'MINUTA DE INGRESO')+'</h1><div>'+((typeof STORE!=='undefined'&&STORE)?STORE.name:'')+'</div></div>'
+    +'<div style="text-align:right"><div style="font-size:20px;font-weight:bold">'+m.numero+'</div><div>'+m.fecha+'</div></div></div>'
+    +'<p><b>Concepto:</b> '+m.concepto+'<br><b>Medio:</b> '+m.medio_pago+'<br><b>Detalle:</b> '+(m.detalle||'-')+'</p>'
+    +'<h2 style="font-size:16px">Monto: '+fmt(m.monto)+'</h2>'
+    +'<table><thead><tr><th>Cuenta</th><th>Descripción</th><th>Debe</th><th>Haber</th></tr></thead><tbody>'+filas+'</tbody></table>'
+    +'<p style="margin-top:50px">Firma: _______________________</p></body></html>');
+  win.document.close();
+  setTimeout(()=>{ try{ win.focus(); win.print(); }catch(e){} }, 300);
+}
+
+function exportarMinutasExcel(){
+  const list = (minutas||[]).filter(m=>!m.is_deleted)
+    .sort((a,b)=> a.fecha.localeCompare(b.fecha) || String(a.numero).localeCompare(String(b.numero)));
+  if(!list.length){ showToast('Sin minutas para exportar','err'); return; }
+  const SEP=';';
+  const rows=[['Numero','Tipo','Fecha','Concepto','Cuenta concepto','Medio','Cuenta medio','Monto','Detalle'].join(SEP)];
+  let tE=0, tI=0;
+  list.forEach(m=>{
+    if(m.tipo==='E') tE+=m.monto||0; else tI+=m.monto||0;
+    rows.push([_csvCell(m.numero),_csvCell(m.tipo==='E'?'Egreso':'Ingreso'),_csvCell(m.fecha),_csvCell(m.concepto),_csvCell(m.cuenta_concepto),_csvCell(m.medio_pago),_csvCell(m.cuenta_medio),_csvNum(m.monto),_csvCell(m.detalle||'')].join(SEP));
+  });
+  rows.push(['','','','','','','TOTAL EGRESOS',_csvNum(tE),''].join(SEP));
+  rows.push(['','','','','','','TOTAL INGRESOS',_csvNum(tI),''].join(SEP));
+  _descargarCSV(rows, 'minutas.csv');
+  showToast('Minutas exportadas ✅','ok');
 }
 
 function _descargarCSV(rows, filename) {
@@ -3544,7 +3758,7 @@ function switchContTab(btn) {
   btn.style.background = '#e8f0fe';
   btn.style.color = '#1a3a5c';
 
-  ['asientos','mayor','balance','iva','ctas'].forEach(t => {
+  ['asientos','mayor','balance','iva','ctas','minutas'].forEach(t => {
     const el = document.getElementById('cont-tab-'+t);
     if (el) el.style.display = t === tabName ? 'block' : 'none';
   });
@@ -3554,6 +3768,7 @@ function switchContTab(btn) {
   if (tabName === 'balance')  { setDefaultMes('balance-mes'); renderBalance(); }
   if (tabName === 'iva')      setDefaultMes('iva-periodo');
   if (tabName === 'ctas')     { renderPlanCuentas(); renderSelectorTemplates(); }
+  if (tabName === 'minutas')  { _populateMinutaForm(); renderMinutas(); }
 }
 
 function popularSelectCuentas() {
@@ -5856,6 +6071,7 @@ async function initApp(){
     loadClients(),
     loadCompras(),
       loadProveedores(),
+      loadMinutas(),
     loadCierres(),
     loadDeudas(),
     loadGastos(),
