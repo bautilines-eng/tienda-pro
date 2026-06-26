@@ -478,6 +478,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           title="Escanear con cámara">📷</button>
       </div>
     </div>
+<div id="np-pricing-block">
     <div class="frow" style="margin-bottom:10px">
       <div>
         <div class="flabel">Precio de venta</div>
@@ -499,6 +500,8 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div><div class="flabel">Stock inicial</div><input class="inp" id="np-stock" type="number" placeholder="0"></div>
       <div><div class="flabel">Stock mínimo</div><input class="inp" id="np-min" type="number" placeholder="10"></div>
     </div>
+    </div>
+    <div id="np-alta-hint" style="display:none;margin-bottom:12px;padding:10px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:12px;color:#9a3412">📦 El stock y el precio de venta se cargan al registrar la <b>compra</b> del proveedor.</div>
     <div class="frow" style="margin-bottom:10px">
       <div style="flex:1"><div class="flabel">Categoría</div><input class="inp" id="np-cat" placeholder="General, Bebidas..."></div>
       <div>
@@ -741,7 +744,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <div style="padding:14px 20px 0">
       <div style="display:flex;gap:8px;margin-bottom:0">
-        <button class="btn btn-ink btn-full" onclick="openModal('ov-add-prod')">+ Agregar producto</button>
+        <button class="btn btn-ink btn-full" onclick="abrirAltaProducto()">+ Agregar producto</button>
         <button onclick="openModal('ov-add-combo')"
           style="padding:13px 16px;border-radius:10px;border:1.5px solid #1a5ec9;background:#eaf0fd;color:#1a5ec9;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
           🎁 Combo
@@ -858,8 +861,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div class="fgroup"><div class="flabel">Producto</div><select class="inp" id="co-prod" style="cursor:pointer"><option value="">Seleccionar...</option></select></div>
         <div class="frow" style="margin-bottom:10px">
           <div><div class="flabel">Cantidad</div><input class="inp" id="co-qty" type="number" min="1" placeholder="0"></div>
-          <div><div class="flabel">Precio unitario</div><input class="inp" id="co-precio" type="number" placeholder="$0"></div>
+          <div><div class="flabel">Costo unit. (factura)</div><input class="inp" id="co-precio" type="number" placeholder="$0"></div>
         </div>
+        <div class="fgroup"><div class="flabel">Precio de venta <span style="font-size:10px;color:#aaa">(lo que vas a cobrar)</span></div><input class="inp" id="co-precio-venta" type="number" placeholder="$0"></div>
         <div class="fgroup"><div class="flabel">Proveedor</div>
           <div style="display:flex;gap:8px;align-items:center">
             <select class="inp" id="co-prov-select" style="flex:1;cursor:pointer"><option value="">— Elegí un proveedor —</option></select>
@@ -1789,6 +1793,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           <div style="font-size:11px;font-weight:700;color:#1a3a5c;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Resumen contable del día</div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px" id="cont-dia-stats"></div>
         </div>
+        <button onclick="exportarDiarioExcel()"
+          style="width:100%;margin:4px 0 12px;padding:11px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:700;cursor:pointer">
+          📒 Exportar Libro Diario a Excel
+        </button>
         <!-- Lista asientos -->
         <div id="cont-asientos-list"></div>
         <div style="height:80px"></div>
@@ -1808,9 +1816,13 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         </div>
         <!-- Mayor table -->
         <div id="mayor-content"></div>
+        <button onclick="exportarMayorExcel()"
+          style="width:100%;margin-top:12px;padding:12px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:700;cursor:pointer">
+          📊 Exportar Libro Mayor completo a Excel (todas las cuentas)
+        </button>
         <button onclick="exportarMayorPDF()"
-          style="width:100%;margin-top:12px;padding:12px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:600;cursor:pointer">
-          📄 Exportar Mayor PDF
+          style="width:100%;margin-top:8px;padding:12px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:600;cursor:pointer">
+          📄 Exportar cuenta actual a PDF
         </button>
       </div>
 
@@ -2327,7 +2339,6 @@ function asientoVenta(venta) {
   // IIBB: percepción sobre ventas (3%)
   if (iibb > 0) {
     lineas.push({ debe: true, cuenta: CUENTAS_ESPECIALES['iibb_percepcion']||'1.1.07', nombre: 'Percepción IIBB', importe: iibb, detalle: 'Percepción IIBB s/ventas' });
-    lineas[0].importe = Math.round((total - iibb) * 100) / 100; // neto cobrado
     lineas.push({ debe: false, cuenta: CUENTAS_ESPECIALES['iibb_pagar']||'2.1.03', nombre: 'IIBB a Pagar', importe: iibb, detalle: 'IIBB a depositar' });
   }
 
@@ -2777,6 +2788,123 @@ function renderMayor() {
         </tfoot>
       </table>
     </div>`;
+}
+
+// ══ EXPORTES CONTABLES (Mayor + Diario) — para la contadora ══
+// Ambos derivan del MISMO motor de asientos (generarAsientosPeriodo) para
+// que Mayor y Diario concilien al centavo.
+
+function _asientosRango(mesDesde, mesHasta) {
+  const d = mesDesde || mesHasta || new Date().toISOString().substring(0,7);
+  const h = mesHasta || mesDesde || d;
+  let [y, m]     = d.split('-').map(Number);
+  const [yh, mh] = h.split('-').map(Number);
+  const meses = [];
+  let guard = 0;
+  while ((y < yh || (y === yh && m <= mh)) && guard < 240) {
+    meses.push(y + '-' + String(m).padStart(2,'0'));
+    m++; if (m > 12) { m = 1; y++; }
+    guard++;
+  }
+  const out = [];
+  let nro = 0;
+  meses.forEach(mm => {
+    (generarAsientosPeriodo(mm) || []).forEach(a => { nro++; out.push({ ...a, nro }); });
+  });
+  return out;
+}
+
+function _csvCell(s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; }
+function _csvNum(n)  { return (Math.round((n || 0) * 100) / 100).toFixed(2).replace('.', ','); }
+function _descargarCSV(rows, filename) {
+  const csv  = '\uFEFF' + rows.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ── LIBRO MAYOR completo (todas las cuentas), 13 columnas ──
+function exportarMayorExcel() {
+  const mesDesde = document.getElementById('mayor-mes-desde')?.value || '';
+  const mesHasta = document.getElementById('mayor-mes-hasta')?.value || '';
+  const asientos = _asientosRango(mesDesde, mesHasta);
+  if (!asientos.length) { showToast('No hay movimientos en el período seleccionado', 'err'); return; }
+
+  const porCuenta = {};
+  asientos.forEach(a => (a.lineas || []).forEach(l => {
+    if (!porCuenta[l.cuenta]) porCuenta[l.cuenta] = [];
+    porCuenta[l.cuenta].push({
+      fecha: a.fecha, nro: a.nro,
+      leyenda: l.detalle || a.descripcion || '',
+      debe:  l.debe ? l.importe : 0,
+      haber: l.debe ? 0 : l.importe,
+    });
+  }));
+
+  const SEP = ';';
+  const sucursal = STORE?.name || '';
+  const rows = [];
+  rows.push(['Cuenta','Jerarquia','Descripcion','Fecha','Numero','Centro','Desc Centro',
+             'Sucursal','Desc Sucursal','Leyenda','Debe','Haber','Saldo'].join(SEP));
+
+  const cuentasOrden = PLAN_CUENTAS.slice()
+    .sort((a,b) => (a.orden||0)-(b.orden||0) || String(a.codigo).localeCompare(String(b.codigo)));
+
+  let totalDebe = 0, totalHaber = 0;
+  cuentasOrden.forEach(cuenta => {
+    const movs = porCuenta[cuenta.codigo];
+    if (!movs || !movs.length) return;
+    movs.sort((a,b) => a.fecha.localeCompare(b.fecha) || a.nro - b.nro);
+    let saldo = 0;
+    const esDeudora = cuenta.naturaleza === 'D';
+    movs.forEach(m => {
+      saldo += esDeudora ? (m.debe - m.haber) : (m.haber - m.debe);
+      totalDebe += m.debe; totalHaber += m.haber;
+      rows.push([
+        _csvCell(cuenta.codigo), _csvCell(cuenta.jerarquia), _csvCell(cuenta.nombre),
+        _csvCell(m.fecha), _csvCell(m.nro), _csvCell(''), _csvCell(''),
+        _csvCell(sucursal), _csvCell(''), _csvCell(m.leyenda),
+        _csvNum(m.debe), _csvNum(m.haber), _csvNum(Math.abs(saldo)) + (saldo>=0?' D':' H')
+      ].join(SEP));
+    });
+  });
+  rows.push(['','','','','','','','','','TOTALES', _csvNum(totalDebe), _csvNum(totalHaber), ''].join(SEP));
+
+  _descargarCSV(rows, 'libro_mayor_' + (mesDesde || mesHasta || 'periodo') + '.csv');
+  const bal = Math.abs(totalDebe - totalHaber) < 0.5;
+  showToast(bal ? 'Libro Mayor exportado (Debe = Haber) ✅' : '⚠️ Exportado, pero Debe ≠ Haber: revisar', bal ? 'ok' : 'err');
+}
+
+// ── LIBRO DIARIO (asientos en orden cronológico) ──
+function exportarDiarioExcel() {
+  const mes = document.getElementById('cont-mes')?.value || new Date().toISOString().substring(0,7);
+  const asientos = _asientosRango(mes, mes);
+  if (!asientos.length) { showToast('No hay asientos en el mes seleccionado', 'err'); return; }
+
+  const SEP = ';';
+  const jerarquiaDe = (cod) => (PLAN_CUENTAS.find(x => x.codigo === cod)?.jerarquia) || '';
+  const rows = [];
+  rows.push(['Fecha','Asiento','Tipo','Cuenta','Jerarquia','Descripcion','Leyenda','Debe','Haber'].join(SEP));
+
+  let totalDebe = 0, totalHaber = 0;
+  asientos.forEach(a => (a.lineas || []).forEach(l => {
+    const debe  = l.debe ? l.importe : 0;
+    const haber = l.debe ? 0 : l.importe;
+    totalDebe += debe; totalHaber += haber;
+    rows.push([
+      _csvCell(a.fecha), _csvCell(a.nro), _csvCell(a.tipo),
+      _csvCell(l.cuenta), _csvCell(jerarquiaDe(l.cuenta)), _csvCell(l.nombre),
+      _csvCell(l.detalle || a.descripcion || ''), _csvNum(debe), _csvNum(haber)
+    ].join(SEP));
+  }));
+  rows.push(['','','','','','','TOTALES', _csvNum(totalDebe), _csvNum(totalHaber)].join(SEP));
+
+  _descargarCSV(rows, 'libro_diario_' + mes + '.csv');
+  const bal = Math.abs(totalDebe - totalHaber) < 0.5;
+  showToast(bal ? 'Libro Diario exportado (Debe = Haber) ✅' : '⚠️ Exportado, pero Debe ≠ Haber: revisar', bal ? 'ok' : 'err');
 }
 
 function exportarMayorPDF() {
@@ -6630,6 +6758,8 @@ function editProduct(id){
   document.getElementById('np-cat').value=p.categoria||'';
   document.getElementById('np-min').value=p.stock_minimo||10;
   actualizarMargenPreview();
+  const _blk=document.getElementById('np-pricing-block'); if(_blk) _blk.style.display='';
+  const _hint=document.getElementById('np-alta-hint'); if(_hint) _hint.style.display='none';
   document.querySelector('#ov-add-prod .modal-title').textContent='Editar Producto';
   document.querySelector('#ov-add-prod .btn-ink').textContent='Guardar cambios';
   document.querySelector('#ov-add-prod .btn-ink').onclick=()=>updateProduct(id);
@@ -6701,6 +6831,14 @@ async function saveProduct(){
     showToast('✅ Producto agregado','ok');
     ['np-name','np-price','np-stock','np-cat','np-min'].forEach(id=>document.getElementById(id).value='');
   }catch(e){showToast('❌ Error al guardar producto','err');console.error(e);}
+}
+function abrirAltaProducto(){
+  ['np-name','np-barcode','np-cat','np-vence','np-price','np-costo','np-stock','np-min'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  const t=document.querySelector('#ov-add-prod .modal-title'); if(t) t.textContent='Nuevo Producto';
+  const btn=document.querySelector('#ov-add-prod .btn-ink'); if(btn){ btn.textContent='Guardar producto'; btn.onclick=saveProduct; }
+  const blk=document.getElementById('np-pricing-block'); if(blk) blk.style.display='none';
+  const hint=document.getElementById('np-alta-hint'); if(hint) hint.style.display='block';
+  openModal('ov-add-prod');
 }
 
 // ══ CLIENTES ══
@@ -6909,6 +7047,15 @@ async function doCompra(){
       });
       if (kResult?.exito) { p.stock = kResult.stock_nuevo; }
       else { showToast('⚠️ ' + (kResult?.error || 'No se pudo actualizar el stock'), 'err'); }
+    // Costo (de la factura) y precio de venta (manual al recibir).
+    try {
+      const precioVenta = parseFloat(document.getElementById('co-precio-venta')?.value) || 0;
+      const upd = { costo: precio };
+      if (precioVenta > 0) upd.precio = precioVenta;
+      await SB.from('productos').update(upd).eq('id', pid);
+      p.costo = precio;
+      if (precioVenta > 0) p.precio = precioVenta;
+    } catch(e) { console.error('No se pudo actualizar costo/precio del producto', e); }
     compras.unshift(compra);
 
     // ── Si es Cuenta Corriente → crear deuda con el proveedor ──
@@ -6938,6 +7085,8 @@ async function doCompra(){
     });
     const provEl = document.getElementById('co-prov-select');
     if(provEl) provEl.value = '';
+    const pvEl = document.getElementById('co-precio-venta');
+    if(pvEl) pvEl.value = '';
     const venceEl = document.getElementById('co-vence-pago');
     if(venceEl) venceEl.value = '';
     // Reset estado
