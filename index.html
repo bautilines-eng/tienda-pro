@@ -733,6 +733,18 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <div style="padding:16px 20px 0"><div class="chart-t">Top productos</div><div class="top-card" id="r-top"></div></div>
     <div style="padding:16px 20px 0"><div class="chart-t">Por método de pago</div><div class="top-card" id="r-methods"></div></div>
+    <!-- REPORTE VENTAS DIARIAS (para la contadora) -->
+    <div style="padding:22px 20px 0">
+      <div class="chart-t">📅 Reporte de ventas diarias</div>
+      <div style="display:flex;gap:8px;margin:10px 0;align-items:end;flex-wrap:wrap">
+        <div style="flex:1;min-width:120px"><div class="flabel">Desde</div><input type="date" id="vd-desde" class="inp" onchange="renderVentasDiarias()"></div>
+        <div style="flex:1;min-width:120px"><div class="flabel">Hasta</div><input type="date" id="vd-hasta" class="inp" onchange="renderVentasDiarias()"></div>
+      </div>
+      <div id="vd-content"></div>
+      <button onclick="exportarVentasDiariasExcel()" style="width:100%;margin-top:10px;padding:11px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:700;cursor:pointer">📊 Exportar resumen diario a Excel</button>
+      <button onclick="exportarVentasDetalleExcel()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:600;cursor:pointer">🧾 Exportar detalle (venta por venta) a Excel</button>
+    </div>
+    <div style="height:80px"></div>
   </div>
 
   <!-- STOCK -->
@@ -2816,6 +2828,119 @@ function _asientosRango(mesDesde, mesHasta) {
 
 function _csvCell(s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; }
 function _csvNum(n)  { return (Math.round((n || 0) * 100) / 100).toFixed(2).replace('.', ','); }
+// ══ REPORTE DE VENTAS DIARIAS (para la contadora) ══
+function _ventasFiltradas(desde, hasta){
+  return sales.filter(v => !v.is_deleted && !v.anulada
+    && (!desde || v.fecha >= desde) && (!hasta || v.fecha <= hasta));
+}
+function _labelCbte(t){ return t==='A'?'Factura A': t==='B'?'Factura B': t==='T'?'Tique B': (t||'Tique B'); }
+function _ar(n){ return '$' + (Math.round((n||0)*100)/100).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+function renderVentasDiarias(){
+  const el = document.getElementById('vd-content');
+  if(!el) return;
+  const desde = document.getElementById('vd-desde')?.value || '';
+  const hasta = document.getElementById('vd-hasta')?.value || '';
+  const vs = _ventasFiltradas(desde, hasta);
+  if(!vs.length){ el.innerHTML = '<div class="empty" style="padding:16px;text-align:center;color:#aaa">Sin ventas en el período seleccionado</div>'; return; }
+
+  const porDia = {}, porMetodo = {}, porCbte = {};
+  const T = {cant:0, neto:0, iva:0, nograv:0, iibb:0, total:0};
+  vs.forEach(v=>{
+    const d = v.fecha;
+    if(!porDia[d]) porDia[d] = {cant:0, neto:0, iva:0, nograv:0, iibb:0, total:0};
+    const neto=v.neto_gravado||0, iva=v.importe_iva||0, ng=v.no_gravado||0, iibb=v.perc_iibb||0, tot=v.total||0;
+    const x = porDia[d];
+    x.cant++; x.neto+=neto; x.iva+=iva; x.nograv+=ng; x.iibb+=iibb; x.total+=tot;
+    T.cant++; T.neto+=neto; T.iva+=iva; T.nograv+=ng; T.iibb+=iibb; T.total+=tot;
+    porMetodo[v.metodo_pago||'—'] = (porMetodo[v.metodo_pago||'—']||0) + tot;
+    porCbte[_labelCbte(v.tipo_cbte)] = (porCbte[_labelCbte(v.tipo_cbte)]||0) + tot;
+  });
+
+  const filas = Object.keys(porDia).sort().map(d=>{
+    const x = porDia[d];
+    return `<tr>
+      <td style="padding:6px 8px;font-size:12px">${d}</td>
+      <td style="padding:6px 8px;text-align:right;font-size:12px">${x.cant}</td>
+      <td style="padding:6px 8px;text-align:right;font-size:12px">${_ar(x.neto)}</td>
+      <td style="padding:6px 8px;text-align:right;font-size:12px">${_ar(x.iva)}</td>
+      <td style="padding:6px 8px;text-align:right;font-size:12px;font-weight:700">${_ar(x.total)}</td>
+    </tr>`;
+  }).join('');
+
+  const chips = (obj)=> Object.entries(obj).sort((a,b)=>b[1]-a[1])
+    .map(([k,val])=>`<span style="display:inline-block;background:#f0f0f0;border-radius:8px;padding:4px 10px;margin:3px 4px 0 0;font-size:12px">${k}: <b>${_ar(val)}</b></span>`).join('');
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">VENTAS</div><div style="font-size:18px;font-weight:700">${T.cant}</div></div>
+      <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">TOTAL</div><div style="font-size:18px;font-weight:700;color:#1a5c38">${_ar(T.total)}</div></div>
+      <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">NETO GRAVADO</div><div style="font-size:15px;font-weight:700">${_ar(T.neto)}</div></div>
+      <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">IVA DÉBITO</div><div style="font-size:15px;font-weight:700">${_ar(T.iva)}</div></div>
+    </div>
+    <div style="overflow-x:auto;border:1px solid #eee;border-radius:10px;margin-bottom:10px">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:#f8f8f8">
+          <th style="padding:6px 8px;text-align:left;font-size:11px;color:#666">Fecha</th>
+          <th style="padding:6px 8px;text-align:right;font-size:11px;color:#666">Cant</th>
+          <th style="padding:6px 8px;text-align:right;font-size:11px;color:#666">Neto</th>
+          <th style="padding:6px 8px;text-align:right;font-size:11px;color:#666">IVA</th>
+          <th style="padding:6px 8px;text-align:right;font-size:11px;color:#666">Total</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
+    <div style="margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:#666;margin-bottom:2px">Por medio de pago</div>${chips(porMetodo)}</div>
+    <div><div style="font-size:11px;font-weight:700;color:#666;margin:8px 0 2px">Por tipo de comprobante</div>${chips(porCbte)}</div>
+  `;
+}
+
+function exportarVentasDiariasExcel(){
+  const desde = document.getElementById('vd-desde')?.value || '';
+  const hasta = document.getElementById('vd-hasta')?.value || '';
+  const vs = _ventasFiltradas(desde, hasta);
+  if(!vs.length){ showToast('Sin ventas en el período','err'); return; }
+  const porDia = {};
+  vs.forEach(v=>{
+    const d=v.fecha;
+    if(!porDia[d]) porDia[d]={cant:0,neto:0,iva:0,nograv:0,iibb:0,total:0};
+    const x=porDia[d];
+    x.cant++; x.neto+=v.neto_gravado||0; x.iva+=v.importe_iva||0; x.nograv+=v.no_gravado||0; x.iibb+=v.perc_iibb||0; x.total+=v.total||0;
+  });
+  const SEP=';';
+  const rows=[['Fecha','Cantidad','Neto gravado','IVA debito','No gravado','Perc IIBB','Total'].join(SEP)];
+  const T={cant:0,neto:0,iva:0,nograv:0,iibb:0,total:0};
+  Object.keys(porDia).sort().forEach(d=>{
+    const x=porDia[d];
+    T.cant+=x.cant;T.neto+=x.neto;T.iva+=x.iva;T.nograv+=x.nograv;T.iibb+=x.iibb;T.total+=x.total;
+    rows.push([_csvCell(d),_csvCell(x.cant),_csvNum(x.neto),_csvNum(x.iva),_csvNum(x.nograv),_csvNum(x.iibb),_csvNum(x.total)].join(SEP));
+  });
+  rows.push([_csvCell('TOTALES'),_csvCell(T.cant),_csvNum(T.neto),_csvNum(T.iva),_csvNum(T.nograv),_csvNum(T.iibb),_csvNum(T.total)].join(SEP));
+  _descargarCSV(rows, 'ventas_diarias_'+(desde||'desde')+'_'+(hasta||'hasta')+'.csv');
+  showToast('Resumen diario exportado ✅','ok');
+}
+
+function exportarVentasDetalleExcel(){
+  const desde = document.getElementById('vd-desde')?.value || '';
+  const hasta = document.getElementById('vd-hasta')?.value || '';
+  const vs = _ventasFiltradas(desde, hasta).sort((a,b)=> a.fecha.localeCompare(b.fecha) || String(a.nro_comprobante||'').localeCompare(String(b.nro_comprobante||'')));
+  if(!vs.length){ showToast('Sin ventas en el período','err'); return; }
+  const SEP=';';
+  const rows=[['Fecha','Comprobante','Tipo','Cliente','CUIT','Metodo pago','Neto gravado','IVA','No gravado','Perc IIBB','Total'].join(SEP)];
+  const T={neto:0,iva:0,nograv:0,iibb:0,total:0};
+  vs.forEach(v=>{
+    T.neto+=v.neto_gravado||0;T.iva+=v.importe_iva||0;T.nograv+=v.no_gravado||0;T.iibb+=v.perc_iibb||0;T.total+=v.total||0;
+    rows.push([
+      _csvCell(v.fecha), _csvCell(v.nro_comprobante||''), _csvCell(_labelCbte(v.tipo_cbte)),
+      _csvCell(v.razon_social||v.cliente||''), _csvCell(v.cuit_comprador||''), _csvCell(v.metodo_pago||''),
+      _csvNum(v.neto_gravado), _csvNum(v.importe_iva), _csvNum(v.no_gravado), _csvNum(v.perc_iibb), _csvNum(v.total)
+    ].join(SEP));
+  });
+  rows.push(['','','','','','TOTALES',_csvNum(T.neto),_csvNum(T.iva),_csvNum(T.nograv),_csvNum(T.iibb),_csvNum(T.total)].join(SEP));
+  _descargarCSV(rows, 'ventas_detalle_'+(desde||'desde')+'_'+(hasta||'hasta')+'.csv');
+  showToast('Detalle de ventas exportado ✅','ok');
+}
+
 function _descargarCSV(rows, filename) {
   const csv  = '\uFEFF' + rows.join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -7834,7 +7959,7 @@ function gp(id,el){
   if(id==='pcont'){ initContabilidad(); agregarBtnLibroDiario(); }
   if(id==='pcfg') cargarConfigFiscal();
   document.getElementById('cart').classList.remove('show');
-  if(id==='pr')renderReportes();
+  if(id==='pr'){renderReportes();renderVentasDiarias();}
   if(id==='pcc')renderCaja();
   if(id==='pde')renderDeudas();
   if(id==='pusu')loadUsuarios();
