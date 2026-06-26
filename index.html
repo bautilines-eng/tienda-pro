@@ -781,6 +781,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
         ⚖️ Ajuste Manual
       </button>
+      <button class="stock-tab" data-tab="recuento" onclick="switchStockTab(this);renderRecuento()"
+        style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        📋 Recuento
+      </button>
     </div>
 
     <!-- Kardex Panel -->
@@ -825,6 +829,21 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </button>
     </div>
 
+    <!-- Recuento físico -->
+    <div id="panel-recuento" style="display:none;padding:0 4px">
+      <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;color:#9a3412">
+        📋 Contá el stock real de cada producto. Al aplicar, el sistema ajusta el stock al valor contado y registra cada cambio en el Kardex (con trazabilidad).
+      </div>
+      <div style="position:relative;margin-bottom:8px">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:15px;opacity:.5">🔍</span>
+        <input class="inp" placeholder="Buscar producto..." style="padding-left:38px" oninput="buscarRecuento(this.value)">
+      </div>
+      <div id="rec-resumen" style="font-size:12px;color:#555;background:#f8f8f8;border-radius:8px;padding:8px 12px;margin-bottom:8px">Contados: 0 / 0</div>
+      <div id="rec-list" style="border:1px solid #eee;border-radius:10px;max-height:50vh;overflow-y:auto"></div>
+      <button onclick="aplicarRecuento()" style="width:100%;margin-top:10px;padding:12px;border-radius:10px;border:none;background:#1a5c38;color:#fff;font-size:14px;font-weight:700;cursor:pointer">✅ Aplicar recuento (ajustar stock)</button>
+      <button onclick="exportarRecuentoExcel()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:600;cursor:pointer">📊 Exportar recuento a Excel</button>
+    </div>
+
     <!-- GRN Panel -->
     <div id="panel-grn" style="display:none;padding:0 20px">
       <button onclick="openModal('ov-nueva-recepcion')"
@@ -835,6 +854,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
 
     <div id="panel-stock" style="display:block">
+    <div style="position:relative;margin:0 0 10px">
+      <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:15px;opacity:.5">🔍</span>
+      <input id="st-search" class="inp" placeholder="Buscar producto por nombre o código..." style="padding-left:38px" oninput="buscarStock(this.value)">
+    </div>
     <div class="fbar">
       <div class="fb on" onclick="filtS('all',this)">Todos</div>
       <div class="fb" onclick="filtS('out',this)">🔴 Sin stock</div>
@@ -4561,7 +4584,7 @@ function switchStockTab(btn) {
 
   // Mostrar SOLO el panel de la pestaña elegida, ocultar los otros 3.
   // Loop sobre los 4 paneles: así nunca se vuelve a "olvidar" uno.
-  const panels = { stock:'panel-stock', kardex:'panel-kardex', grn:'panel-grn', ajuste:'panel-ajuste' };
+  const panels = { stock:'panel-stock', kardex:'panel-kardex', grn:'panel-grn', ajuste:'panel-ajuste', recuento:'panel-recuento' };
   for (const t in panels) {
     const el = document.getElementById(panels[t]);
     if (el) el.style.display = (tab === t) ? 'block' : 'none';
@@ -6802,11 +6825,99 @@ function renderReportes(){
 
 // ══ STOCK ══
 function filtS(f,el){stockFilter=f;document.querySelectorAll('#ps .fb').forEach(b=>b.classList.remove('on'));el.classList.add('on');renderStock(f);}
+let stockSearch = '';
+let recuentoConteos = {};
+let recuentoSearch = '';
+
+function buscarStock(v){ stockSearch=(v||'').toLowerCase().trim(); renderStock(stockFilter); }
+function buscarRecuento(v){ recuentoSearch=(v||'').toLowerCase().trim(); renderRecuento(); }
+function _recuentoResumen(){
+  let contados=0, conDif=0, totalDif=0;
+  prods.forEach(pr=>{
+    const v = recuentoConteos[pr.id];
+    if(v!=null && v!==''){ contados++; const d=parseInt(v)-(pr.stock||0); if(d!==0){ conDif++; totalDif+=d; } }
+  });
+  const r=document.getElementById('rec-resumen');
+  if(r) r.innerHTML = `Contados: <b>${contados}</b> / ${prods.length} · Con diferencia: <b style="color:${conDif?'#c0392b':'#1a5c38'}">${conDif}</b> · Neto: <b>${totalDif>=0?'+':''}${totalDif} uds</b>`;
+}
+
+function renderRecuento(){
+  const el = document.getElementById('rec-list');
+  if(!el) return;
+  let list = [...prods].sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  if(recuentoSearch) list = list.filter(p=>(p.nombre||'').toLowerCase().includes(recuentoSearch)||(p.barcode||'').toLowerCase().includes(recuentoSearch));
+  _recuentoResumen();
+  if(!list.length){ el.innerHTML='<div class="empty" style="padding:16px;text-align:center;color:#aaa">Sin productos</div>'; return; }
+  el.innerHTML = list.map(p=>{
+    const val = recuentoConteos[p.id]!=null ? recuentoConteos[p.id] : '';
+    let difTxt = '';
+    if(val!==''){ const d=parseInt(val)-(p.stock||0); difTxt = d===0?'<span style="color:#1a5c38">✓</span>':`<b style="color:${d>0?'#1a5c38':'#c0392b'}">${d>0?'+':''}${d}</b>`; }
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #f0f0f0">
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.nombre||'')}</div><div style="font-size:11px;color:#999">Sistema: ${p.stock||0}</div></div>
+      <input type="number" inputmode="numeric" value="${val}" placeholder="contar" style="width:72px;padding:8px;border:1.5px solid #ddd;border-radius:8px;text-align:center;font-size:13px" oninput="updateRecuentoConteo('${p.id}',this.value)">
+      <div id="rec-dif-${p.id}" style="width:42px;text-align:center;font-size:13px">${difTxt}</div>
+    </div>`;
+  }).join('');
+}
+
+function updateRecuentoConteo(pid, val){
+  if(val==='') delete recuentoConteos[pid]; else recuentoConteos[pid]=val;
+  const p = prods.find(x=>x.id===pid);
+  const cell = document.getElementById('rec-dif-'+pid);
+  if(cell && p){
+    if(val===''){ cell.innerHTML=''; }
+    else { const d=parseInt(val)-(p.stock||0); cell.innerHTML = d===0?'<span style="color:#1a5c38">✓</span>':`<b style="color:${d>0?'#1a5c38':'#c0392b'}">${d>0?'+':''}${d}</b>`; }
+  }
+  _recuentoResumen();
+}
+
+async function aplicarRecuento(){
+  const aAjustar = [];
+  prods.forEach(p=>{
+    const v = recuentoConteos[p.id];
+    if(v!=null && v!==''){ const real=parseInt(v); if(!isNaN(real) && real!==(p.stock||0)) aAjustar.push({p, real}); }
+  });
+  if(!aAjustar.length){ showToast('No hay diferencias para ajustar','ok'); return; }
+  if(!confirm(`Vas a ajustar ${aAjustar.length} producto(s) con diferencia.\n\nCada ajuste queda registrado en el Kardex con trazabilidad. ¿Confirmás?`)) return;
+  const razon = 'Recuento físico ' + new Date().toISOString().split('T')[0];
+  let ok=0, fail=0;
+  for(const {p, real} of aAjustar){
+    try{
+      const { data, error } = await SB.rpc('ajuste_manual_stock', {
+        p_tienda_id: STORE.id, p_producto_id: p.id, p_stock_real: real,
+        p_razon: razon, p_autorizado_por: USER?.email
+      });
+      if(error || !data?.exito){ fail++; console.error('Ajuste falló:', p.nombre, data?.error||error); }
+      else { p.stock = data.stock_nuevo; ok++; }
+    }catch(e){ fail++; console.error(e); }
+  }
+  recuentoConteos = {};
+  renderRecuento(); renderStock(stockFilter); renderProds();
+  showToast(`Recuento aplicado: ${ok} ajuste(s)${fail?`, ${fail} con error`:''} ${fail?'⚠️':'✅'}`, fail?'err':'ok');
+}
+
+function exportarRecuentoExcel(){
+  const filas = prods.filter(p=>{ const v=recuentoConteos[p.id]; return v!=null && v!==''; })
+    .sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  if(!filas.length){ showToast('No hay productos contados para exportar','err'); return; }
+  const SEP=';';
+  const rows=[['Producto','Codigo','Stock sistema','Conteo fisico','Diferencia'].join(SEP)];
+  let totDif=0;
+  filas.forEach(p=>{
+    const real=parseInt(recuentoConteos[p.id]); const dif=real-(p.stock||0); totDif+=dif;
+    rows.push([_csvCell(p.nombre||''),_csvCell(p.barcode||''),_csvCell(p.stock||0),_csvCell(real),_csvCell(dif)].join(SEP));
+  });
+  rows.push([_csvCell('TOTAL'),'','','',_csvCell(totDif)].join(SEP));
+  _descargarCSV(rows, 'recuento_'+new Date().toISOString().split('T')[0]+'.csv');
+  showToast('Recuento exportado ✅','ok');
+}
+
 function renderStock(f){
   let list=[...prods].sort((a,b)=>a.stock-b.stock);
   if(f==='out')list=list.filter(p=>p.stock===0);
   else if(f==='low')list=list.filter(p=>p.stock>0&&p.stock<(p.stock_minimo||10));
   else if(f==='ok')list=list.filter(p=>p.stock>=(p.stock_minimo||10));
+  if(stockSearch)list=list.filter(p=>(p.nombre||'').toLowerCase().includes(stockSearch)||(p.barcode||'').toLowerCase().includes(stockSearch));
   document.getElementById('s-count').textContent=list.length;
   const maxS=Math.max(...prods.map(p=>p.stock),1);
   const el=document.getElementById('slist');
