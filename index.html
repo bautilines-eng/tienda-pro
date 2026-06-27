@@ -2224,7 +2224,7 @@ body{touch-action:manipulation}
   ${d.gastos_dia && d.gastos_dia.length > 0 ? `
   <div class="section">
     <div class="section-title">Gastos del día</div>
-    ${d.gastos_dia.map(g => `<div class="row"><span class="row-label">${esc(g.categoria)}${g.descripcion?' · '+g.descripcion:''}</span><span class="row-value" style="color:#c94040">-$${(g.monto||0).toLocaleString('es-AR')}</span></div>`).join('')}
+    ${d.gastos_dia.map(g => `<div class="row"><span class="row-label">${esc(g.categoria)}${esc(g.descripcion?' · '+g.descripcion:'')}</span><span class="row-value" style="color:#c94040">-$${(g.monto||0).toLocaleString('es-AR')}</span></div>`).join('')}
     <div class="row" style="border-top:2px solid #eee;margin-top:4px;padding-top:8px"><span class="row-label" style="font-weight:700">Total gastos</span><span class="row-value" style="color:#c94040">-$${d.gastos_dia.reduce((s,g)=>s+(g.monto||0),0).toLocaleString('es-AR')}</span></div>
   </div>
   ` : ''}
@@ -2402,7 +2402,7 @@ function asientoVenta(venta) {
     fecha: venta.fecha,
     tipo: 'VENTA',
     comprobante: venta.metodo_pago === 'Cuenta Corriente' ? 'Cta.Cte.' : 'Ticket/Factura',
-    descripcion: `Venta — ${venta.metodo_pago}${venta.cliente ? ' · ' + venta.cliente : ''}`,
+    descripcion: `Venta — ${venta.metodo_pago}${esc(venta.cliente ? ' · ' + venta.cliente : '')}`,
     origen: 'venta',
     origen_id: venta.id,
     lineas,
@@ -2423,7 +2423,7 @@ function asientoGasto(gasto) {
       fecha: gasto.fecha,
       tipo: 'PAGO PROVEEDOR',
       comprobante: gasto.descripcion || 'Orden de pago',
-      descripcion: `Pago a proveedor — ${gasto.descripcion || ''}`,
+      descripcion: `Pago a proveedor — ${esc(gasto.descripcion || '')}`,
       origen: 'gasto',
       origen_id: gasto.id,
       lineas: [
@@ -2439,7 +2439,7 @@ function asientoGasto(gasto) {
     fecha: gasto.fecha,
     tipo: 'GASTO',
     comprobante: gasto.descripcion || 'Comprobante gasto',
-    descripcion: `Gasto — ${esc(gasto.categoria)}${gasto.descripcion ? ': ' + gasto.descripcion : ''}`,
+    descripcion: `Gasto — ${esc(gasto.categoria)}${esc(gasto.descripcion ? ': ' + gasto.descripcion : '')}`,
     origen: 'gasto',
     origen_id: gasto.id,
     lineas: [
@@ -2460,7 +2460,7 @@ function asientoCompra(compra) {
     fecha: compra.fecha,
     tipo: 'COMPRA',
     comprobante: compra.numero_factura || 'S/N',
-    descripcion: `Compra — ${esc(compra.producto_nombre)}${compra.proveedor ? ' · ' + compra.proveedor : ''}`,
+    descripcion: `Compra — ${esc(compra.producto_nombre)}${esc(compra.proveedor ? ' · ' + compra.proveedor : '')}`,
     origen: 'compra',
     origen_id: compra.id,
     lineas: [
@@ -2678,7 +2678,7 @@ ${gastosHoy.length ? `
       const ct = GASTO_CUENTA[g.categoria] || '51117003';
       const cn = PLAN_CUENTAS.find(c => c.codigo === ct)?.nombre || g.categoria;
       return `
-      <tr><td class="cod">${ct}</td><td>${cn}${g.descripcion ? ' — '+g.descripcion : ''}</td><td class="debe">$${(g.monto||0).toLocaleString('es-AR')}</td><td class="vacio">—</td></tr>
+      <tr><td class="cod">${ct}</td><td>${cn}${esc(g.descripcion ? ' — '+g.descripcion : '')}</td><td class="debe">$${(g.monto||0).toLocaleString('es-AR')}</td><td class="vacio">—</td></tr>
       <tr><td class="cod">11101001</td><td>CAJA EN PESOS — pago</td><td class="vacio">—</td><td class="haber">$${(g.monto||0).toLocaleString('es-AR')}</td></tr>`;
     }).join('')}
   </tbody>
@@ -2791,7 +2791,7 @@ function renderMayor() {
   movs.sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   if (!movs.length) {
-    el.innerHTML = `<div class="empty">Sin movimientos para <b>${cuenta.codigo} — ${cuenta.nombre}</b> en el período seleccionado</div>`;
+    el.innerHTML = `<div class="empty">Sin movimientos para <b>${cuenta.codigo} — ${esc(cuenta.nombre)}</b> en el período seleccionado</div>`;
     return;
   }
 
@@ -2817,7 +2817,7 @@ function renderMayor() {
     <div style="background:#1a3a5c;color:#fff;padding:12px 16px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;align-items:center">
       <div>
         <div style="font-family:'DM Mono',monospace;font-size:11px;opacity:.7">${cuenta.codigo} · ${cuenta.jerarquia}</div>
-        <div style="font-size:14px;font-weight:700;margin-top:2px">${cuenta.nombre}</div>
+        <div style="font-size:14px;font-weight:700;margin-top:2px">${esc(cuenta.nombre)}</div>
       </div>
       <div style="text-align:right">
         <div style="font-size:10px;opacity:.7;margin-bottom:2px">${cuenta.tipo} · Cuenta ${cuenta.naturaleza==='D'?'Deudora':'Acreedora'}</div>
@@ -3049,7 +3049,7 @@ function _populateMinutaForm(){
   if(oc && !oc.options.length){
     oc.innerHTML = '<option value="">— Elegí una cuenta —</option>' +
       PLAN_CUENTAS.slice().sort((a,b)=>(a.orden||0)-(b.orden||0))
-        .map(c=>`<option value="${c.codigo}">${c.codigo} — ${c.nombre}</option>`).join('');
+        .map(c=>`<option value="${c.codigo}">${c.codigo} — ${esc(c.nombre)}</option>`).join('');
   }
   const f = document.getElementById('min-fecha');
   if(f && !f.value) f.value = new Date().toISOString().split('T')[0];
@@ -3141,7 +3141,7 @@ function exportarMinutaPDF(id){
   if(!m){ showToast('Minuta no encontrada','err'); return; }
   const a = asientoMinuta(m);
   const fmt = (n)=> '$'+(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const filas = a.lineas.map(l=>`<tr><td>${l.cuenta}</td><td>${l.nombre}</td><td style="text-align:right">${l.debe?fmt(l.importe):''}</td><td style="text-align:right">${!l.debe?fmt(l.importe):''}</td></tr>`).join('');
+  const filas = a.lineas.map(l=>`<tr><td>${l.cuenta}</td><td>${esc(l.nombre)}</td><td style="text-align:right">${l.debe?fmt(l.importe):''}</td><td style="text-align:right">${!l.debe?fmt(l.importe):''}</td></tr>`).join('');
   const win = window.open('', '_blank');
   if(!win){ showToast('Permití las ventanas emergentes para el PDF','err'); return; }
   win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+m.numero+'</title>'
@@ -3284,7 +3284,7 @@ function exportarMayorPDF() {
       @media print{button{display:none!important}}
     </style>
     </head><body>
-    <h2>Mayor Contable — ${cuenta.codigo} ${cuenta.nombre}</h2>
+    <h2>Mayor Contable — ${cuenta.codigo} ${esc(cuenta.nombre)}</h2>
     <div class="sub">TODO PYMES S.R.L. — Drugstore · Período: ${mesDesde||'inicio'} a ${mesHasta||'hoy'} · Generado: ${new Date().toLocaleDateString('es-AR')}</div>
     ${content}
     <script>window.print();<\/script></body></html>`);
@@ -3664,8 +3664,8 @@ function renderLibroDiario() {
         ${a.lineas.map(l => `
           <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #fafafa">
             <span style="font-family:'DM Mono',monospace;font-size:10px;color:#888;min-width:70px">${l.cuenta}</span>
-            <span style="font-size:11px;flex:1;color:#333">${l.nombre}</span>
-            <span style="font-size:10px;color:#aaa;min-width:80px">${l.detalle}</span>
+            <span style="font-size:11px;flex:1;color:#333">${esc(l.nombre)}</span>
+            <span style="font-size:10px;color:#aaa;min-width:80px">${esc(l.detalle)}</span>
             <span style="font-family:'DM Mono',monospace;font-size:11px;font-weight:600;min-width:90px;text-align:right;color:${l.debe?'#c94040':'#ddd'}">${l.debe?'$'+l.importe.toLocaleString('es-AR'):''}</span>
             <span style="font-family:'DM Mono',monospace;font-size:11px;font-weight:600;min-width:90px;text-align:right;color:${!l.debe?'#1a5c38':'#ddd'}">${!l.debe?'$'+l.importe.toLocaleString('es-AR'):''}</span>
           </div>`).join('')}
@@ -3699,8 +3699,8 @@ function exportarLibroDiarioPDF() {
     </tr>
     ${a.lineas.map(l => `<tr>
       <td style="padding:4px 8px;font-family:monospace;font-size:9px;color:#888">${l.cuenta}</td>
-      <td style="padding:4px 8px;font-size:10px">${l.nombre}</td>
-      <td style="padding:4px 8px;font-size:9px;color:#555">${l.detalle}</td>
+      <td style="padding:4px 8px;font-size:10px">${esc(l.nombre)}</td>
+      <td style="padding:4px 8px;font-size:9px;color:#555">${esc(l.detalle)}</td>
       <td style="padding:4px 8px;text-align:right;font-family:monospace;font-size:10px;color:#c94040">${l.debe?'$'+l.importe.toLocaleString('es-AR'):''}</td>
       <td style="padding:4px 8px;text-align:right;font-family:monospace;font-size:10px;color:#1a5c38">${!l.debe?'$'+l.importe.toLocaleString('es-AR'):''}</td>
     </tr>`).join('')}`).join('');
@@ -3923,12 +3923,12 @@ async function renderSelectorTemplates() {
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         ${templates.map(t => `
-          <button onclick="confirmarTemplate('${t.id}','${t.nombre}')"
+          <button onclick="confirmarTemplate('${t.id}','${esc(t.nombre)}')"
             style="padding:12px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;
                    font-size:12px;font-weight:600;color:#333;cursor:pointer;text-align:left;
                    display:flex;align-items:center;gap:8px">
             <span style="font-size:18px">${t.icono||'📋'}</span>
-            <span>${t.nombre}</span>
+            <span>${esc(t.nombre)}</span>
           </button>`).join('')}
       </div>
     </div>`;
@@ -3946,7 +3946,7 @@ async function renderSelectorTemplates() {
 }
 
 function confirmarTemplate(templateId, nombre) {
-  if (!confirm(`¿Aplicar el template "${nombre}"?\n\nEsto reemplazará el plan de cuentas actual de esta tienda.`)) return;
+  if (!confirm(`¿Aplicar el template "${esc(nombre)}"?\n\nEsto reemplazará el plan de cuentas actual de esta tienda.`)) return;
   aplicarTemplateCuentas(templateId);
 }
 
@@ -4208,7 +4208,7 @@ function renderOrdenCompra() {
         <div class="flabel">Proveedor</div>
         <input class="inp" id="orden-prov" placeholder="Nombre del proveedor" list="orden-prov-list">
         <datalist id="orden-prov-list">
-          ${[...new Set(compras.map(c=>c.proveedor).filter(Boolean))].map(p=>`<option value="${p}">`).join('')}
+          ${[...new Set(compras.map(c=>c.proveedor).filter(Boolean))].map(p=>`<option value="${esc(p)}">`).join('')}
         </datalist>
       </div>
 
@@ -4279,7 +4279,7 @@ function renderOrdenItemsList() {
   el.innerHTML = ordenItems.map(i => `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#f8f8f8;border-radius:8px;margin-bottom:6px">
       <div>
-        <div style="font-size:12px;font-weight:600">${i.nombre}</div>
+        <div style="font-size:12px;font-weight:600">${esc(i.nombre)}</div>
         <div style="font-size:10px;color:#999">${i.cantidad} uds × $${i.precio_unitario.toLocaleString('es-AR')}</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
@@ -4379,7 +4379,7 @@ body{touch-action:manipulation}
   <div>
     <div class="empresa">TODO PYMES S.R.L. — Drugstore</div>
     <div class="empresa-sub">CUIT: ${STORE?.cuit||'30-71140779-7'} · IVA Responsable Inscripto</div>
-    <div class="empresa-sub">${STORE?.nombre||''} · Santiago del Estero</div>
+    <div class="empresa-sub">${esc(STORE?.nombre||'')} · Santiago del Estero</div>
   </div>
   <div class="orden-box">
     <div class="orden-title">ORDEN DE COMPRA</div>
@@ -4397,11 +4397,11 @@ body{touch-action:manipulation}
   <div class="info-box">
     <div class="info-label">Fecha de entrega</div>
     <div class="info-val">${fechaEntrega}</div>
-    <div class="info-sub">Lugar: ${STORE?.nombre||'Drugstore'}</div>
+    <div class="info-sub">Lugar: ${esc(STORE?.nombre||'Drugstore')}</div>
   </div>
 </div>
 
-${obs?`<div class="obs-box">📝 <b>Observaciones:</b> ${obs}</div>`:''}
+${obs?`<div class="obs-box">📝 <b>Observaciones:</b> ${esc(obs)}</div>`:''}
 
 <table>
   <thead>
@@ -4417,7 +4417,7 @@ ${obs?`<div class="obs-box">📝 <b>Observaciones:</b> ${obs}</div>`:''}
     ${ordenItems.map((item,i) => `
     <tr>
       <td style="color:#888">${i+1}</td>
-      <td><b>${item.nombre}</b></td>
+      <td><b>${esc(item.nombre)}</b></td>
       <td class="r">${item.cantidad}</td>
       <td class="r">$${item.precio_unitario.toLocaleString('es-AR')}</td>
       <td class="r" style="font-weight:600">$${(item.precio_unitario*item.cantidad).toLocaleString('es-AR')}</td>
@@ -4488,7 +4488,7 @@ function abrirModalFactura(compraId) {
 
   // Pre-rellenar datos de la compra
   const descEl = document.getElementById('fac-compra-desc');
-  if (descEl) descEl.textContent = `${compra.producto_nombre || ''} · ${compra.proveedor || ''}`;
+  if (descEl) descEl.textContent = `${esc(compra.producto_nombre || '')} · ${esc(compra.proveedor || '')}`;
 
   const provEl = document.getElementById('fac-proveedor');
   if (provEl && compra.proveedor) provEl.value = compra.proveedor;
@@ -4651,7 +4651,7 @@ async function guardarFactura() {
         tienda_id:   STORE.id,
         monto:       total,
         categoria:   'Proveedores',
-        descripcion: `Factura ${tipo} ${numero} · ${proveedor || ''}`,
+        descripcion: `Factura ${tipo} ${numero} · ${esc(proveedor || '')}`,
         fecha:       fecha,
       });
       showToast(`✅ Factura ${numero} guardada correctamente`, 'ok');
@@ -4823,7 +4823,7 @@ function switchStockTab(btn) {
       prods.filter(p => !p.is_deleted).forEach(p => {
         const opt = document.createElement('option');
         opt.value = p.id;
-        opt.textContent = `${p.nombre} (stock: ${p.stock} uds)`;
+        opt.textContent = `${esc(p.nombre)} (stock: ${p.stock} uds)`;
         sel.appendChild(opt);
       });
     }
@@ -4960,7 +4960,7 @@ async function guardarGRN() {
           p_doc_id:      recep.id,
           p_doc_nro:     nroData,
           p_costo_unit:  item.costo || 0,
-          p_observacion: `GRN ${nroData} · ${proveedor}${remito ? ' · Remito: '+remito : ''}`
+          p_observacion: `GRN ${nroData} · ${esc(proveedor)}${remito ? ' · Remito: '+remito : ''}`
         });
 
         // Actualizar stock local
@@ -6429,7 +6429,7 @@ function renderUsuarios(){
       <div style="width:38px;height:38px;border-radius:50%;background:var(--rust-l);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:var(--rust);flex-shrink:0">${(USER?.email||'?')[0].toUpperCase()}</div>
       <div style="flex:1">
         <div style="font-size:13px;font-weight:600">${STORE?.name||'Dueño'}</div>
-        <div style="font-size:11px;color:var(--muted)">${USER?.email||''}</div>
+        <div style="font-size:11px;color:var(--muted)">${esc(USER?.email||'')}</div>
       </div>
       <div style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;background:var(--rust-l);color:var(--rust)">Dueño</div>
     </div>
@@ -6440,12 +6440,12 @@ function renderUsuarios(){
       <div style="display:flex;align-items:center;gap:10px">
         <div style="width:38px;height:38px;border-radius:50%;background:var(--cream);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:var(--muted);flex-shrink:0">${(u.nombre||u.email||'?')[0].toUpperCase()}</div>
         <div style="flex:1">
-          <div style="font-size:13px;font-weight:600">${u.nombre||'Sin nombre'}</div>
-          <div style="font-size:11px;color:var(--muted)">${u.email||''}</div>
+          <div style="font-size:13px;font-weight:600">${esc(u.nombre||'Sin nombre')}</div>
+          <div style="font-size:11px;color:var(--muted)">${esc(u.email||'')}</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           <div style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;background:${rolColors[u.rol]||'var(--cream)'}22;color:${rolColors[u.rol]||'var(--muted)'};border:1px solid ${rolColors[u.rol]||'var(--border)'}">${rolNames[u.rol]||u.rol}</div>
-          <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="eliminarUsuario('${u.id}','${u.nombre||u.email}')">🗑️</button>
+          <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="eliminarUsuario('${u.id}','${esc(u.nombre||u.email)}')">🗑️</button>
         </div>
       </div>
     </div>`).join('');
@@ -6505,7 +6505,7 @@ async function saveUsuario(){
     closeModal('ov-add-usuario');
     renderUsuarios();
     ['usu-email','usu-nombre','usu-pass'].forEach(id=>document.getElementById(id).value='');
-    showToast(`✅ Usuario ${nombre||email} creado. Le llegó un email de confirmación — debe confirmarlo antes de poder ingresar.`,'ok');
+    showToast(`✅ Usuario ${esc(nombre||email)} creado. Le llegó un email de confirmación — debe confirmarlo antes de poder ingresar.`,'ok');
   }catch(e){
     showToast('❌ Error al crear usuario: '+(e.message||''),'err');
     console.error(e);
@@ -6514,7 +6514,7 @@ async function saveUsuario(){
 }
 
 async function eliminarUsuario(id, nombre){
-  if(!confirm(`¿Eliminar acceso de ${nombre}?`)) return;
+  if(!confirm(`¿Eliminar acceso de ${esc(nombre)}?`)) return;
   try{
     await SB.from('usuarios_tienda').delete().eq('id',id);
     usuarios = usuarios.filter(x=>x.id!=id);
@@ -6615,7 +6615,7 @@ function updateCart(){
   const sub=sel.reduce((s,p)=>s+p.precio*(qtys[p.id]||0),0);
   const desc=parseFloat(document.getElementById('v-desc').value)||0;
   const total=sub*(1-desc/100);
-  document.getElementById('c-chips').innerHTML=sel.map(p=>`<div class="chip">${getEm(p.categoria)} ${p.nombre.split(' ')[0]} ×${qtys[p.id]}</div>`).join('');
+  document.getElementById('c-chips').innerHTML=sel.map(p=>`<div class="chip">${getEm(p.categoria)} ${esc(p.nombre.split(' ')[0])} ×${qtys[p.id]}</div>`).join('');
   document.getElementById('c-total').textContent=`$${Math.round(total).toLocaleString('es-AR')}`;
   document.getElementById('c-method-l').textContent=`${method}${desc>0?` · ${desc}% desc`:''}`;
 }
@@ -6746,21 +6746,21 @@ async function registerSale(){
 // ══ TICKET ══
 function showTicket(s){
   const items=typeof s.items==='string'?JSON.parse(s.items):s.items||[];
-  const rows=items.map(i=>`<div class="ticket-row"><span>${i.emoji||''} ${i.nombre} ×${i.cantidad}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
+  const rows=items.map(i=>`<div class="ticket-row"><span>${i.emoji||''} ${esc(i.nombre)} ×${i.cantidad}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
   const d=new Date(s.created_at||Date.now());
   document.getElementById('ticket-content').innerHTML=`
     <div class="ticket">
       <div class="ticket-title">${STORE?.name||'Tienda Pro'}</div>
       <div class="ticket-sub">Comprobante de venta</div>
       <div class="ticket-row"><span>Fecha</span><span>${d.toLocaleDateString('es-AR')} ${d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span></div>
-      ${s.cliente?`<div class="ticket-row"><span>Cliente</span><span>${s.cliente}</span></div>`:''}
+      ${s.cliente?`<div class="ticket-row"><span>Cliente</span><span>${esc(s.cliente)}</span></div>`:''}
       <hr class="ticket-divider">
       ${rows}
       ${s.descuento>0?`<div class="ticket-row"><span>Descuento ${s.descuento}%</span><span>-$${((s.subtotal||s.total)-s.total).toLocaleString('es-AR')}</span></div>`:''}
       <div class="ticket-row total"><span>TOTAL</span><span>$${(s.total||0).toLocaleString('es-AR')}</span></div>
       <hr class="ticket-divider">
       <div class="ticket-row"><span>Método</span><span>${s.metodo_pago||'—'}</span></div>
-      ${s.nota?`<div class="ticket-row"><span>Nota</span><span>${s.nota}</span></div>`:''}
+      ${s.nota?`<div class="ticket-row"><span>Nota</span><span>${esc(s.nota)}</span></div>`:''}
       <div class="ticket-footer">¡Gracias por su compra!</div>
     </div>`;
   openModal('ov-ticket');
@@ -6792,7 +6792,7 @@ function renderHist(){
     const d=new Date(s.created_at||Date.now());
     const dStr=d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
     const mc=s.metodo_pago==='Efectivo'?'tef':s.metodo_pago==='Transferencia'?'ttr':'ttd';
-    const rows=items.map(i=>`<div class="hc-dr"><span>${i.emoji||''} ${i.nombre} ×${i.cantidad}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
+    const rows=items.map(i=>`<div class="hc-dr"><span>${i.emoji||''} ${esc(i.nombre)} ×${i.cantidad}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
     return `<div class="hcard" onclick="this.classList.toggle('open')">
       <div class="hc-top">
         <div><div class="hc-id">${s.nro_comprobante?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:#888;margin-right:6px">${esc(s.nro_comprobante)}</span>`:''}${s.cliente?'👤 '+esc(s.cliente):'Venta anónima'}</div><div class="hc-date">${dStr}</div></div>
@@ -6800,8 +6800,8 @@ function renderHist(){
       </div>
       <div class="hc-tags">
         <span class="htag ${mc}">${s.metodo_pago||'—'}</span>
-        ${items.map(i=>`<span class="htag tprod">${i.emoji||''}${i.nombre.split(' ')[0]} ×${i.cantidad}</span>`).join('')}
-        ${s.nota?`<span class="htag" style="background:var(--purple-l);color:var(--purple)">${s.nota}</span>`:''}
+        ${items.map(i=>`<span class="htag tprod">${i.emoji||''}${esc(i.nombre.split(' ')[0])} ×${i.cantidad}</span>`).join('')}
+        ${s.nota?`<span class="htag" style="background:var(--purple-l);color:var(--purple)">${esc(s.nota)}</span>`:''}
       </div>
       <div class="hc-detail">${rows}<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">
           <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();reopenTicket('${s.id}')">🖨️ Ticket</button>
@@ -6840,7 +6840,7 @@ function abrirModalNotaCredito(ventaId) {
           <span>${s.nro_comprobante || 'Sin número'}</span>
           <span style="font-family:'DM Mono',monospace;font-weight:700">$${(s.total||0).toLocaleString('es-AR')}</span>
         </div>
-        <div style="color:#888;margin-top:2px">${s.fecha} · ${s.metodo_pago} · ${s.cliente || 'Consumidor final'}</div>
+        <div style="color:#888;margin-top:2px">${s.fecha} · ${s.metodo_pago} · ${esc(s.cliente || 'Consumidor final')}</div>
         <div style="margin-top:8px">${items.map(i => `<div>• ${esc(i.nombre)} ×${i.cantidad}</div>`).join('')}</div>
       </div>`;
   }
@@ -6993,7 +6993,7 @@ function prepararCierre(){
       ${gastosHoyCierre.length>0?`<div class="hc-dr" style="border-top:1px solid #ddd;margin-top:6px;padding-top:6px"><span style="color:#c94040;font-weight:600">Gastos del día</span><span style="color:#c94040;font-weight:700">-$${gastosHoyCierre.reduce((s,g)=>s+(g.monto||0),0).toLocaleString('es-AR')}</span></div>`:''}
       <div class="hc-dr"><span>Efectivo en caja</span><span>$${efCaja.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span style="font-weight:600">Diferencia</span><span style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${dif.toLocaleString('es-AR')}</span></div>
-      ${obs?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${obs}</div>`:''}
+      ${obs?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${esc(obs)}</div>`:''}
     </div>
     <div style="font-size:13px;color:var(--red);font-weight:500">⚠️ Esta acción registrará el cierre oficial del día. No se puede deshacer.</div>`;
 
@@ -7160,11 +7160,11 @@ function renderStock(f){
         <div style="display:flex;align-items:center;gap:6px">
           <div class="sc-dot ${dc}"></div>
           <button class="btn btn-sm btn-outline" onclick="editProduct('${p.id}')">✏️</button>
-          <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteProduct('${p.id}','${p.nombre}')">🗑️</button>
+          <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteProduct('${p.id}','${esc(p.nombre)}')">🗑️</button>
         </div>
       </div>
       <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${p.stock} uds</div></div>
-      <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${p.barcode?'🔖 '+p.barcode:''}</span><span>${p.costo>0?'Costo: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
+      <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${esc(p.barcode?'🔖 '+p.barcode:'')}</span><span>${p.costo>0?'Costo: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
       ${p.costo>0?`<div style="display:flex;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
         <span style="color:#1a5c38;font-weight:600">Margen: $${((p.precio||0)-(p.costo||0)).toLocaleString('es-AR')}</span>
         <span style="color:#999">·</span>
@@ -7255,7 +7255,7 @@ async function updateProduct(id){
 }
 
 async function deleteProduct(id,nombre){
-  if(!confirm(`¿Eliminar "${nombre}"? Esta acción no se puede deshacer.`))return;
+  if(!confirm(`¿Eliminar "${esc(nombre)}"? Esta acción no se puede deshacer.`))return;
   try{
     await SB.from('productos').update({
     is_deleted: true,
@@ -7311,7 +7311,7 @@ function renderClients(){
     <div class="clcard">
       <div class="cl-top">
         <div class="cl-av">${(c.nombre||'?')[0].toUpperCase()}</div>
-        <div style="flex:1"><div class="cl-name">${esc(c.nombre)}</div><div class="cl-meta">${esc(c.telefono||'')}${c.email?' · '+c.email:''}</div></div>
+        <div style="flex:1"><div class="cl-name">${esc(c.nombre)}</div><div class="cl-meta">${esc(c.telefono||'')}${esc(c.email?' · '+c.email:'')}</div></div>
         <div style="display:flex;gap:6px">
           <button class="btn btn-sm btn-outline" onclick="editClient('${c.id}')">✏️</button>
           <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteClient('${c.id}','${esc(c.nombre)}')">🗑️</button>
@@ -7351,7 +7351,7 @@ async function updateClient(id){
 }
 
 async function deleteClient(id,nombre){
-  if(!confirm(`¿Eliminar a ${nombre}?`))return;
+  if(!confirm(`¿Eliminar a ${esc(nombre)}?`))return;
   try{
     await SB.from('clientes').update({is_deleted:true,deleted_at:new Date().toISOString()}).eq('id',id);
     clients=clients.filter(x=>x.id!=id);
@@ -7384,7 +7384,7 @@ function populateProveedoresSelect(){
   const actual = sel.value;
   sel.innerHTML = '<option value="">— Elegí un proveedor —</option>' +
     proveedores.filter(p=>!p.is_deleted)
-      .map(p=>`<option value="${p.id}">${p.razon_social}${p.cuit?' · '+p.cuit:''}</option>`).join('');
+      .map(p=>`<option value="${p.id}">${esc(p.razon_social)}${p.cuit?' · '+p.cuit:''}</option>`).join('');
   if(actual) sel.value = actual;
 }
 async function saveProveedor(){
@@ -7422,7 +7422,7 @@ function renderProveedores(){
     `<button class="btn btn-ink btn-full" style="margin-bottom:12px" onclick="openModal('ov-add-prov')">+ Nuevo Proveedor</button>` +
     (list.length ? list.map(p=>`
       <div style="padding:12px;border:1px solid #eee;border-radius:10px;margin-bottom:8px">
-        <div style="font-weight:700">${p.razon_social}</div>
+        <div style="font-weight:700">${esc(p.razon_social)}</div>
         <div style="font-size:12px;color:var(--muted)">${p.cuit?('CUIT '+p.cuit+' · '):''}${p.condicion_iva||''}${p.provincia?(' · '+p.provincia):''}</div>
         <div style="font-size:12px;color:var(--muted)">Pago: ${p.forma_pago||'—'} · Cuenta ${p.cuenta_contable||'21101001'}</div>
       </div>`).join('') : '<div class="empty">Sin proveedores cargados aún</div>');
@@ -7430,7 +7430,7 @@ function renderProveedores(){
 
 // ══ COMPRAS ══
 function populateSelects(){
-  document.getElementById('co-prod').innerHTML='<option value="">Seleccionar...</option>'+prods.map(p=>`<option value="${p.id}">${getEm(p.categoria)} ${p.nombre}</option>`).join('');
+  document.getElementById('co-prod').innerHTML='<option value="">Seleccionar...</option>'+prods.map(p=>`<option value="${p.id}">${getEm(p.categoria)} ${esc(p.nombre)}</option>`).join('');
   document.getElementById('v-cliente').innerHTML='<option value="">— Sin cliente —</option>'+clients.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
   const provSel=document.getElementById('co-prov');
   if(provSel)provSel.innerHTML='<option value="">-- Sin proveedor --</option>'+clients.map(c=>`<option value="${esc(c.nombre)}">${esc(c.nombre)}</option>`).join('');
@@ -7515,7 +7515,7 @@ async function doCompra(){
     } catch(e) { console.error('No se pudo actualizar el precio del producto', e); }
     compras.unshift(compra);
 
-    showToast(`✅ +${qty} uds de ${p.nombre.split(' ')[0]} ingresadas al stock. Cargá la factura para registrar el costo y la deuda.`, 'ok');
+    showToast(`✅ +${qty} uds de ${esc(p.nombre.split(' ')[0])} ingresadas al stock. Cargá la factura para registrar el costo y la deuda.`, 'ok');
 
     // Reset form
     ['co-prod','co-qty','co-factura'].forEach(id => {
@@ -7592,7 +7592,7 @@ function checkAlertBar(){
 function showAlerts(){
   const alerts=prods.filter(p=>p.stock<(p.stock_minimo||10));
   if(!alerts.length){showToast('Sin alertas de stock','ok');return;}
-  alert(alerts.map(p=>`${p.stock===0?'🔴':'⚠️'} ${p.nombre}: ${p.stock} uds (mín: ${p.stock_minimo||10})`).join('\n'));
+  alert(alerts.map(p=>`${p.stock===0?'🔴':'⚠️'} ${esc(p.nombre)}: ${p.stock} uds (mín: ${p.stock_minimo||10})`).join('\n'));
 }
 
 // ══ MODALS ══
@@ -7652,7 +7652,7 @@ Ventas: ${turnoSales.length}`)) return;
 </style></head>
 <body>
   <h2>🔄 Cierre de Turno</h2>
-  <p><b>${STORE?.nombre || 'Tienda Pro'}</b><br>Fecha: ${today} · Hora: ${now}</p>
+  <p><b>${esc(STORE?.nombre || 'Tienda Pro')}</b><br>Fecha: ${today} · Hora: ${now}</p>
   <div class="row"><span>Ventas del turno</span><span>${turnoSales.length}</span></div>
   <div class="row"><span>Efectivo</span><span>$${ef.toLocaleString('es-AR')}</span></div>
   <div class="row"><span>Transferencia</span><span>$${tr.toLocaleString('es-AR')}</span></div>
@@ -7684,8 +7684,8 @@ function checkVencimientos() {
   const vencidos = proximos.filter(p => new Date(p.vence+'T12:00:00') < hoy);
   const porVencer = proximos.filter(p => new Date(p.vence+'T12:00:00') >= hoy);
   let msg = '';
-  if(vencidos.length) msg += `⚠️ ${vencidos.length} producto(s) VENCIDO(S): ${vencidos.map(p=>p.nombre).join(', ')}. `;
-  if(porVencer.length) msg += `📅 ${porVencer.length} producto(s) vencen en 7 días: ${porVencer.map(p=>p.nombre).join(', ')}.`;
+  if(vencidos.length) msg += `⚠️ ${vencidos.length} producto(s) VENCIDO(S): ${esc(vencidos.map(p=>p.nombre).join(', '))}. `;
+  if(porVencer.length) msg += `📅 ${porVencer.length} producto(s) vencen en 7 días: ${esc(porVencer.map(p=>p.nombre).join(', '))}.`;
   if(msg) showToast(msg, 'err');
 }
 
@@ -7725,7 +7725,7 @@ function renderComboItems() {
   const total = comboItems.reduce((s,i) => s + i.precio * i.cantidad, 0);
   el.innerHTML = comboItems.map(i => `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f0f0f0">
-      <div style="font-size:12px"><b>${i.nombre}</b> × ${i.cantidad}</div>
+      <div style="font-size:12px"><b>${esc(i.nombre)}</b> × ${i.cantidad}</div>
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-family:'DM Mono',monospace;font-size:12px;color:#666">$${(i.precio*i.cantidad).toLocaleString('es-AR')}</span>
         <button onclick="removeComboItem('${i.id}')" style="background:none;border:none;color:#ccc;cursor:pointer;font-size:14px">✕</button>
@@ -7762,7 +7762,7 @@ async function guardarCombo() {
     document.getElementById('combo-precio').value = '';
     renderComboItems();
     renderProds(); renderStock('all');
-    showToast(`✅ Combo "${nombre}" creado`, 'ok');
+    showToast(`✅ Combo "${esc(nombre)}" creado`, 'ok');
   } catch(e) { showToast('❌ Error al guardar combo', 'err'); console.error(e); }
 }
 
@@ -7992,7 +7992,7 @@ function renderGastos() {
               onmouseout="this.style.boxShadow='none'">
               <div style="width:40px;height:40px;background:${c.bg};border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${c.icon}</div>
               <div style="flex:1;min-width:0">
-                <div style="font-size:13px;font-weight:600;color:#1a1a0e">${g.descripcion || g.categoria}</div>
+                <div style="font-size:13px;font-weight:600;color:#1a1a0e">${esc(g.descripcion || g.categoria)}</div>
                 <div style="font-size:11px;color:#999;margin-top:2px">${esc(g.categoria)}</div>
               </div>
               <div style="text-align:right;flex-shrink:0">
@@ -8247,7 +8247,7 @@ function openModal(id){
       prods.filter(p=>!p.es_combo&&!p.is_deleted).forEach(p=>{
         const o = document.createElement('option');
         o.value = p.id;
-        o.textContent = `${p.nombre} (stock: ${p.stock})`;
+        o.textContent = `${esc(p.nombre)} (stock: ${p.stock})`;
         sel.appendChild(o);
       });
     }
@@ -8545,8 +8545,8 @@ async function loadAdminTiendas(){
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
           <div>
-            <div style="font-size:13px;font-weight:600">${t.name||'Sin nombre'}</div>
-            <div style="font-size:11px;color:var(--muted)">${t.email||''}</div>
+            <div style="font-size:13px;font-weight:600">${esc(t.name||'Sin nombre')}</div>
+            <div style="font-size:11px;color:var(--muted)">${esc(t.email||'')}</div>
           </div>
           <div style="font-size:10px;font-family:DM Mono,monospace;color:var(--muted)">${new Date(t.created_at).toLocaleDateString('es-AR')}</div>
         </div>
@@ -8568,7 +8568,7 @@ async function crearTienda(){
     // Crear usuario en Supabase Auth
     const {data,error} = await SB.auth.signUp({email, password:pass, options:{data:{tienda_name:nombre}}});
     if(error) throw error;
-    showToast(`✅ Tienda "${nombre}" creada. Email: ${email}`,'ok');
+    showToast(`✅ Tienda "${esc(nombre)}" creada. Email: ${esc(email)}`,'ok');
     closeModal('ov-nueva-tienda');
     ['nt-nombre','nt-email','nt-pass','nt-tel'].forEach(id=>document.getElementById(id).value='');
     setTimeout(()=>loadAdminTiendas(), 2000);
@@ -8579,11 +8579,11 @@ async function crearTienda(){
 }
 
 function verTienda(id, nombre){
-  showToast(`Tienda: ${nombre} (ID: ${id.slice(0,8)}...)`, 'ok');
+  showToast(`Tienda: ${esc(nombre)} (ID: ${id.slice(0,8)}...)`, 'ok');
 }
 
 async function desactivarTienda(id, nombre){
-  if(!confirm(`¿Desactivar la tienda "${nombre}"? El dueño no podrá ingresar.`)) return;
+  if(!confirm(`¿Desactivar la tienda "${esc(nombre)}"? El dueño no podrá ingresar.`)) return;
   showToast('Función disponible en versión premium','ok');
 }
 
@@ -8639,7 +8639,7 @@ async function ejecutarAjusteManual() {
     showToast('El stock ya coincide — sin cambios', 'ok'); return;
   }
 
-  if (!confirm(`¿Confirmar ajuste de stock?\n\nProducto: ${prod?.nombre}\nStock sistema: ${prod?.stock}\nStock real: ${stock}\nDiferencia: ${stock - (prod?.stock||0)} uds\n\nRazón: ${razon}`)) return;
+  if (!confirm(`¿Confirmar ajuste de stock?\n\nProducto: ${esc(prod?.nombre)}\nStock sistema: ${prod?.stock}\nStock real: ${stock}\nDiferencia: ${stock - (prod?.stock||0)} uds\n\nRazón: ${razon}`)) return;
 
   try {
     const { data, error } = await SB.rpc('ajuste_manual_stock', {
