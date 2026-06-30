@@ -2154,7 +2154,7 @@ let USER = null;
 let STORE = null;
 
 // ══ STATE ══
-let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[], minutas=[], pagosDeuda=[];
+let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[], minutas=[], pagosDeuda=[], notasCredito=[];
 let qtys={}, activeCat='all', filtered=[], method='Efectivo', periodo='semana';
 let stockFilter='all', histFilter='all';
 
@@ -2514,6 +2514,8 @@ function generarAsientosPeriodo(mesAno) {
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
   const pagosDeudaFilt = (pagosDeuda||[]).filter(p => p.fecha && p.fecha >= desde && p.fecha <= hasta)
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
+  const ncFilt = (notasCredito||[]).filter(nc => { const f=_fechaNC(nc); return f && f >= desde && f <= hasta; })
+                             .sort((a,b) => _fechaNC(a).localeCompare(_fechaNC(b)));
 
   // Merge and sort all by date
   const movs = [
@@ -2522,6 +2524,7 @@ function generarAsientosPeriodo(mesAno) {
     ...comprasFilt.map(c => ({fecha: c.fecha, tipo: 'c', data: c})),
     ...minutasFilt.map(m => ({fecha: m.fecha, tipo: 'm', data: m})),
     ...pagosDeudaFilt.map(p => ({fecha: p.fecha, tipo: 'pd', data: p})),
+    ...ncFilt.map(nc => ({fecha: _fechaNC(nc), tipo: 'nc', data: nc})),
   ].sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   movs.forEach(m => {
@@ -2530,6 +2533,7 @@ function generarAsientosPeriodo(mesAno) {
     if (m.tipo === 'c')  todos.push(asientoCompra(m.data));
     if (m.tipo === 'm')  todos.push(asientoMinuta(m.data));
     if (m.tipo === 'pd') todos.push(asientoPagoDeuda(m.data));
+    if (m.tipo === 'nc') todos.push(asientoNotaCredito(m.data));
   });
 
   return todos;
@@ -3213,6 +3217,56 @@ function asientoPagoDeuda(p){
     origen: 'pago_deuda', origen_id: p.id, lineas,
     total_debe:  lineas.filter(l=>l.debe).reduce((s,l)=>s+l.importe,0),
     total_haber: lineas.filter(l=>!l.debe).reduce((s,l)=>s+l.importe,0),
+  };
+}
+
+async function loadNotasCredito(){
+  try{ notasCredito = await sbGet('notas_credito'); }catch(e){ notasCredito = []; }
+}
+
+// Fecha contable de una NC (la tabla guarda created_at, no una columna fecha)
+function _fechaNC(nc){
+  return nc.fecha || (nc.created_at ? String(nc.created_at).slice(0,10) : '');
+}
+
+// Asiento de reversión de una Nota de Crédito → entra al Mayor/Diario.
+// Append-only: la venta original queda asentada; la NC es su ESPEJO EXACTO
+// (invierte todas las líneas de la venta: Ventas, IVA débito, IIBB, etc.),
+// así la neutralización en el Mayor es perfecta sin importar la composición.
+function asientoNotaCredito(nc){
+  const venta = (sales||[]).find(v => v.id === nc.venta_id);
+  let lineas;
+  if(venta && typeof asientoVenta === 'function'){
+    const savedNro = nroAsiento;            // no consumir un número en la llamada espejo
+    const av = asientoVenta(venta);
+    nroAsiento = savedNro;
+    lineas = (av.lineas||[]).map(l => ({
+      debe: !l.debe, cuenta: l.cuenta, nombre: l.nombre, importe: l.importe,
+      detalle: 'Reversión: ' + (l.detalle || '')
+    }));
+  } else {
+    // Fallback si la venta no está cargada: reversa neto + IVA contra el medio.
+    const total = nc.total || 0;
+    const neto  = (nc.neto!=null) ? nc.neto : Math.round(total/1.21*100)/100;
+    const iva   = Math.round((total - neto)*100)/100;
+    const cM    = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[(venta&&venta.metodo_pago)||'Efectivo']) || '11101001';
+    const cV    = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.ventas)    || '41101007';
+    const cIVA  = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.iva_debito) || '21404';
+    lineas = [
+      { debe:true,  cuenta:cV,   nombre:'Ventas',     importe:neto,  detalle:'Reversión venta '+(nc.venta_nro||'') },
+      { debe:true,  cuenta:cIVA, nombre:'IVA débito', importe:iva,   detalle:'IVA débito reversado' },
+      { debe:false, cuenta:cM,   nombre:'Medio',      importe:total, detalle:'Devolución' },
+    ];
+  }
+  const td = lineas.filter(l=>l.debe).reduce((s,l)=>s+l.importe,0);
+  const th = lineas.filter(l=>!l.debe).reduce((s,l)=>s+l.importe,0);
+  return {
+    nro: getNroAsiento(), fecha: _fechaNC(nc),
+    tipo: 'NOTA DE CRÉDITO',
+    comprobante: nc.nro_nota || ('NC-'+String(nc.id||'').slice(0,8)),
+    descripcion: 'Nota de crédito '+(nc.nro_nota||'')+' · revierte '+(nc.venta_nro||'')+(nc.motivo?' · '+nc.motivo:''),
+    origen: 'nota_credito', origen_id: nc.id, lineas,
+    total_debe: td, total_haber: th,
   };
 }
 
@@ -6123,6 +6177,7 @@ async function initApp(){
       loadProveedores(),
       loadMinutas(),
       loadPagosDeuda(),
+      loadNotasCredito(),
     loadCierres(),
     loadDeudas(),
     loadGastos(),
