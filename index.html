@@ -703,6 +703,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           🔄 Cierre de Turno
         </button>
         <button class="btn btn-red btn-full" onclick="prepararCierre()">🔒 Realizar Cierre del Día</button>
+        <button onclick="abrirModalReimputar()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:600;cursor:pointer">🔄 Reimputar medio de pago</button>
       </div>
     </div>
     <div class="slabel"><span class="slabel-t">Cierres anteriores</span></div>
@@ -1491,6 +1492,48 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<!-- MODAL REABRIR CAJA -->
+<div class="overlay" id="ov-reabrir">
+  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
+    <div style="background:linear-gradient(135deg,#e0a800,#9a6a00);padding:20px 24px;position:relative">
+      <div class="modal-handle" style="background:rgba(255,255,255,.35);margin-bottom:14px"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="color:#fff;font-size:18px;font-weight:700">↩️ Reabrir caja</div>
+        <button class="modal-close" onclick="closeModal('ov-reabrir')" style="color:#fff">✕</button>
+      </div>
+    </div>
+    <div style="padding:20px 24px">
+      <input type="hidden" id="reabrir-id">
+      <div style="font-size:13px;color:#555;margin-bottom:14px">El cierre queda marcado como <b>reabierto</b> (no se borra, queda el registro de quién y cuándo). Vas a poder volver a cerrar la caja.</div>
+      <div class="fgroup"><div class="flabel">Motivo *</div><input class="inp" id="reabrir-motivo" placeholder="Ej: error en el arqueo, faltó cargar una venta..."></div>
+      <button class="btn btn-ink btn-full" onclick="confirmarReabrir()">Reabrir caja</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL REIMPUTAR MEDIO DE PAGO -->
+<div class="overlay" id="ov-reimputar">
+  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
+    <div style="background:linear-gradient(135deg,#1a5c38,#0b3d22);padding:20px 24px;position:relative">
+      <div class="modal-handle" style="background:rgba(255,255,255,.35);margin-bottom:14px"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="color:#fff;font-size:18px;font-weight:700">🔄 Reimputar medio de pago</div>
+        <button class="modal-close" onclick="closeModal('ov-reimputar')" style="color:#fff">✕</button>
+      </div>
+    </div>
+    <div style="padding:20px 24px">
+      <div style="font-size:13px;color:#555;margin-bottom:14px">Mové un importe de un medio de pago a otro sin tocar la venta original. Genera un asiento de reclasificación (Debe medio nuevo / Haber medio viejo) que entra al Mayor.</div>
+      <div class="fgroup"><div class="flabel">Monto *</div><input type="number" class="inp" id="reimp-monto" placeholder="$0"></div>
+      <div class="frow" style="margin-bottom:10px">
+        <div><div class="flabel">De (medio actual)</div><select class="inp" id="reimp-origen"></select></div>
+        <div><div class="flabel">A (medio correcto)</div><select class="inp" id="reimp-destino"></select></div>
+      </div>
+      <div class="fgroup"><div class="flabel">Motivo / referencia</div><input class="inp" id="reimp-motivo" placeholder="Ej: venta B-0007 cargada como Efectivo, era Transferencia"></div>
+      <button class="btn btn-ink btn-full" onclick="guardarReclasificacion()">Registrar reclasificación</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL REGISTRAR PAGO -->
 <div class="overlay" id="ov-registrar-pago">
   <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
@@ -2154,7 +2197,7 @@ let USER = null;
 let STORE = null;
 
 // ══ STATE ══
-let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[], minutas=[], pagosDeuda=[], notasCredito=[];
+let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[], minutas=[], pagosDeuda=[], notasCredito=[], reclasificaciones=[];
 let qtys={}, activeCat='all', filtered=[], method='Efectivo', periodo='semana';
 let stockFilter='all', histFilter='all';
 
@@ -2516,6 +2559,8 @@ function generarAsientosPeriodo(mesAno) {
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
   const ncFilt = (notasCredito||[]).filter(nc => { const f=_fechaNC(nc); return f && f >= desde && f <= hasta; })
                              .sort((a,b) => _fechaNC(a).localeCompare(_fechaNC(b)));
+  const reclasifFilt = (reclasificaciones||[]).filter(r => r.fecha && r.fecha >= desde && r.fecha <= hasta)
+                             .sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   // Merge and sort all by date
   const movs = [
@@ -2525,6 +2570,7 @@ function generarAsientosPeriodo(mesAno) {
     ...minutasFilt.map(m => ({fecha: m.fecha, tipo: 'm', data: m})),
     ...pagosDeudaFilt.map(p => ({fecha: p.fecha, tipo: 'pd', data: p})),
     ...ncFilt.map(nc => ({fecha: _fechaNC(nc), tipo: 'nc', data: nc})),
+    ...reclasifFilt.map(r => ({fecha: r.fecha, tipo: 'rc', data: r})),
   ].sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   movs.forEach(m => {
@@ -2534,6 +2580,7 @@ function generarAsientosPeriodo(mesAno) {
     if (m.tipo === 'm')  todos.push(asientoMinuta(m.data));
     if (m.tipo === 'pd') todos.push(asientoPagoDeuda(m.data));
     if (m.tipo === 'nc') todos.push(asientoNotaCredito(m.data));
+    if (m.tipo === 'rc') todos.push(asientoReclasificacion(m.data));
   });
 
   return todos;
@@ -3267,6 +3314,95 @@ function asientoNotaCredito(nc){
     descripcion: 'Nota de crédito '+(nc.nro_nota||'')+' · revierte '+(nc.venta_nro||'')+(nc.motivo?' · '+nc.motivo:''),
     origen: 'nota_credito', origen_id: nc.id, lineas,
     total_debe: td, total_haber: th,
+  };
+}
+
+async function loadReclasificaciones(){
+  try{ reclasificaciones = await sbGet('reclasificaciones'); }catch(e){ reclasificaciones = []; }
+}
+
+// ── Reabrir caja ──
+function reabrirCaja(id, event){
+  if(event) event.stopPropagation();
+  document.getElementById('reabrir-id').value = id;
+  document.getElementById('reabrir-motivo').value = '';
+  openModal('ov-reabrir');
+}
+async function confirmarReabrir(){
+  const id = document.getElementById('reabrir-id').value;
+  const motivo = document.getElementById('reabrir-motivo').value.trim();
+  if(!motivo){ showToast('Indicá el motivo de la reapertura','err'); return; }
+  try{
+    const quien = (typeof USER!=='undefined' ? USER?.email : null);
+    await SB.from('cierres_caja').update({
+      reabierto: true, reabierto_motivo: motivo,
+      reabierto_at: new Date().toISOString(), reabierto_por: quien
+    }).eq('id', id);
+    const c = cierres.find(x => x.id === id);
+    if(c){ c.reabierto = true; c.reabierto_motivo = motivo; c.reabierto_por = quien; }
+    closeModal('ov-reabrir');
+    renderCaja();
+    showToast('✅ Caja reabierta — ya podés volver a cerrarla','ok');
+  }catch(e){ showToast('❌ Error al reabrir la caja','err'); console.error(e); }
+}
+
+// ── Reimputar medio de pago (reclasificación) ──
+function _mediosReimpOptions(){
+  return ['Efectivo','Transferencia','Tarjeta','MercadoPago'].map(m=>{
+    const cod = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[m]) || '';
+    return `<option value="${m}" data-cuenta="${cod}">${m}</option>`;
+  }).join('');
+}
+function abrirModalReimputar(){
+  const o = document.getElementById('reimp-origen'), d = document.getElementById('reimp-destino');
+  o.innerHTML = _mediosReimpOptions();
+  d.innerHTML = _mediosReimpOptions();
+  d.selectedIndex = 1; // por defecto destino distinto al origen
+  document.getElementById('reimp-monto').value = '';
+  document.getElementById('reimp-motivo').value = '';
+  openModal('ov-reimputar');
+}
+async function guardarReclasificacion(){
+  const monto = parseFloat(document.getElementById('reimp-monto').value) || 0;
+  const oSel = document.getElementById('reimp-origen');
+  const dSel = document.getElementById('reimp-destino');
+  const medioOrigen  = oSel.value;
+  const medioDestino = dSel.value;
+  const motivo = document.getElementById('reimp-motivo').value.trim();
+  if(monto <= 0){ showToast('Ingresá un monto válido','err'); return; }
+  if(medioOrigen === medioDestino){ showToast('El medio de origen y el de destino deben ser distintos','err'); return; }
+  const cuentaOrigen  = oSel.options[oSel.selectedIndex].dataset.cuenta || (typeof METODO_CUENTA!=='undefined'&&METODO_CUENTA[medioOrigen]) || '11101001';
+  const cuentaDestino = dSel.options[dSel.selectedIndex].dataset.cuenta || (typeof METODO_CUENTA!=='undefined'&&METODO_CUENTA[medioDestino]) || '11101001';
+  const fecha = new Date().toISOString().split('T')[0];
+  try{
+    const r = await sbInsert('reclasificaciones', {
+      fecha, monto,
+      medio_origen: medioOrigen,  cuenta_origen: cuentaOrigen,
+      medio_destino: medioDestino, cuenta_destino: cuentaDestino,
+      motivo: motivo || null,
+      usuario_email: (typeof USER!=='undefined' ? USER?.email : null)
+    });
+    reclasificaciones.unshift(r);
+    closeModal('ov-reimputar');
+    showToast(`✅ Reclasificación registrada: ${medioOrigen} → ${medioDestino}`,'ok');
+  }catch(e){ showToast('❌ Error al registrar la reclasificación','err'); console.error(e); }
+}
+
+// Asiento de reclasificación de medio → entra al Mayor/Diario
+function asientoReclasificacion(r){
+  const nombreDe = (cod)=>((typeof PLAN_CUENTAS!=='undefined'?PLAN_CUENTAS:[]).find(x=>x.codigo===cod)?.nombre)||cod;
+  const monto = r.monto || 0;
+  const lineas = [
+    { debe:true,  cuenta:r.cuenta_destino, nombre:nombreDe(r.cuenta_destino), importe:monto, detalle:'A '+r.medio_destino },
+    { debe:false, cuenta:r.cuenta_origen,  nombre:nombreDe(r.cuenta_origen),  importe:monto, detalle:'De '+r.medio_origen },
+  ];
+  return {
+    nro: getNroAsiento(), fecha: r.fecha,
+    tipo: 'RECLASIF. MEDIO',
+    comprobante: 'RM-'+String(r.id||'').slice(0,8),
+    descripcion: `Reclasificación ${r.medio_origen} → ${r.medio_destino}`+(r.motivo?' · '+r.motivo:''),
+    origen: 'reclasificacion', origen_id: r.id, lineas,
+    total_debe: monto, total_haber: monto,
   };
 }
 
@@ -6178,6 +6314,7 @@ async function initApp(){
       loadMinutas(),
       loadPagosDeuda(),
       loadNotasCredito(),
+      loadReclasificaciones(),
     loadCierres(),
     loadDeudas(),
     loadGastos(),
@@ -7053,7 +7190,7 @@ function renderCaja(){
   cl.innerHTML=cierres.map(c=>`
     <div class="cierre-card" onclick="this.classList.toggle('open')">
       <div class="cc-top">
-        <div><div class="cc-fecha">${c.fecha}</div><div style="font-size:11px;color:var(--muted)">${c.ventas_count} ventas</div></div>
+        <div><div class="cc-fecha">${c.fecha} ${c.reabierto?'<span style="background:#fdecea;color:#c0392b;border-radius:5px;padding:1px 7px;font-size:10px;font-weight:700;vertical-align:middle">REABIERTO</span>':''}</div><div style="font-size:11px;color:var(--muted)">${c.ventas_count} ventas</div></div>
         <div class="cc-total">$${(c.total||0).toLocaleString('es-AR')}</div>
       </div>
       <div class="cc-detail">
@@ -7063,6 +7200,9 @@ function renderCaja(){
         <div class="hc-dr"><span>Efectivo en caja</span><span>$${(c.efectivo_caja||0).toLocaleString('es-AR')}</span></div>
         <div class="hc-dr"><span>Diferencia</span><span style="color:${(c.diferencia||0)>=0?'var(--pine)':'var(--red)'}">$${(c.diferencia||0).toLocaleString('es-AR')}</span></div>
         ${c.observaciones?`<div style="margin-top:8px;font-size:11px;color:var(--muted);background:var(--cream);padding:8px;border-radius:6px">${esc(c.observaciones)}</div>`:''}
+        ${c.reabierto
+          ? `<div style="margin-top:8px;font-size:11px;color:#c0392b;background:#fdecea;padding:8px;border-radius:6px">Reabierto${c.reabierto_por?' por '+esc(c.reabierto_por):''}${c.reabierto_motivo?' · '+esc(c.reabierto_motivo):''}</div>`
+          : `<button onclick="reabrirCaja('${c.id}', event)" style="margin-top:8px;width:100%;padding:8px;border-radius:7px;border:1px solid #e0a800;background:#fff8e1;color:#9a6a00;font-size:12px;font-weight:600;cursor:pointer">↩️ Reabrir caja</button>`}
       </div>
     </div>`).join('');
 }
