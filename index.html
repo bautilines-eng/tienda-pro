@@ -337,6 +337,13 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 .empty{text-align:center;padding:36px 20px;color:var(--muted);font-size:13px}
 .spin{width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--rust);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+.combo-list{position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #d4ddd6;border-radius:10px;margin-top:4px;max-height:280px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.14);display:none}
+.combo-item{padding:10px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f1f1;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.combo-item:hover{background:#eef5f0}
+.combo-item:last-child{border-bottom:none}
+.combo-code{font-size:11px;color:#999;white-space:nowrap}
+.combo-empty{padding:12px;text-align:center;color:#aaa;font-size:13px}
 </style>
 </head>
 <body>
@@ -894,7 +901,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div style="padding:14px 20px 0">
       <div class="card">
         <div style="font-size:14px;font-weight:600;margin-bottom:14px">📥 Nueva Compra</div>
-        <div class="fgroup"><div class="flabel">Producto</div><select class="inp" id="co-prod" style="cursor:pointer"><option value="">Seleccionar...</option></select></div>
+        <div class="fgroup" style="position:relative"><div class="flabel">Producto</div><input type="hidden" id="co-prod"><input type="text" class="inp" id="co-prod-search" autocomplete="off" placeholder="Buscar producto por nombre o código..." oninput="filtrarComboProd('co-prod', this.value)" onfocus="filtrarComboProd('co-prod', this.value)"><div id="co-prod-list" class="combo-list"></div></div>
         <div class="fgroup"><div class="flabel">Cantidad</div><input class="inp" id="co-qty" type="number" min="1" placeholder="0"></div>
         <div class="fgroup"><div class="flabel">Precio de venta <span style="font-size:10px;color:#aaa">(lo que vas a cobrar)</span></div><input class="inp" id="co-precio-venta" type="number" placeholder="$0"></div>
         <div class="fgroup"><div class="flabel">Proveedor</div>
@@ -999,6 +1006,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <div style="padding:14px 20px 0">
       <button class="btn btn-rust btn-full" onclick="openModal('ov-add-deuda')">+ Registrar deuda</button>
+      <button onclick="abrirModalNotaDebito()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #8a4b1f;background:#fdf0e6;color:#8a4b1f;font-size:13px;font-weight:600;cursor:pointer">📄 Emitir Nota de Débito</button>
     </div>
     <div class="slabel">
       <span class="slabel-t">Deudas pendientes</span>
@@ -2150,6 +2158,42 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<!-- MODAL NOTA DE DÉBITO -->
+<div class="overlay" id="ov-nota-debito">
+  <div class="modal" style="position:relative">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-nota-debito')">✕</button>
+    <div class="modal-title">📄 Emitir Nota de Débito</div>
+    <div style="font-size:12.5px;color:#666;margin-bottom:14px">Recargo o ajuste a un cliente. Podés asociarla a una venta y elegir si suma a la cuenta corriente.</div>
+    <div class="fgroup"><div class="flabel">Cliente</div>
+      <select class="inp" id="nd-cliente" style="cursor:pointer"><option value="">— Sin cliente / manual —</option></select>
+    </div>
+    <div class="fgroup"><div class="flabel">Nombre (si no está en clientes)</div>
+      <input class="inp" id="nd-nombre" placeholder="Ej: Juan Pérez"></div>
+    <div class="fgroup"><div class="flabel">Monto total (IVA incluido) *</div>
+      <input type="number" class="inp" id="nd-total" placeholder="$0"></div>
+    <div class="fgroup"><div class="flabel">Motivo *</div>
+      <input class="inp" id="nd-motivo" placeholder="Ej: Interés por mora, diferencia de precio..."></div>
+    <div class="fgroup"><div class="flabel">Detalle</div>
+      <input class="inp" id="nd-detalle" placeholder="Detalle adicional (opcional)"></div>
+    <div class="fgroup"><div class="flabel">Venta de referencia (N° comprobante)</div>
+      <input class="inp" id="nd-venta-ref" placeholder="Opcional · ej: B-0007"></div>
+    <label style="display:flex;align-items:center;gap:8px;margin:6px 0 12px;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="nd-cc" onchange="onNDccChange()" style="width:18px;height:18px;cursor:pointer">
+      Sumar a la cuenta corriente del cliente (crea deuda)
+    </label>
+    <div class="fgroup" id="nd-medio-wrap"><div class="flabel">Medio de cobro</div>
+      <select class="inp" id="nd-medio">
+        <option value="Efectivo">Efectivo (Caja)</option>
+        <option value="Transferencia">Transferencia (Banco)</option>
+        <option value="MercadoPago">MercadoPago</option>
+        <option value="Tarjeta">Tarjeta</option>
+      </select>
+    </div>
+    <button class="btn btn-ink btn-full" onclick="guardarNotaDebito()">Emitir nota de débito</button>
+  </div>
+</div>
+
 <!-- MODAL NUEVA TIENDA (ADMIN) -->
 <div class="overlay" id="ov-nueva-tienda">
   <div class="modal" style="position:relative">
@@ -2197,7 +2241,7 @@ let USER = null;
 let STORE = null;
 
 // ══ STATE ══
-let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[], minutas=[], pagosDeuda=[], notasCredito=[], reclasificaciones=[];
+let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[], minutas=[], pagosDeuda=[], notasCredito=[], reclasificaciones=[], notasDebito=[];
 let qtys={}, activeCat='all', filtered=[], method='Efectivo', periodo='semana';
 let stockFilter='all', histFilter='all';
 
@@ -2561,6 +2605,8 @@ function generarAsientosPeriodo(mesAno) {
                              .sort((a,b) => _fechaNC(a).localeCompare(_fechaNC(b)));
   const reclasifFilt = (reclasificaciones||[]).filter(r => r.fecha && r.fecha >= desde && r.fecha <= hasta)
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
+  const ndFilt = (notasDebito||[]).filter(n => n.fecha && n.fecha >= desde && n.fecha <= hasta)
+                             .sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   // Merge and sort all by date
   const movs = [
@@ -2571,6 +2617,7 @@ function generarAsientosPeriodo(mesAno) {
     ...pagosDeudaFilt.map(p => ({fecha: p.fecha, tipo: 'pd', data: p})),
     ...ncFilt.map(nc => ({fecha: _fechaNC(nc), tipo: 'nc', data: nc})),
     ...reclasifFilt.map(r => ({fecha: r.fecha, tipo: 'rc', data: r})),
+    ...ndFilt.map(n => ({fecha: n.fecha, tipo: 'nd', data: n})),
   ].sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   movs.forEach(m => {
@@ -2581,6 +2628,7 @@ function generarAsientosPeriodo(mesAno) {
     if (m.tipo === 'pd') todos.push(asientoPagoDeuda(m.data));
     if (m.tipo === 'nc') todos.push(asientoNotaCredito(m.data));
     if (m.tipo === 'rc') todos.push(asientoReclasificacion(m.data));
+    if (m.tipo === 'nd') todos.push(asientoNotaDebito(m.data));
   });
 
   return todos;
@@ -3403,6 +3451,99 @@ function asientoReclasificacion(r){
     descripcion: `Reclasificación ${r.medio_origen} → ${r.medio_destino}`+(r.motivo?' · '+r.motivo:''),
     origen: 'reclasificacion', origen_id: r.id, lineas,
     total_debe: monto, total_haber: monto,
+  };
+}
+
+async function loadNotasDebito(){
+  try{ notasDebito = await sbGet('notas_debito'); }catch(e){ notasDebito = []; }
+}
+
+function abrirModalNotaDebito(){
+  const cs = document.getElementById('nd-cliente');
+  if(cs) cs.innerHTML = '<option value="">— Sin cliente / manual —</option>' +
+    (clients||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  ['nd-nombre','nd-total','nd-motivo','nd-detalle','nd-venta-ref'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  const cc = document.getElementById('nd-cc'); if(cc) cc.checked = false;
+  onNDccChange();
+  openModal('ov-nota-debito');
+}
+function onNDccChange(){
+  const cc = document.getElementById('nd-cc');
+  const wrap = document.getElementById('nd-medio-wrap');
+  if(cc && wrap) wrap.style.display = cc.checked ? 'none' : 'block';
+}
+
+async function guardarNotaDebito(){
+  const clienteEl = document.getElementById('nd-cliente');
+  const clienteId = clienteEl.value || null;
+  const clienteNom = clienteId ? (clienteEl.options[clienteEl.selectedIndex]?.text || '') : '';
+  const nombre  = (document.getElementById('nd-nombre').value.trim() || clienteNom);
+  const total   = parseFloat(document.getElementById('nd-total').value) || 0;
+  const motivo  = document.getElementById('nd-motivo').value.trim();
+  const detalle = document.getElementById('nd-detalle').value.trim();
+  const ventaRef = document.getElementById('nd-venta-ref').value.trim();
+  const sumaCC  = document.getElementById('nd-cc').checked;
+  if(total <= 0){ showToast('Ingresá un monto válido','err'); return; }
+  if(!motivo){ showToast('Indicá el motivo','err'); return; }
+  if(sumaCC && !nombre){ showToast('Para sumar a cuenta corriente necesitás un cliente','err'); return; }
+
+  const neto = Math.round(total/1.21*100)/100;
+  const iva  = Math.round((total - neto)*100)/100;
+  const medio = document.getElementById('nd-medio').value;
+  const ccCuenta = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cuenta Corriente']) || '11301001';
+  const cuentaDebito = sumaCC ? ccCuenta
+    : ((typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[medio]) || '11101001');
+
+  const nums = (notasDebito||[]).map(n=>{ const m=String(n.nro_nota||'').match(/(\d+)$/); return m?parseInt(m[1]):0; });
+  const numero = 'ND-0-' + String((nums.length?Math.max(...nums):0)+1).padStart(4,'0');
+  const venta = ventaRef ? (sales||[]).find(v=>String(v.nro_comprobante)===ventaRef) : null;
+  const fecha = new Date().toISOString().split('T')[0];
+
+  try{
+    const nd = await sbInsert('notas_debito', {
+      nro_nota: numero, venta_id: venta?venta.id:null, venta_nro: ventaRef||null,
+      fecha, motivo, detalle: detalle||null,
+      neto_gravado: neto, alicuota_iva: 21, importe_iva: iva, total,
+      cliente: nombre||null, cliente_id: clienteId,
+      medio_pago: sumaCC?null:medio, cuenta_debito: cuentaDebito, suma_cc: sumaCC,
+      estado: 'emitida', usuario_email: (typeof USER!=='undefined'?USER?.email:null)
+    });
+    notasDebito.unshift(nd);
+    if(sumaCC){
+      const deuda = await sbInsert('deudas', {
+        nombre_cliente: nombre, monto: total, monto_original: total,
+        descripcion: `Nota de débito ${numero} · ${motivo}`,
+        estado: 'pendiente', tipo: 'cliente'
+      });
+      deudas.unshift(deuda);
+      if(typeof renderDeudas === 'function') renderDeudas();
+    }
+    closeModal('ov-nota-debito');
+    showToast(`✅ Nota de débito ${numero} emitida`,'ok');
+  }catch(e){ showToast('❌ Error al emitir la nota de débito','err'); console.error(e); }
+}
+
+// Asiento de una Nota de Débito → entra al Mayor/Diario
+function asientoNotaDebito(nd){
+  const nombreDe = (cod)=>((typeof PLAN_CUENTAS!=='undefined'?PLAN_CUENTAS:[]).find(x=>x.codigo===cod)?.nombre)||cod;
+  const total = nd.total || 0;
+  const neto  = (nd.neto_gravado!=null) ? nd.neto_gravado : Math.round(total/1.21*100)/100;
+  const iva   = (nd.importe_iva!=null)  ? nd.importe_iva  : Math.round((total-neto)*100)/100;
+  const cDebito = nd.cuenta_debito || (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cuenta Corriente']) || '11301001';
+  const cVentas = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.ventas)    || '41101007';
+  const cIvaDeb = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.iva_debito) || '21404';
+  const lineas = [
+    { debe:true,  cuenta:cDebito, nombre:nombreDe(cDebito), importe:total, detalle:(nd.cliente||'')+(nd.suma_cc?' (Cta Cte)':'') },
+    { debe:false, cuenta:cVentas, nombre:nombreDe(cVentas), importe:neto,  detalle:'ND '+(nd.motivo||'') },
+    { debe:false, cuenta:cIvaDeb, nombre:nombreDe(cIvaDeb), importe:iva,   detalle:'IVA débito' },
+  ];
+  return {
+    nro: getNroAsiento(), fecha: nd.fecha,
+    tipo: 'NOTA DE DÉBITO',
+    comprobante: nd.nro_nota || ('ND-'+String(nd.id||'').slice(0,8)),
+    descripcion: 'Nota de débito '+(nd.nro_nota||'')+(nd.cliente?' · '+nd.cliente:'')+(nd.motivo?' · '+nd.motivo:''),
+    origen: 'nota_debito', origen_id: nd.id, lineas,
+    total_debe: total, total_haber: neto+iva,
   };
 }
 
@@ -6315,6 +6456,7 @@ async function initApp(){
       loadPagosDeuda(),
       loadNotasCredito(),
       loadReclasificaciones(),
+      loadNotasDebito(),
     loadCierres(),
     loadDeudas(),
     loadGastos(),
@@ -7680,8 +7822,43 @@ function renderProveedores(){
 }
 
 // ══ COMPRAS ══
+function filtrarComboProd(targetId, q){
+  const list = document.getElementById(targetId+'-list');
+  if(!list) return;
+  q = (q||'').trim().toLowerCase();
+  // si borran el texto, también se limpia la selección
+  if(!q){ const h=document.getElementById(targetId); if(h) h.value=''; list.style.display='none'; list.innerHTML=''; return; }
+  const matches = (prods||[]).filter(p =>
+    (p.nombre||'').toLowerCase().includes(q) || (p.barcode||'').toLowerCase().includes(q)
+  ).slice(0, 40);
+  if(!matches.length){
+    list.innerHTML = '<div class="combo-empty">Sin resultados</div>';
+  } else {
+    list.innerHTML = matches.map(p =>
+      `<div class="combo-item" onmousedown="seleccionarComboProd('${targetId}','${p.id}')">`
+      + `<span>${getEm(p.categoria)} ${esc(p.nombre)}</span>`
+      + `<span class="combo-code">${esc(p.barcode||'')}</span></div>`
+    ).join('');
+  }
+  list.style.display = 'block';
+}
+function seleccionarComboProd(targetId, pid){
+  const p = (prods||[]).find(x => x.id === pid);
+  const h = document.getElementById(targetId);
+  const s = document.getElementById(targetId+'-search');
+  if(h) h.value = pid;
+  if(s) s.value = p ? p.nombre : '';
+  const list = document.getElementById(targetId+'-list');
+  if(list){ list.style.display='none'; list.innerHTML=''; }
+}
+// Cerrar cualquier combo abierto al hacer clic fuera de su grupo
+document.addEventListener('click', function(e){
+  document.querySelectorAll('.combo-list').forEach(l=>{
+    if(l.parentElement && !l.parentElement.contains(e.target)) l.style.display='none';
+  });
+});
+
 function populateSelects(){
-  document.getElementById('co-prod').innerHTML='<option value="">Seleccionar...</option>'+prods.map(p=>`<option value="${p.id}">${getEm(p.categoria)} ${esc(p.nombre)}</option>`).join('');
   document.getElementById('v-cliente').innerHTML='<option value="">— Sin cliente —</option>'+clients.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
   const provSel=document.getElementById('co-prov');
   if(provSel)provSel.innerHTML='<option value="">-- Sin proveedor --</option>'+clients.map(c=>`<option value="${esc(c.nombre)}">${esc(c.nombre)}</option>`).join('');
@@ -7769,7 +7946,7 @@ async function doCompra(){
     showToast(`✅ +${qty} uds de ${esc(p.nombre.split(' ')[0])} ingresadas al stock. Cargá la factura para registrar el costo y la deuda.`, 'ok');
 
     // Reset form
-    ['co-prod','co-qty','co-factura'].forEach(id => {
+    ['co-prod','co-prod-search','co-qty','co-factura'].forEach(id => {
       const el = document.getElementById(id);
       if(el) el.value = '';
     });
