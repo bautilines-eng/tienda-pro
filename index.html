@@ -1537,9 +1537,13 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           </div>
         </div>
       </div>
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Medio de pago *</div>
+        <select class="inp" id="pago-medio" style="border-color:#ffccbc"></select>
+      </div>
       <div style="margin-bottom:20px">
         <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Nota <span style="font-weight:400;text-transform:none;color:#aaa">(opcional)</span></div>
-        <input class="inp" id="pago-nota" placeholder="Ej: Efectivo, transferencia, parcial...">
+        <input class="inp" id="pago-nota" placeholder="Observación adicional...">
       </div>
       <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
         <button onclick="closeModal('ov-registrar-pago')"
@@ -2150,7 +2154,7 @@ let USER = null;
 let STORE = null;
 
 // ══ STATE ══
-let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[], minutas=[];
+let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[], minutas=[], pagosDeuda=[];
 let qtys={}, activeCat='all', filtered=[], method='Efectivo', periodo='semana';
 let stockFilter='all', histFilter='all';
 
@@ -2508,6 +2512,8 @@ function generarAsientosPeriodo(mesAno) {
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
   const minutasFilt = (minutas||[]).filter(m => !m.is_deleted && !m.anulada && m.fecha >= desde && m.fecha <= hasta)
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
+  const pagosDeudaFilt = (pagosDeuda||[]).filter(p => p.fecha && p.fecha >= desde && p.fecha <= hasta)
+                             .sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   // Merge and sort all by date
   const movs = [
@@ -2515,13 +2521,15 @@ function generarAsientosPeriodo(mesAno) {
     ...gastosFilt.map(g => ({fecha: g.fecha, tipo: 'g', data: g})),
     ...comprasFilt.map(c => ({fecha: c.fecha, tipo: 'c', data: c})),
     ...minutasFilt.map(m => ({fecha: m.fecha, tipo: 'm', data: m})),
+    ...pagosDeudaFilt.map(p => ({fecha: p.fecha, tipo: 'pd', data: p})),
   ].sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   movs.forEach(m => {
-    if (m.tipo === 'v') todos.push(asientoVenta(m.data));
-    if (m.tipo === 'g') todos.push(asientoGasto(m.data));
-    if (m.tipo === 'c') todos.push(asientoCompra(m.data));
-    if (m.tipo === 'm') todos.push(asientoMinuta(m.data));
+    if (m.tipo === 'v')  todos.push(asientoVenta(m.data));
+    if (m.tipo === 'g')  todos.push(asientoGasto(m.data));
+    if (m.tipo === 'c')  todos.push(asientoCompra(m.data));
+    if (m.tipo === 'm')  todos.push(asientoMinuta(m.data));
+    if (m.tipo === 'pd') todos.push(asientoPagoDeuda(m.data));
   });
 
   return todos;
@@ -3173,6 +3181,39 @@ function exportarMinutasExcel(){
   rows.push(['','','','','','','TOTAL INGRESOS',_csvNum(tI),''].join(SEP));
   _descargarCSV(rows, 'minutas.csv');
   showToast('Minutas exportadas ✅','ok');
+}
+
+async function loadPagosDeuda(){
+  try{ pagosDeuda = await sbGet('pagos_deuda'); }catch(e){ pagosDeuda = []; }
+}
+
+// Asiento de un cobro/pago de deuda → entra al Mayor/Diario por generarAsientosPeriodo
+function asientoPagoDeuda(p){
+  const deuda = (deudas||[]).find(d => d.id === p.deuda_id) || {};
+  const esCliente = deuda.tipo !== 'proveedor'; // por defecto, cobro a cliente
+  const nombreDe = (cod) => ((typeof PLAN_CUENTAS!=='undefined'?PLAN_CUENTAS:[]).find(x=>x.codigo===cod)?.nombre) || cod;
+  const cuentaMedio = p.cuenta_medio || (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
+  const cuentaCC    = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cuenta Corriente']) || '11301001';
+  const cuentaProv  = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.proveedores) || '21101001';
+  const monto = p.monto_abonado || 0;
+  const quien = deuda.nombre_cliente || '';
+  const lineas = [];
+  if(esCliente){
+    lineas.push({ debe:true,  cuenta:cuentaMedio, nombre:nombreDe(cuentaMedio), importe:monto, detalle:'Cobro deuda '+quien });
+    lineas.push({ debe:false, cuenta:cuentaCC,    nombre:nombreDe(cuentaCC),    importe:monto, detalle:'Cancelación CC '+quien });
+  } else {
+    lineas.push({ debe:true,  cuenta:cuentaProv,  nombre:nombreDe(cuentaProv),  importe:monto, detalle:'Cancelación deuda '+quien });
+    lineas.push({ debe:false, cuenta:cuentaMedio, nombre:nombreDe(cuentaMedio), importe:monto, detalle:'Pago a '+quien });
+  }
+  return {
+    nro: getNroAsiento(), fecha: p.fecha,
+    tipo: esCliente ? 'COBRO DEUDA' : 'PAGO PROVEEDOR',
+    comprobante: 'PD-' + String(p.id || '').slice(0,8),
+    descripcion: (esCliente ? 'Cobro de deuda · ' : 'Pago a proveedor · ') + quien + (p.nota ? ' · '+p.nota : ''),
+    origen: 'pago_deuda', origen_id: p.id, lineas,
+    total_debe:  lineas.filter(l=>l.debe).reduce((s,l)=>s+l.importe,0),
+    total_haber: lineas.filter(l=>!l.debe).reduce((s,l)=>s+l.importe,0),
+  };
 }
 
 function _descargarCSV(rows, filename) {
@@ -6081,6 +6122,7 @@ async function initApp(){
     loadCompras(),
       loadProveedores(),
       loadMinutas(),
+      loadPagosDeuda(),
     loadCierres(),
     loadDeudas(),
     loadGastos(),
@@ -6312,6 +6354,13 @@ function abrirModalPago(id, nombre, saldo){
   document.getElementById('pago-saldo').textContent = '$'+Number(saldo).toLocaleString('es-AR');
   document.getElementById('pago-monto').value = '';
   document.getElementById('pago-nota').value = '';
+  const med = document.getElementById('pago-medio');
+  if(med && !med.options.length){
+    const e  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo'])      || '11101001';
+    const t  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Transferencia'])  || '11102006';
+    const mp = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['MercadoPago'])    || '11102006';
+    med.innerHTML = `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option>`;
+  }
   openModal('ov-registrar-pago');
 }
 
@@ -6327,20 +6376,27 @@ async function guardarPago(){
     const nuevoSaldo = Math.round((deuda.monto - monto)*100)/100;
     const nuevoEstado = nuevoSaldo <= 0 ? 'pagado' : 'pendiente';
     const montoOriginal = deuda.monto_original || deuda.monto;
+    const medSel = document.getElementById('pago-medio');
+    const cuentaMedio = medSel ? medSel.value : '11101001';
+    const medioPago   = medSel ? medSel.options[medSel.selectedIndex]?.text : 'Efectivo';
+    const fechaHoy = new Date().toISOString().split('T')[0];
     // Actualizar deuda
     await SB.from('deudas').update({
       monto: nuevoSaldo,
       estado: nuevoEstado,
       monto_original: montoOriginal
     }).eq('id', id);
-    // Registrar en historial
-    await SB.from('pagos_deuda').insert({
+    // Registrar en historial (con medio de pago → permite generar el asiento contable)
+    const pago = await sbInsert('pagos_deuda', {
       deuda_id: id,
-      tienda_id: STORE.id,
       monto_abonado: monto,
       saldo_restante: nuevoSaldo,
-      nota: nota || null
+      nota: nota || null,
+      medio_pago: medioPago,
+      cuenta_medio: cuentaMedio,
+      fecha: fechaHoy
     });
+    pagosDeuda.unshift(pago);
     // Actualizar local
     deuda.monto = nuevoSaldo;
     deuda.estado = nuevoEstado;
