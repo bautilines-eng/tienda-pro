@@ -1028,6 +1028,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div style="padding:0 20px;display:flex;flex-direction:column;gap:8px" id="de-list">
       <div class="empty">Sin deudas registradas</div>
     </div>
+    <div style="padding:16px 20px 4px;font-size:13px;font-weight:700;color:#8a4b1f">Notas de débito emitidas</div>
+    <div style="padding:0 20px 20px" id="nd-list">
+      <div class="empty" style="padding:14px;text-align:center;color:#aaa">Sin notas de débito emitidas</div>
+    </div>
     <div id="de-saldos" style="display:none;padding:0 20px"></div>
   </div>
 
@@ -3518,6 +3522,7 @@ async function guardarNotaDebito(){
       deudas.unshift(deuda);
       if(typeof renderDeudas === 'function') renderDeudas();
     }
+    if(typeof renderNotasDebito === 'function') renderNotasDebito();
     closeModal('ov-nota-debito');
     showToast(`✅ Nota de débito ${numero} emitida`,'ok');
   }catch(e){ showToast('❌ Error al emitir la nota de débito','err'); console.error(e); }
@@ -3545,6 +3550,53 @@ function asientoNotaDebito(nd){
     origen: 'nota_debito', origen_id: nd.id, lineas,
     total_debe: total, total_haber: neto+iva,
   };
+}
+
+function renderNotasDebito(){
+  const el = document.getElementById('nd-list');
+  if(!el) return;
+  const list = (notasDebito||[]).filter(n=>!n.is_deleted)
+    .sort((a,b)=> String(b.fecha||'').localeCompare(String(a.fecha||'')) || String(b.nro_nota||'').localeCompare(String(a.nro_nota||'')));
+  if(!list.length){ el.innerHTML='<div class="empty" style="padding:14px;text-align:center;color:#aaa">Sin notas de débito emitidas</div>'; return; }
+  el.innerHTML = list.map(n=>`<div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid #eee;border-radius:10px;margin-bottom:8px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700">${esc(n.nro_nota||'')} ${n.suma_cc?'<span style="font-size:10px;background:#fdf0e6;color:#8a4b1f;border-radius:5px;padding:1px 6px">CTA CTE</span>':''}</div>
+        <div style="font-size:12px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(n.cliente||'Sin cliente')} · ${esc(n.motivo||'')}</div>
+        <div style="font-size:11px;color:#999">${esc(n.fecha||'')}${n.venta_nro?' · ref '+esc(n.venta_nro):''}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:14px;font-weight:700;color:#8a4b1f">$${(n.total||0).toLocaleString('es-AR')}</div>
+        <button onclick="exportarNotaDebitoPDF('${n.id}')" style="margin-top:4px;padding:4px 10px;border-radius:7px;border:1px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:11px;cursor:pointer">📄 PDF</button>
+      </div>
+    </div>`).join('');
+}
+
+function exportarNotaDebitoPDF(id){
+  const n = (notasDebito||[]).find(x=>x.id===id);
+  if(!n){ showToast('Nota de débito no encontrada','err'); return; }
+  const a = asientoNotaDebito(n);
+  const fmt = (v)=> '$'+(v||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const filas = a.lineas.map(l=>`<tr><td>${l.cuenta}</td><td>${esc(l.nombre)}</td><td style="text-align:right">${l.debe?fmt(l.importe):''}</td><td style="text-align:right">${!l.debe?fmt(l.importe):''}</td></tr>`).join('');
+  const win = window.open('', '_blank');
+  if(!win){ showToast('Permití las ventanas emergentes para el PDF','err'); return; }
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(n.nro_nota||'ND')+'</title>'
+    +'<style>body{font-family:Arial,sans-serif;padding:32px;color:#222}h1{font-size:18px;margin:0}'
+    +'table{width:100%;border-collapse:collapse;margin-top:14px}th,td{border:1px solid #ccc;padding:6px 8px;font-size:13px}'
+    +'.head{display:flex;justify-content:space-between;border-bottom:2px solid #333;padding-bottom:10px;margin-bottom:14px}</style></head><body>'
+    +'<div class="head"><div><h1>NOTA DE D\u00c9BITO</h1><div>'+((typeof STORE!=='undefined'&&STORE)?esc(STORE.name):'')+'</div></div>'
+    +'<div style="text-align:right"><div style="font-size:20px;font-weight:bold">'+esc(n.nro_nota||'')+'</div><div>'+esc(n.fecha||'')+'</div></div></div>'
+    +'<p><b>Cliente:</b> '+esc(n.cliente||'-')+'<br><b>Motivo:</b> '+esc(n.motivo||'')+'<br><b>Detalle:</b> '+esc(n.detalle||'-')+(n.venta_nro?'<br><b>Venta ref.:</b> '+esc(n.venta_nro):'')+'</p>'
+    +'<table><thead><tr><th>Detalle</th><th style="text-align:right">Importe</th></tr></thead><tbody>'
+    +'<tr><td>Neto gravado</td><td style="text-align:right">'+fmt(n.neto_gravado)+'</td></tr>'
+    +'<tr><td>IVA 21%</td><td style="text-align:right">'+fmt(n.importe_iva)+'</td></tr>'
+    +'<tr><td><b>TOTAL</b></td><td style="text-align:right"><b>'+fmt(n.total)+'</b></td></tr>'
+    +'</tbody></table>'
+    +'<h3 style="font-size:14px;margin-top:20px">Asiento contable</h3>'
+    +'<table><thead><tr><th>Cuenta</th><th>Descripci\u00f3n</th><th>Debe</th><th>Haber</th></tr></thead><tbody>'+filas+'</tbody></table>'
+    +'<p style="margin-top:50px">Firma: _______________________</p>'
+    +'<p style="font-size:11px;color:#666">Comprobante interno — no v\u00e1lido como factura.</p></body></html>');
+  win.document.close();
+  setTimeout(()=>{ try{ win.focus(); win.print(); }catch(e){} }, 300);
 }
 
 function _descargarCSV(rows, filename) {
@@ -6535,6 +6587,7 @@ async function loadDeudas(){
 }
 
 function renderDeudas(){
+  if(typeof renderNotasDebito === 'function') renderNotasDebito();
   // Filter by tab
   let pendientes;
   const deTabEl = document.querySelector('.de-tab.active');
