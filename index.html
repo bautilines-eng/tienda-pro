@@ -539,6 +539,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="ntab" onclick="gp('ps',this)"><span>📦</span>Stock</div>
       <div class="ntab" onclick="gp('pcl',this)"><span>👥</span>Clientes</div>
       <div class="ntab" onclick="gp('pco',this)"><span>🚚</span>Compras</div>
+      <div class="ntab" onclick="gp('pprec',this)"><span>🏷️</span>Precios</div>
       <div class="ntab" onclick="gp('pde',this)"><span>💸</span>Deudores</div>
       <div class="ntab" onclick="gp('pusu',this)"><span>👤</span>Usuarios</div>
       <div class="ntab" onclick="gp('paud',this)"><span>🔍</span>Auditoría</div>
@@ -1644,6 +1645,23 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 </div>
 
 <!-- CONFIGURACION MI TIENDA --><!-- CONFIGURACION MI TIENDA -->
+  <div id="pprec" class="page">
+    <div class="hero h-pine" data-bg="PRECIOS">
+      <div class="hl">Motor de precios</div>
+      <div class="ht">Precios</div>
+      <div class="hs">Margen por proveedor y ajustes por categoría</div>
+    </div>
+    <div style="padding:14px 20px 0">
+      <div class="card">
+        <div class="flabel">Proveedor</div>
+        <select class="inp" id="prec-prov" style="cursor:pointer" onchange="selectPrecioProv(this.value)">
+          <option value="">Elegí un proveedor...</option>
+        </select>
+      </div>
+      <div id="prec-panel"></div>
+    </div>
+  </div>
+
   <div id="pcfg" class="page">
     <div class="hero h-ink" data-bg="CONFIG">
       <div class="hl">Configuración</div>
@@ -3597,6 +3615,155 @@ function exportarNotaDebitoPDF(id){
     +'<p style="font-size:11px;color:#666">Comprobante interno — no v\u00e1lido como factura.</p></body></html>');
   win.document.close();
   setTimeout(()=>{ try{ win.focus(); win.print(); }catch(e){} }, 300);
+}
+
+let reglasPrecios = [];
+
+function calcPrecioJS(costo, margen, iva, redondeo){
+  costo = +costo || 0;
+  if(costo <= 0) return 0;
+  iva = (iva==null ? 21 : +iva);
+  redondeo = (redondeo==null ? 1 : +redondeo);
+  let p = costo * (1 + (+margen||0)/100) * (1 + iva/100);
+  if(redondeo > 0) p = Math.round(p/redondeo)*redondeo;
+  else p = Math.round(p*100)/100;
+  return p;
+}
+
+function margenEfectivo(prov, cat){
+  const r = (reglasPrecios||[]).find(x=>x.proveedor_id===prov.id && x.categoria===cat && x.activo);
+  if(r) return {margen:+r.margen, propia:true};
+  const rg = (reglasPrecios||[]).find(x=>x.proveedor_id===prov.id && x.categoria==null && x.activo);
+  if(rg) return {margen:+rg.margen, propia:false};
+  return {margen:+(prov.margen_default||0), propia:false};
+}
+
+function muestraPrecioCat(list, cat, margen, redondeo){
+  const p = list.find(x=>x.categoria===cat && +x.costo>0);
+  if(!p) return null;
+  return {costo:+p.costo, precio:calcPrecioJS(+p.costo, margen, p.iva_alicuota, redondeo)};
+}
+
+async function renderPreciosPage(){
+  try{ proveedores = await sbGet('proveedores'); }catch(e){}
+  try{ reglasPrecios = await sbGet('reglas_precios'); }catch(e){ reglasPrecios=[]; }
+  const sel = document.getElementById('prec-prov');
+  if(!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Elegí un proveedor...</option>' +
+    (proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
+  if(prev && (proveedores||[]).some(p=>p.id===prev)){ sel.value=prev; selectPrecioProv(prev); }
+  else document.getElementById('prec-panel').innerHTML =
+    '<div style="padding:34px 16px;text-align:center;color:var(--muted);font-size:13px">Elegí un proveedor para ver y ajustar sus márgenes.</div>';
+}
+
+function selectPrecioProv(id){
+  const panel = document.getElementById('prec-panel');
+  if(!panel) return;
+  if(!id){ panel.innerHTML=''; return; }
+  const prov = (proveedores||[]).find(p=>p.id===id);
+  if(!prov){ panel.innerHTML=''; return; }
+  const prodsProv = (prods||[]).filter(p=>p.proveedor_id===id && !p.is_deleted);
+  const cats = [...new Set(prodsProv.map(p=>p.categoria).filter(Boolean))].sort();
+  const redondeo = prov.redondeo==null ? 1 : +prov.redondeo;
+
+  let html = `
+  <div class="card">
+    <div style="font-size:14px;font-weight:600;margin-bottom:14px">Margen base · ${esc(prov.nombre)}</div>
+    <div class="frow">
+      <div style="flex:1"><div class="flabel">Recargo sobre el costo</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input class="inp" id="prec-margen-base" type="number" value="${prov.margen_default==null?30:prov.margen_default}" style="text-align:right">
+          <span style="font-weight:700;color:var(--pine)">%</span>
+        </div>
+      </div>
+      <div style="flex:1"><div class="flabel">Redondeo</div>
+        <select class="inp" id="prec-redondeo" style="cursor:pointer">
+          <option value="1" ${redondeo===1?'selected':''}>Al peso</option>
+          <option value="10" ${redondeo===10?'selected':''}>A la decena</option>
+          <option value="0" ${redondeo===0?'selected':''}>Sin redondeo</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-pine btn-full" style="margin-top:12px" onclick="guardarMargenBase('${id}')">Guardar y recalcular precios</button>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">Se aplica a las categorías sin ajuste propio. ${prodsProv.length} producto${prodsProv.length!==1?'s':''} de este proveedor.</div>
+  </div>
+
+  <div class="card">
+    <div style="font-size:14px;font-weight:600;margin-bottom:4px">Ajustes por categoría</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Subí o bajá el margen de un grupo. Impacta al toque en la góndola.</div>`;
+
+  if(!cats.length){
+    html += `<div style="padding:16px 0;color:var(--muted);font-size:13px">Este proveedor todavía no tiene productos con categoría.</div>`;
+  } else {
+    html += cats.map((cat,i)=>{
+      const me = margenEfectivo(prov, cat);
+      const n = prodsProv.filter(p=>p.categoria===cat).length;
+      const ej = muestraPrecioCat(prodsProv, cat, me.margen, redondeo);
+      const catEnc = encodeURIComponent(cat);
+      return `<div style="padding:12px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="min-width:0">
+            <div style="font-weight:600;font-size:13px">${esc(cat)}</div>
+            <div style="font-size:11px;color:var(--muted)">${n} producto${n!==1?'s':''}${me.propia?'':' · hereda del proveedor'}</div>
+          </div>
+          <span style="font-family:'DM Mono',monospace;font-weight:700;font-size:17px;color:var(--pine)">${me.margen}%</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:9px;flex-wrap:wrap">
+          <button class="btn btn-outline btn-sm" onclick="ajustarSegmentoUI('${id}','${catEnc}',-5)">−5%</button>
+          <button class="btn btn-outline btn-sm" onclick="ajustarSegmentoUI('${id}','${catEnc}',5)">+5%</button>
+          <input class="inp" id="seg-set-${i}" type="number" placeholder="fijar %" style="width:88px;padding:6px 8px;text-align:right">
+          <button class="btn btn-pine btn-sm" onclick="fijarSegmentoUI('${id}','${catEnc}','seg-set-${i}')">Fijar</button>
+          ${ej?`<span style="font-size:11px;color:var(--muted);margin-left:auto">ej: $${ej.costo.toLocaleString('es-AR')} → <b style="color:var(--ink)">$${ej.precio.toLocaleString('es-AR')}</b></span>`:''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+  html += `</div>`;
+  panel.innerHTML = html;
+}
+
+async function guardarMargenBase(id){
+  const margen = parseFloat(document.getElementById('prec-margen-base').value);
+  const redondeo = parseFloat(document.getElementById('prec-redondeo').value);
+  if(isNaN(margen)){ showToast('Ingresá un margen válido','err'); return; }
+  try{
+    await sbUpdate('proveedores', id, {margen_default:margen, redondeo:isNaN(redondeo)?1:redondeo});
+    const { data, error } = await SB.rpc('recalcular_precios_proveedor', {p_tienda_id:STORE.id, p_proveedor_id:id});
+    if(error) throw error;
+    await loadProds();
+    try{ proveedores = await sbGet('proveedores'); }catch(e){}
+    selectPrecioProv(id);
+    showToast(`✅ Margen guardado · ${data||0} precios recalculados`,'ok');
+  }catch(e){ showToast('Error al guardar el margen','err'); console.error(e); }
+}
+
+async function ajustarSegmentoUI(id, catEnc, delta){
+  const cat = decodeURIComponent(catEnc);
+  try{
+    const { data, error } = await SB.rpc('ajustar_segmento',
+      {p_tienda_id:STORE.id, p_proveedor_id:id, p_categoria:cat, p_valor:delta, p_modo:'delta'});
+    if(error) throw error;
+    await loadProds();
+    try{ reglasPrecios = await sbGet('reglas_precios'); }catch(e){}
+    selectPrecioProv(id);
+    showToast(`✅ ${data||0} precios actualizados`,'ok');
+  }catch(e){ showToast('Error al ajustar el segmento','err'); console.error(e); }
+}
+
+async function fijarSegmentoUI(id, catEnc, inputId){
+  const v = parseFloat(document.getElementById(inputId).value);
+  if(isNaN(v)){ showToast('Ingresá el margen a fijar','err'); return; }
+  const cat = decodeURIComponent(catEnc);
+  try{
+    const { data, error } = await SB.rpc('ajustar_segmento',
+      {p_tienda_id:STORE.id, p_proveedor_id:id, p_categoria:cat, p_valor:v, p_modo:'set'});
+    if(error) throw error;
+    await loadProds();
+    try{ reglasPrecios = await sbGet('reglas_precios'); }catch(e){}
+    selectPrecioProv(id);
+    showToast(`✅ Margen fijado en ${v}% · ${data||0} precios`,'ok');
+  }catch(e){ showToast('Error al fijar el margen','err'); console.error(e); }
 }
 
 function _descargarCSV(rows, filename) {
@@ -8757,6 +8924,7 @@ function gp(id,el){
   if(id==='pr'){renderReportes();renderVentasDiarias();}
   if(id==='pcc')renderCaja();
   if(id==='pde')renderDeudas();
+  if(id==='pprec')renderPreciosPage();
   if(id==='pusu')loadUsuarios();
   if(id==='padmin')loadAdminTiendas();
   if(id==='pfin')renderFinanzas();
