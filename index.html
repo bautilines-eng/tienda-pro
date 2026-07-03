@@ -514,6 +514,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div><div class="flabel">Stock inicial</div><input class="inp" id="np-stock" type="number" placeholder="0"></div>
       <div><div class="flabel">Stock mínimo</div><input class="inp" id="np-min" type="number" placeholder="10"></div>
     </div>
+    <div class="frow" style="margin-bottom:10px">
+      <div><div class="flabel">Unidades por bulto</div><input class="inp" id="np-bulto" type="number" min="1" placeholder="1"></div>
+      <div></div>
+    </div>
     </div>
     <div id="np-alta-hint" style="display:none;margin-bottom:12px;padding:10px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:12px;color:#9a3412">📦 El stock y el precio de venta se cargan al registrar la <b>compra</b> del proveedor.</div>
     <div class="frow" style="margin-bottom:10px">
@@ -870,6 +874,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
 
     <div id="panel-stock" style="display:block">
+    <button onclick="exportarStockContadora()" style="width:100%;margin:0 0 10px;padding:11px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:600;cursor:pointer">📊 Exportar Excel de stock (para contadora)</button>
     <div style="position:relative;margin:0 0 10px">
       <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:15px;opacity:.5">🔍</span>
       <input id="st-search" class="inp" placeholder="Buscar producto por nombre o código..." style="padding-left:38px" oninput="buscarStock(this.value)">
@@ -910,7 +915,16 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="card">
         <div style="font-size:14px;font-weight:600;margin-bottom:14px">📥 Nueva Compra</div>
         <div class="fgroup" style="position:relative"><div class="flabel">Producto</div><input type="hidden" id="co-prod"><input type="text" class="inp" id="co-prod-search" autocomplete="off" placeholder="Buscar producto por nombre o código..." oninput="filtrarComboProd('co-prod', this.value)" onfocus="filtrarComboProd('co-prod', this.value)"><div id="co-prod-list" class="combo-list"></div></div>
-        <div class="fgroup"><div class="flabel">Cantidad</div><input class="inp" id="co-qty" type="number" min="1" placeholder="0"></div>
+        <div class="fgroup"><div class="flabel">Cantidad</div>
+          <div style="display:flex;gap:8px">
+            <input class="inp" id="co-qty" type="number" min="1" placeholder="0" style="flex:1" oninput="actualizarCompraUnidades()">
+            <select class="inp" id="co-modo" style="width:130px;cursor:pointer" onchange="actualizarCompraUnidades()">
+              <option value="unidad">Unidades</option>
+              <option value="bulto">Bultos</option>
+            </select>
+          </div>
+          <div id="co-unidades-hint" style="font-size:11px;color:var(--muted);margin-top:5px"></div>
+        </div>
         <div class="fgroup"><div class="flabel">Precio de venta <span style="font-size:10px;color:#aaa">(lo que vas a cobrar)</span></div><input class="inp" id="co-precio-venta" type="number" placeholder="$0"></div>
         <div class="fgroup"><div class="flabel">Proveedor</div>
           <div style="display:flex;gap:8px;align-items:center">
@@ -1678,6 +1692,17 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           <div class="frow" style="margin-top:8px">
             <div style="flex:1"><div class="flabel">Columna código</div><select class="inp" id="lista-sku" style="cursor:pointer" onchange="previewLista()"></select></div>
             <div style="flex:1"><div class="flabel">Columna precio (neto)</div><select class="inp" id="lista-price" style="cursor:pointer" onchange="previewLista()"></select></div>
+          </div>
+          <div class="frow" style="margin-top:8px">
+            <div style="flex:1"><div class="flabel">El precio de lista es</div>
+              <select class="inp" id="lista-modo" style="cursor:pointer" onchange="onListaModo()">
+                <option value="bulto">Por bulto (dividir ÷ unidades)</option>
+                <option value="unidad">Por unidad</option>
+              </select>
+            </div>
+            <div style="flex:1" id="lista-upb-wrap"><div class="flabel">Columna unidades por bulto</div>
+              <select class="inp" id="lista-upb" style="cursor:pointer" onchange="previewLista()"></select>
+            </div>
           </div>
           <label style="display:flex;align-items:center;gap:8px;margin:10px 0;font-size:12.5px;cursor:pointer">
             <input type="checkbox" id="lista-prefijo" checked onchange="previewLista()" style="width:16px;height:16px">
@@ -3679,7 +3704,7 @@ async function renderPreciosPage(){
   if(!sel) return;
   const prev = sel.value;
   sel.innerHTML = '<option value="">Elegí un proveedor...</option>' +
-    (proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
+    (proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
   if(prev && (proveedores||[]).some(p=>p.id===prev)){ sel.value=prev; selectPrecioProv(prev); }
   else document.getElementById('prec-panel').innerHTML =
     '<div style="padding:34px 16px;text-align:center;color:var(--muted);font-size:13px">Elegí un proveedor para ver y ajustar sus márgenes.</div>';
@@ -3812,6 +3837,8 @@ function _listaSaveMap(provId){
     headerRow:parseInt(document.getElementById('lista-header').value)||1,
     skuCol:parseInt(document.getElementById('lista-sku').value),
     priceCol:parseInt(document.getElementById('lista-price').value),
+    upbCol:(document.getElementById('lista-upb')?.value===''?'':parseInt(document.getElementById('lista-upb').value)),
+    modo:document.getElementById('lista-modo')?.value||'bulto',
     prefijo:document.getElementById('lista-prefijo').checked
   })); }catch(_){}
 }
@@ -3855,21 +3882,39 @@ function refreshListaCols(){
   const saved=_listaLoadMap(provId);
   const opts=labels.map(o=>`<option value="${o.i}">${esc(o.label)}</option>`).join('');
   const skuSel=document.getElementById('lista-sku'), prSel=document.getElementById('lista-price');
+  const upbSel=document.getElementById('lista-upb');
   skuSel.innerHTML=opts; prSel.innerHTML=opts;
+  if(upbSel) upbSel.innerHTML='<option value="">— (no hay / usar la del producto) —</option>'+opts;
   const findCol=(rx)=>{const f=labels.find(o=>rx.test(o.label)); return f?f.i:null;};
   const skuGuess=(saved&&saved.skuCol!=null)?saved.skuCol:(findCol(/sku|c[oó]digo|codigo|ean/i));
   const prGuess=(saved&&saved.priceCol!=null)?saved.priceCol:(findCol(/precio|costo|lista/i));
   if(skuGuess!=null) skuSel.value=skuGuess; else if(labels[0]) skuSel.value=labels[0].i;
   if(prGuess!=null) prSel.value=prGuess; else if(labels.length) prSel.value=labels[labels.length-1].i;
+  const upbSel2=document.getElementById('lista-upb');
+  if(upbSel2){
+    const upbGuess=(saved&&saved.upbCol!==undefined)?saved.upbCol:(findCol(/unidad.*bulto|u\.?x\.?b|upb/i));
+    upbSel2.value=(upbGuess!=null&&upbGuess!=='')?upbGuess:'';
+  }
+  if(saved&&saved.modo) { const lm=document.getElementById('lista-modo'); if(lm) lm.value=saved.modo; }
   if(saved&&saved.prefijo!=null) document.getElementById('lista-prefijo').checked=!!saved.prefijo;
+  onListaModo();
   previewLista();
 }
 
+function onListaModo(){
+  const modo=document.getElementById('lista-modo')?.value||'bulto';
+  const wrap=document.getElementById('lista-upb-wrap');
+  if(wrap) wrap.style.display = (modo==='bulto') ? 'block' : 'none';
+  previewLista();
+}
 function _buildListaItems(){
   const hdr=parseInt(document.getElementById('lista-header').value)||1;
   const skuCol=parseInt(document.getElementById('lista-sku').value);
   const prCol=parseInt(document.getElementById('lista-price').value);
   const usarPrefijo=document.getElementById('lista-prefijo').checked;
+  const modo=document.getElementById('lista-modo')?.value||'bulto';
+  const upbColRaw=document.getElementById('lista-upb')?.value;
+  const upbCol=(upbColRaw===''||upbColRaw==null)?null:parseInt(upbColRaw);
   const provId=document.getElementById('prec-prov').value;
   const prov=(proveedores||[]).find(p=>p.id===provId);
   const prefijo=(prov&&prov.prefijo_barcode)?prov.prefijo_barcode:'';
@@ -3880,10 +3925,17 @@ function _buildListaItems(){
     let cod=row[skuCol]; const precio=row[prCol];
     if(cod==null||cod==='') continue;
     cod=(''+cod).replace(/\.0+$/,'').trim();
-    const costo=parseFloat(precio);
+    let costo=parseFloat(precio);
     if(!isFinite(costo)||costo<=0) continue;
+    // unidades por bulto (de la columna del Excel, si se indicó)
+    let upb=null;
+    if(upbCol!=null){ const u=parseInt(row[upbCol]); if(isFinite(u)&&u>=1) upb=u; }
+    // si la lista viene por bulto y tenemos upb, el costo unitario = precio ÷ upb
+    if(modo==='bulto' && upb && upb>1){ costo=costo/upb; }
     const barcode=(usarPrefijo&&prefijo)?(prefijo+'-'+cod):cod;
-    items.push({barcode, costo:Math.round(costo*100)/100});
+    const item={barcode, costo:Math.round(costo*100)/100};
+    if(upb) item.upb=upb;
+    items.push(item);
   }
   return items;
 }
@@ -3897,7 +3949,7 @@ function previewLista(){
   const ej=items[0];
   el.innerHTML = items.length
     ? `<b>${items.length}</b> productos con precio · <b style="color:var(--pine)">${match}</b> coinciden con tu catálogo · ${items.length-match} sin coincidencia`
-      + (ej?`<br>Ejemplo: <span style="font-family:'DM Mono',monospace">${esc(ej.barcode)}</span> → costo $${ej.costo.toLocaleString('es-AR')}`:'')
+      + (ej?`<br>Ejemplo: <span style="font-family:'DM Mono',monospace">${esc(ej.barcode)}</span> → costo unitario $${ej.costo.toLocaleString('es-AR')}${ej.upb?` (bulto de ${ej.upb})`:''}`:'')
       + (match===0?`<br><span style="color:var(--red)">⚠️ Ningún código coincide. Revisá la columna de código o el prefijo.</span>`:'')
     : 'No se encontraron precios válidos con esta configuración.';
 }
@@ -3919,6 +3971,42 @@ async function confirmarLista(){
     showToast(`✅ ${data||0} precios actualizados y recalculados`,'ok');
   }catch(e){ showToast('Error al actualizar la lista','err'); console.error(e); }
   finally{ btn.disabled=false; btn.textContent=txt; }
+}
+
+function exportarStockContadora(){
+  if(typeof XLSX==='undefined'){ showToast('El generador de Excel se está cargando, probá de nuevo','err'); return; }
+  const provMap={}; (proveedores||[]).forEach(p=>{ provMap[p.id]=p.razon_social||p.nombre||''; });
+  const lista=(prods||[]).filter(p=>!p.is_deleted).sort((a,b)=>{
+    const pa=provMap[a.proveedor_id]||'~', pb=provMap[b.proveedor_id]||'~';
+    return pa.localeCompare(pb) || (a.nombre||'').localeCompare(b.nombre||'');
+  });
+  if(!lista.length){ showToast('No hay productos para exportar','err'); return; }
+  const header=['Producto','Código','Categoría','Proveedor','Unid. x bulto','Stock (unidades)','Bultos','Costo unit. neto','Costo x bulto','Precio venta unit.','IVA %','Valorización stock'];
+  const aoa=[header];
+  let totalVal=0, totalStock=0;
+  lista.forEach(p=>{
+    const upb=p.unidades_por_bulto||1;
+    const stock=p.stock||0;
+    const costo=+p.costo||0;
+    const bultos=upb>0?(stock/upb):0;
+    const val=stock*costo;
+    totalVal+=val; totalStock+=stock;
+    aoa.push([
+      p.nombre||'', p.barcode||'', p.categoria||'', provMap[p.proveedor_id]||'',
+      upb, stock, Math.round(bultos*100)/100,
+      Math.round(costo*100)/100, Math.round(costo*upb*100)/100,
+      +p.precio||0, (p.iva_alicuota==null?21:+p.iva_alicuota),
+      Math.round(val*100)/100
+    ]);
+  });
+  aoa.push([]);
+  aoa.push(['TOTALES','','','','',totalStock,'','','','','',Math.round(totalVal*100)/100]);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:34},{wch:16},{wch:14},{wch:18},{wch:12},{wch:15},{wch:9},{wch:14},{wch:14},{wch:15},{wch:7},{wch:17}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Stock');
+  XLSX.writeFile(wb, 'stock_'+new Date().toISOString().split('T')[0]+'.xlsx');
+  showToast('✅ Excel de stock exportado','ok');
 }
 
 function _descargarCSV(rows, filename) {
@@ -7993,6 +8081,7 @@ function editProduct(id){
   document.getElementById('np-stock').value=p.stock||'';
   document.getElementById('np-cat').value=p.categoria||'';
   document.getElementById('np-min').value=p.stock_minimo||10;
+  { const _b=document.getElementById('np-bulto'); if(_b) _b.value=p.unidades_por_bulto||1; }
   actualizarMargenPreview();
   const _blk=document.getElementById('np-pricing-block'); if(_blk) _blk.style.display='';
   const _hint=document.getElementById('np-alta-hint'); if(_hint) _hint.style.display='none';
@@ -8006,7 +8095,7 @@ async function updateProduct(id){
   const nombre=document.getElementById('np-name').value.trim();
   if(!nombre){showToast('Ingresá el nombre','err');return;}
   const precioAnterior = prodActual?.precio || 0;
-    const updates={nombre,precio:parseFloat(document.getElementById('np-price').value)||0,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10};
+    const updates={nombre,precio:parseFloat(document.getElementById('np-price').value)||0,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
   try{
     await SB.from('productos').update(updates).eq('id',id);
     const idx=prods.findIndex(x=>x.id==id);
@@ -8061,6 +8150,7 @@ async function saveProduct(){
       stock:parseInt(document.getElementById('np-stock').value)||0,
       categoria:document.getElementById('np-cat').value||'General',
       stock_minimo:parseInt(document.getElementById('np-min').value)||10,
+      unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1,
       proveedor_id,
     });
     if(proveedor_id && p){
@@ -8077,7 +8167,8 @@ async function saveProduct(){
 function abrirAltaProducto(){
   ['np-name','np-barcode','np-cat','np-vence','np-price','np-costo','np-stock','np-min'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   const npProv=document.getElementById('np-proveedor');
-  if(npProv) npProv.innerHTML='<option value="">— Sin proveedor —</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('');
+  if(npProv) npProv.innerHTML='<option value="">— Sin proveedor —</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
+  { const _b=document.getElementById('np-bulto'); if(_b) _b.value=''; }
   const t=document.querySelector('#ov-add-prod .modal-title'); if(t) t.textContent='Nuevo Producto';
   const btn=document.querySelector('#ov-add-prod .btn-ink'); if(btn){ btn.textContent='Guardar producto'; btn.onclick=saveProduct; }
   const blk=document.getElementById('np-pricing-block'); if(blk) blk.style.display='none';
@@ -8240,6 +8331,23 @@ function seleccionarComboProd(targetId, pid){
   if(s) s.value = p ? p.nombre : '';
   const list = document.getElementById(targetId+'-list');
   if(list){ list.style.display='none'; list.innerHTML=''; }
+  if(targetId==='co-prod' && typeof actualizarCompraUnidades==='function') actualizarCompraUnidades();
+}
+
+function actualizarCompraUnidades(){
+  const hint=document.getElementById('co-unidades-hint');
+  if(!hint) return;
+  const pid=document.getElementById('co-prod')?.value;
+  const p=(prods||[]).find(x=>x.id===pid);
+  const qty=parseInt(document.getElementById('co-qty')?.value)||0;
+  const modo=document.getElementById('co-modo')?.value||'unidad';
+  if(!p){ hint.textContent=''; return; }
+  const upb=p.unidades_por_bulto||1;
+  if(modo==='bulto'){
+    hint.innerHTML = `Este producto trae <b>${upb}</b> u/bulto · ingresarán <b style="color:var(--pine)">${qty*upb}</b> unidades al stock`;
+  } else {
+    hint.innerHTML = upb>1 ? `Este producto trae ${upb} u/bulto` : '';
+  }
 }
 // Cerrar cualquier combo abierto al hacer clic fuera de su grupo
 document.addEventListener('click', function(e){
@@ -8274,18 +8382,23 @@ function selectPagoCompra(btn) {
 
 async function doCompra(){
   const pid     = document.getElementById('co-prod').value;
-  const qty     = parseInt(document.getElementById('co-qty').value);
+  const qtyInput = parseInt(document.getElementById('co-qty').value);
+  const modoCompra = document.getElementById('co-modo')?.value || 'unidad';
   const factura = document.getElementById('co-factura').value.trim();
   const provId  = document.getElementById('co-prov-select')?.value || '';
   const provObj = proveedores.find(x=>x.id===provId);
   const prov    = provObj ? provObj.razon_social : '';
   const vencePago = document.getElementById('co-vence-pago')?.value || null;
 
-  if(!pid||!qty||qty<=0){ showToast('Completá producto y cantidad','err'); return; }
+  if(!pid||!qtyInput||qtyInput<=0){ showToast('Completá producto y cantidad','err'); return; }
   if(!provId){ showToast('Elegí un proveedor (o cargá uno con "+ Nuevo")','err'); return; }
 
   const p = prods.find(x=>x.id==pid);
   if(!p){ showToast('Producto no encontrado','err'); return; }
+
+  // Convertir bultos → unidades reales para el stock (según unidades por bulto del producto)
+  const upbCompra = p.unidades_por_bulto || 1;
+  const qty = (modoCompra==='bulto') ? qtyInput * upbCompra : qtyInput;
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -8333,13 +8446,15 @@ async function doCompra(){
     } catch(e) { console.error('No se pudo actualizar el precio del producto', e); }
     compras.unshift(compra);
 
-    showToast(`✅ +${qty} uds de ${esc(p.nombre.split(' ')[0])} ingresadas al stock. Cargá la factura para registrar el costo y la deuda.`, 'ok');
+    showToast(`✅ +${qty} uds${modoCompra==='bulto'?` (${qtyInput} bultos × ${upbCompra})`:''} de ${esc(p.nombre.split(' ')[0])} ingresadas al stock. Cargá la factura para registrar el costo y la deuda.`, 'ok');
 
     // Reset form
     ['co-prod','co-prod-search','co-qty','co-factura'].forEach(id => {
       const el = document.getElementById(id);
       if(el) el.value = '';
     });
+    { const _m=document.getElementById('co-modo'); if(_m) _m.value='unidad';
+      const _h=document.getElementById('co-unidades-hint'); if(_h) _h.textContent=''; }
     const provEl = document.getElementById('co-prov-select');
     if(provEl) provEl.value = '';
     const pvEl = document.getElementById('co-precio-venta');
