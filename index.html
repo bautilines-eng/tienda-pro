@@ -912,8 +912,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="hs">Registrá compras y actualizá stock</div>
     </div>
     <div style="padding:14px 20px 0">
+      <button onclick="abrirModalRemito()" style="width:100%;margin-bottom:12px;padding:12px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:700;cursor:pointer">📦 Cargar remito (varios productos)</button>
       <div class="card">
-        <div style="font-size:14px;font-weight:600;margin-bottom:14px">📥 Nueva Compra</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:14px">📥 Nueva Compra <span style="font-size:11px;font-weight:400;color:#999">(un producto)</span></div>
         <div class="fgroup" style="position:relative"><div class="flabel">Producto</div><input type="hidden" id="co-prod"><input type="text" class="inp" id="co-prod-search" autocomplete="off" placeholder="Buscar producto por nombre o código..." oninput="filtrarComboProd('co-prod', this.value)" onfocus="filtrarComboProd('co-prod', this.value)"><div id="co-prod-list" class="combo-list"></div></div>
         <div class="fgroup"><div class="flabel">Cantidad</div>
           <div style="display:flex;gap:8px">
@@ -2230,6 +2231,45 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <input class="inp" id="de-tel" type="tel" placeholder="+54 9 381...">
     </div>
     <button class="btn btn-rust btn-full" onclick="saveDeuda()">Registrar deuda</button>
+  </div>
+</div>
+
+<!-- MODAL CARGAR REMITO (MULTIPRODUCTO) -->
+<div class="overlay" id="ov-remito">
+  <div class="modal" style="position:relative">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-remito')">✕</button>
+    <div class="modal-title">📦 Cargar remito</div>
+    <div style="font-size:12.5px;color:#666;margin-bottom:14px">Un comprobante con varios productos. Se cargan al stock de una vez. Si ponés el costo, se actualiza el precio de venta solo.</div>
+
+    <div class="frow">
+      <div style="flex:1"><div class="flabel">Proveedor</div>
+        <select class="inp" id="rem-prov" style="cursor:pointer"><option value="">Elegí...</option></select></div>
+      <div style="width:130px"><div class="flabel">Nº factura/remito</div><input class="inp" id="rem-nro" placeholder="0004-00003853"></div>
+    </div>
+    <div class="frow" style="margin-top:8px">
+      <div style="flex:1"><div class="flabel">Fecha</div><input class="inp" id="rem-fecha" type="date"></div>
+      <div style="flex:1"><div class="flabel">Forma de pago</div>
+        <select class="inp" id="rem-pago" style="cursor:pointer" onchange="onRemitoPago()">
+          <option value="Contado">Contado</option>
+          <option value="Cuenta Corriente">Cuenta Corriente</option>
+        </select></div>
+      <div style="width:90px"><div class="flabel">IVA %</div><input class="inp" id="rem-alic" type="number" value="21" oninput="recalcRemitoTotales()"></div>
+    </div>
+    <div class="frow" id="rem-vence-wrap" style="margin-top:8px;display:none">
+      <div style="flex:1"><div class="flabel">Vencimiento (Cta Cte)</div><input class="inp" id="rem-vence" type="date"></div>
+    </div>
+
+    <div style="margin:14px 0 6px;font-weight:600;font-size:13px">Productos del remito</div>
+    <div class="fgroup" style="position:relative">
+      <input type="hidden" id="rem-add">
+      <input type="text" class="inp" id="rem-add-search" autocomplete="off" placeholder="Buscar producto para agregar..." oninput="filtrarComboProd('rem-add', this.value)" onfocus="filtrarComboProd('rem-add', this.value)">
+      <div id="rem-add-list" class="combo-list"></div>
+    </div>
+    <div id="rem-lineas"></div>
+    <div id="rem-totales" style="font-size:13px;color:#555;margin:10px 0;text-align:right"></div>
+
+    <button class="btn btn-pine btn-full" id="rem-btn" onclick="confirmarRemito()">Cargar remito al stock</button>
   </div>
 </div>
 
@@ -4007,6 +4047,168 @@ function exportarStockContadora(){
   XLSX.utils.book_append_sheet(wb, ws, 'Stock');
   XLSX.writeFile(wb, 'stock_'+new Date().toISOString().split('T')[0]+'.xlsx');
   showToast('✅ Excel de stock exportado','ok');
+}
+
+let remitoLineas = [];
+
+function abrirModalRemito(){
+  remitoLineas = [];
+  const sel=document.getElementById('rem-prov');
+  if(sel) sel.innerHTML='<option value="">Elegí...</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
+  const f=document.getElementById('rem-fecha'); if(f) f.value=new Date().toISOString().split('T')[0];
+  ['rem-nro','rem-vence'].forEach(id=>{const e=document.getElementById(id); if(e) e.value='';});
+  const alic=document.getElementById('rem-alic'); if(alic) alic.value=21;
+  const pago=document.getElementById('rem-pago'); if(pago) pago.value='Contado';
+  const s=document.getElementById('rem-add-search'); if(s) s.value='';
+  onRemitoPago();
+  renderRemitoLineas();
+  openModal('ov-remito');
+}
+function onRemitoPago(){
+  const pago=document.getElementById('rem-pago')?.value;
+  const w=document.getElementById('rem-vence-wrap');
+  if(w) w.style.display = (pago==='Cuenta Corriente')?'flex':'none';
+}
+
+function agregarLineaRemito(pid){
+  const p=(prods||[]).find(x=>x.id===pid); if(!p) return;
+  if(remitoLineas.some(l=>l.prodId===pid)){ showToast('Ese producto ya está en el remito','err'); return; }
+  remitoLineas.push({uid:'L'+Date.now()+Math.floor(Math.random()*1000), prodId:pid, nombre:p.nombre, upb:p.unidades_por_bulto||1});
+  renderRemitoLineas();
+}
+function quitarLineaRemito(uid){
+  remitoLineas = remitoLineas.filter(l=>l.uid!==uid);
+  renderRemitoLineas();
+}
+function renderRemitoLineas(){
+  const cont=document.getElementById('rem-lineas'); if(!cont) return;
+  if(!remitoLineas.length){
+    cont.innerHTML='<div style="padding:14px;text-align:center;color:var(--muted);font-size:12.5px">Buscá y agregá productos arriba.</div>';
+    recalcRemitoTotales(); return;
+  }
+  cont.innerHTML = remitoLineas.map(l=>`
+    <div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="font-weight:600;font-size:12.5px;min-width:0">${esc(l.nombre)} <span style="font-size:10px;color:var(--muted)">(${l.upb} u/bulto)</span></div>
+        <button onclick="quitarLineaRemito('${l.uid}')" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:15px">✕</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <input type="number" id="rem-qty-${l.uid}" min="1" value="1" placeholder="Cant." style="width:64px" class="inp" oninput="recalcRemitoTotales()">
+        <select id="rem-modo-${l.uid}" class="inp" style="width:96px;cursor:pointer" onchange="recalcRemitoTotales()">
+          <option value="bulto">Bultos</option><option value="unidad">Unidades</option>
+        </select>
+        <input type="number" id="rem-costo-${l.uid}" min="0" placeholder="Costo (opc.)" style="width:110px" class="inp" oninput="recalcRemitoTotales()">
+        <span id="rem-sub-${l.uid}" style="font-size:11px;color:var(--muted);margin-left:auto;text-align:right"></span>
+      </div>
+    </div>`).join('');
+  recalcRemitoTotales();
+}
+function recalcRemitoTotales(){
+  const alic=parseFloat(document.getElementById('rem-alic')?.value)||21;
+  let netoTotal=0, unidadesTotal=0;
+  remitoLineas.forEach(l=>{
+    const qty=parseFloat(document.getElementById('rem-qty-'+l.uid)?.value)||0;
+    const modo=document.getElementById('rem-modo-'+l.uid)?.value||'bulto';
+    const costo=parseFloat(document.getElementById('rem-costo-'+l.uid)?.value)||0;
+    const unidades = modo==='bulto'? qty*l.upb : qty;
+    const neto = costo*qty;
+    netoTotal+=neto; unidadesTotal+=unidades;
+    const sub=document.getElementById('rem-sub-'+l.uid);
+    if(sub) sub.innerHTML = `${unidades} u${costo>0?` · $${neto.toLocaleString('es-AR')} neto`:''}`;
+  });
+  const iva=Math.round(netoTotal*alic/100*100)/100;
+  const total=Math.round((netoTotal+iva)*100)/100;
+  const tot=document.getElementById('rem-totales');
+  if(tot){
+    tot.innerHTML = netoTotal>0
+      ? `Neto $${netoTotal.toLocaleString('es-AR')} · IVA ${alic}% $${iva.toLocaleString('es-AR')} · <b style="color:var(--pine)">Total $${total.toLocaleString('es-AR')}</b>`
+      : (remitoLineas.length? `${remitoLineas.length} producto(s) · ${unidadesTotal} unidades al stock (sin costo = solo ingreso)` : '');
+  }
+}
+
+async function confirmarRemito(){
+  const provId=document.getElementById('rem-prov')?.value||'';
+  const provObj=(proveedores||[]).find(x=>x.id===provId);
+  const prov=provObj?(provObj.razon_social||provObj.nombre||''):'';
+  const nro=document.getElementById('rem-nro')?.value.trim();
+  const fecha=document.getElementById('rem-fecha')?.value || new Date().toISOString().split('T')[0];
+  const pago=document.getElementById('rem-pago')?.value||'Contado';
+  const vence=document.getElementById('rem-vence')?.value||null;
+  const alic=parseFloat(document.getElementById('rem-alic')?.value)||21;
+  if(!provId){ showToast('Elegí el proveedor','err'); return; }
+  if(!remitoLineas.length){ showToast('Agregá al menos un producto','err'); return; }
+
+  const lineas=[];
+  for(const l of remitoLineas){
+    const qty=parseFloat(document.getElementById('rem-qty-'+l.uid)?.value)||0;
+    const modo=document.getElementById('rem-modo-'+l.uid)?.value||'bulto';
+    const costo=parseFloat(document.getElementById('rem-costo-'+l.uid)?.value)||0;
+    if(qty<=0){ showToast('Revisá las cantidades (deben ser mayores a 0)','err'); return; }
+    const unidades = modo==='bulto'? qty*l.upb : qty;
+    const costoUnit = costo>0 ? (modo==='bulto'? Math.round(costo/l.upb*100)/100 : costo) : null;
+    lineas.push({...l, qty, modo, costo, unidades, costoUnit, neto: costo*qty});
+  }
+
+  const btn=document.getElementById('rem-btn'); const txt=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Cargando...'; }
+  try{
+    let netoTotal=0, primeraCompraId=null;
+    for(const ln of lineas){
+      const compra=await sbInsert('compras',{
+        producto_id: ln.prodId, producto_nombre: ln.nombre,
+        cantidad: ln.unidades, precio_unitario: ln.costoUnit||0,
+        numero_factura: nro||null, proveedor: prov||null, proveedor_id: provId,
+        forma_pago: pago, vence_pago: vence, estado_pedido:'completo',
+        factura_cargada: ln.costo>0, fecha
+      });
+      compras.unshift(compra);
+      if(!primeraCompraId) primeraCompraId=compra.id;
+      await SB.rpc('mover_stock_con_kardex',{
+        p_tienda_id:STORE.id, p_producto_id:ln.prodId, p_cantidad:ln.unidades,
+        p_tipo_mov:'COMPRA', p_doc_tipo:'COMPRA', p_doc_id:compra.id,
+        p_doc_nro:nro||('REMITO-'+fecha), p_costo_unit:ln.costoUnit||0,
+        p_observacion:'Remito'+(prov?' — '+prov:'')
+      });
+      const pref=prods.find(p=>p.id===ln.prodId);
+      if(ln.costoUnit!=null){
+        await SB.from('productos').update({costo:ln.costoUnit, iva_alicuota:alic}).eq('id',ln.prodId);
+      }
+      try{ const {data:fresh}=await SB.from('productos').select('precio,costo,stock').eq('id',ln.prodId).single();
+           if(fresh&&pref){ pref.costo=fresh.costo; pref.precio=fresh.precio; pref.stock=fresh.stock; } }catch(_){}
+      netoTotal+=ln.neto;
+    }
+    if(netoTotal>0){
+      const iva=Math.round(netoTotal*alic/100*100)/100;
+      const total=Math.round((netoTotal+iva)*100)/100;
+      const factura=await sbInsert('facturas_proveedor',{
+        tienda_id:STORE.id, compra_id:primeraCompraId, tipo_cbte:'A', numero:nro||null,
+        proveedor:prov||null, fecha, fecha_vence:vence,
+        neto_gravado:netoTotal, alicuota_iva:alic, importe_iva:iva, total,
+        forma_pago:pago, estado:'registrada', observaciones:`Remito con ${lineas.length} productos`
+      });
+      facturas.unshift(factura);
+      if(pago==='Cuenta Corriente'){
+        const deuda=await sbInsert('deudas',{
+          tienda_id:STORE.id, nombre_cliente:prov||'Proveedor', monto:total, monto_original:total,
+          descripcion:`Factura ${nro||''} · ${lineas.length} productos`, estado:'pendiente',
+          fecha_limite:vence, tipo:'proveedor', compra_id:primeraCompraId
+        });
+        deudas.unshift(deuda);
+        if(typeof renderDeudas==='function') renderDeudas();
+      } else {
+        await sbInsert('gastos',{tienda_id:STORE.id, monto:total, categoria:'Proveedores', descripcion:`Factura ${nro||''} · ${esc(prov||'')}`, fecha});
+        if(typeof renderGastos==='function') renderGastos();
+      }
+    }
+    closeModal('ov-remito');
+    if(typeof renderCompraList==='function') renderCompraList();
+    if(typeof renderStock==='function' && typeof stockFilter!=='undefined') renderStock(stockFilter);
+    if(typeof checkAlertBar==='function') checkAlertBar();
+    if(typeof renderProds==='function') renderProds();
+    const totalMsg = netoTotal>0 ? ` · Total $${Math.round(netoTotal*(1+alic/100)).toLocaleString('es-AR')}` : '';
+    showToast(`✅ Remito cargado: ${lineas.length} productos${totalMsg}`,'ok');
+  }catch(e){ showToast('❌ Error al cargar el remito','err'); console.error(e); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=txt; } }
 }
 
 function _descargarCSV(rows, filename) {
@@ -8331,6 +8533,7 @@ function seleccionarComboProd(targetId, pid){
   if(s) s.value = p ? p.nombre : '';
   const list = document.getElementById(targetId+'-list');
   if(list){ list.style.display='none'; list.innerHTML=''; }
+  if(targetId==='rem-add' && typeof agregarLineaRemito==='function'){ agregarLineaRemito(pid); if(s) s.value=''; if(h) h.value=''; return; }
   if(targetId==='co-prod' && typeof actualizarCompraUnidades==='function') actualizarCompraUnidades();
 }
 
