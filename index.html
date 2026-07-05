@@ -17,15 +17,15 @@
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
-  --ink:#16191f;--paper:#f1f3f6;--cream:#e9edf2;--white:#fff;
-  --rust:#c24a1c;--rust-l:#fbeee7;
-  --pine:#15683f;--pine-l:#e7f3ec;
-  --sky:#1a5ec9;--sky-l:#e9f0fd;
-  --amber:#b9791a;--amber-l:#fbf3e6;
-  --red:#c33b3b;--red-l:#fbe9e9;
-  --purple:#6d3aed;--purple-l:#f1ecfe;
-  --border:rgba(22,25,31,.09);--muted:rgba(22,25,31,.47);
-  --shadow:0 1px 2px rgba(16,24,40,.04),0 6px 20px rgba(16,24,40,.06);
+  --ink:#12100e;--paper:#f5f0e8;--cream:#ede8de;--white:#fff;
+  --rust:#c94f1a;--rust-l:#fdf0ea;
+  --pine:#1a5c38;--pine-l:#eaf5ee;
+  --sky:#1a5ec9;--sky-l:#eaf0fd;
+  --amber:#c97f1a;--amber-l:#fdf5ea;
+  --red:#c94040;--red-l:#fdeaea;
+  --purple:#7c3aed;--purple-l:#f3effe;
+  --border:rgba(18,16,14,.1);--muted:rgba(18,16,14,.38);
+  --shadow:0 1px 3px rgba(18,16,14,.07),0 4px 14px rgba(18,16,14,.05);
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;min-height:100vh;display:flex;flex-direction:column}
@@ -346,33 +346,16 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 .combo-code{font-size:11px;color:#999;white-space:nowrap}
 .combo-empty{padding:12px;text-align:center;color:#aaa;font-size:13px}
 
-/* ═══ PULIDO VISUAL PROFESIONAL (solo apariencia, no cambia funcionalidad) ═══ */
-*{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-body{background:var(--paper)}
-.inp{background:#fff;border:1px solid var(--border);border-radius:10px;padding:11px 14px;transition:border-color .15s,box-shadow .15s}
-.inp:focus{border-color:var(--rust);box-shadow:0 0 0 3px var(--rust-l)}
-.inp::placeholder{color:rgba(22,25,31,.34)}
-.card{border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:16px}
-.btn{border-radius:11px;font-weight:600;letter-spacing:.1px;transition:transform .12s,box-shadow .15s,filter .15s}
-.btn:hover{transform:translateY(-1px)}
-.btn:active{transform:translateY(0)}
-.btn-rust{box-shadow:0 2px 8px rgba(194,74,28,.24)}
-.btn-rust:hover{box-shadow:0 5px 16px rgba(194,74,28,.30);filter:brightness(1.05)}
-.btn-pine{box-shadow:0 2px 8px rgba(21,104,63,.20)}
-.btn-pine:hover{filter:brightness(1.06)}
-.btn-ink:hover{filter:brightness(1.45)}
-.hero{padding:22px 22px 26px;background-image:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,0) 58%)}
-.ht{font-size:30px;letter-spacing:.2px}
-.hs{color:rgba(255,255,255,.62);font-size:12.5px}
-.hl{opacity:.6;letter-spacing:2.5px}
-.ntab{color:rgba(245,247,250,.5);font-size:11.5px;padding:12px 15px;transition:color .15s}
-.ntab:hover{color:rgba(255,255,255,.85)}
-.fb{border-radius:9px;border:1px solid var(--border);font-weight:600;transition:all .12s}
-.fb:hover{border-color:var(--muted)}
-.flabel{letter-spacing:1.4px;font-size:9px}
-.combo-item:hover{background:var(--rust-l)}
-:focus-visible{outline:2px solid var(--rust);outline-offset:2px}
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* ═══ BOTONES SELECCIONABLES: activo con color lleno y letra bien legible ═══ */
+.co-pago-btn,.fac-pago-btn,.co-estado-btn,.grn-estado-btn,.cbte-btn,.gas-cat-btn{transition:background .12s,color .12s,border-color .12s}
+.co-pago-btn:not(.active),.fac-pago-btn:not(.active),.co-estado-btn:not(.active),.grn-estado-btn:not(.active),.cbte-btn:not(.active),.gas-cat-btn:not(.active){color:#2b2b2b!important;background:#fff!important;border-color:#d8d8d8!important}
+.co-pago-btn.active,.fac-pago-btn.active,.co-estado-btn.active,.grn-estado-btn.active,.cbte-btn.active,.gas-cat-btn.active{color:#fff!important;background:#1a5c38!important;border-color:#1a5c38!important}
+.co-estado-btn.active[data-estado="faltante"],.grn-estado-btn.active[data-estado*="parcial"],.grn-estado-btn.active[data-estado*="faltante"]{background:#c97f1a!important;border-color:#c97f1a!important}
+.co-estado-btn.active[data-estado="roto"],.co-estado-btn.active[data-estado="dañado"],.grn-estado-btn.active[data-estado*="rechaz"]{background:#c94040!important;border-color:#c94040!important}
+.co-pago-btn.active[data-pago="Cuenta Corriente"],.fac-pago-btn.active[data-pago="Cuenta Corriente"]{background:#c97f1a!important;border-color:#c97f1a!important}
+.co-pago-btn.active[data-pago="Transferencia"],.fac-pago-btn.active[data-pago="Transferencia"],.co-pago-btn.active[data-pago="MercadoPago"],.fac-pago-btn.active[data-pago="MercadoPago"]{background:#1a5ec9!important;border-color:#1a5ec9!important}
+.co-pago-btn.active[data-pago="Tarjeta"],.fac-pago-btn.active[data-pago="Tarjeta"]{background:#7c3aed!important;border-color:#7c3aed!important}
+.gas-cat-btn.active{background:#7c3aed!important;border-color:#7c3aed!important}
 </style>
 </head>
 <body>
@@ -5597,10 +5580,12 @@ function selectFacPago(btn) {
     b.style.borderColor = '#e0e0e0';
     b.style.background  = '#fff';
     b.style.color       = '#555';
+    b.classList.remove('active');
   });
   btn.style.borderColor = '#1a5c38';
   btn.style.background  = '#eaf5ee';
   btn.style.color       = '#1a5c38';
+  btn.classList.add('active');
   facPagoActual = btn.dataset.pago;
   const aviso = document.getElementById('fac-cc-aviso');
   if (aviso) aviso.style.display = facPagoActual === 'Cuenta Corriente' ? 'block' : 'none';
@@ -5969,10 +5954,12 @@ function selectGrnEstado(btn) {
     b.style.borderColor = '#e0e0e0';
     b.style.background  = '#fff';
     b.style.color       = '#555';
+    b.classList.remove('active');
   });
   btn.style.borderColor = '#1a5c38';
   btn.style.background  = '#eaf5ee';
   btn.style.color       = '#1a5c38';
+  btn.classList.add('active');
   grnEstado = btn.dataset.estado;
 }
 
@@ -8602,10 +8589,12 @@ function selectPagoCompra(btn) {
     b.style.borderColor = '#e0e0e0';
     b.style.background = '#fff';
     b.style.color = '#555';
+    b.classList.remove('active');
   });
   btn.style.borderColor = '#1a5c38';
   btn.style.background = '#eaf5ee';
   btn.style.color = '#1a5c38';
+  btn.classList.add('active');
   selectedPagoCompra = btn.dataset.pago;
   const aviso = document.getElementById('co-cc-aviso');
   if (aviso) aviso.style.display = selectedPagoCompra === 'Cuenta Corriente' ? 'block' : 'none';
@@ -8694,15 +8683,11 @@ async function doCompra(){
     if(venceEl) venceEl.value = '';
     // Reset estado
     document.querySelectorAll('.co-estado-btn').forEach((b,i) => {
-      b.style.borderColor = i===0?'#1a5c38':'#e0e0e0';
-      b.style.background = i===0?'#eaf5ee':'#fff';
-      b.style.color = i===0?'#1a5c38':'#555';
+      b.classList.toggle('active', i===0);
     });
     // Reset pago to Contado
     document.querySelectorAll('.co-pago-btn').forEach((b,i) => {
-      b.style.borderColor = i===0?'#1a5c38':'#e0e0e0';
-      b.style.background = i===0?'#eaf5ee':'#fff';
-      b.style.color = i===0?'#1a5c38':'#555';
+      b.classList.toggle('active', i===0);
     });
     selectedPagoCompra = 'Contado';
     document.getElementById('co-cc-aviso').style.display = 'none';
@@ -8776,10 +8761,12 @@ function selectEstadoPedido(btn) {
     b.style.borderColor = '#e0e0e0';
     b.style.background = '#fff';
     b.style.color = '#555';
+    b.classList.remove('active');
   });
   btn.style.borderColor = '#1a5c38';
   btn.style.background = '#eaf5ee';
   btn.style.color = '#1a5c38';
+  btn.classList.add('active');
   selectedEstadoPedido = btn.dataset.estado;
   const obsWrap = document.getElementById('co-obs-wrap');
   if(obsWrap) obsWrap.style.display = selectedEstadoPedido !== 'completo' ? 'block' : 'none';
@@ -9040,10 +9027,9 @@ function selectGasCat(btn) {
     b.style.borderColor = '#e0e0e0';
     b.style.background = '#fff';
     b.style.color = '#555';
+    b.classList.remove('active');
   });
-  btn.style.borderColor = '#4a1942';
-  btn.style.background = '#fdf8fd';
-  btn.style.color = '#4a1942';
+  btn.classList.add('active');
   selectedGasCat = btn.dataset.cat;
 }
 
