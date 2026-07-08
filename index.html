@@ -1121,6 +1121,24 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Fecha</div>
         <input class="inp" id="gas-fecha" type="date">
       </div>
+      <!-- Medio de pago -->
+      <div style="margin-bottom:20px">
+        <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Medio de pago</div>
+        <select class="inp" id="gas-medio" style="cursor:pointer" onchange="onGasMedioChange()">
+          <option value="Efectivo">💵 Efectivo (Caja)</option>
+          <option value="Transferencia">🏦 Transferencia (Banco)</option>
+          <option value="Tarjeta">💳 Tarjeta</option>
+          <option value="MercadoPago">🔵 MercadoPago</option>
+          <option value="Cuenta Corriente">📋 Cuenta Corriente (a pagar después)</option>
+        </select>
+      </div>
+      <div id="gas-cc-wrap" style="display:none;margin-bottom:20px">
+        <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">¿A quién le debés? *</div>
+        <input class="inp" id="gas-acreedor" placeholder="Ej: Estudio Contable Pérez, Inmobiliaria...">
+        <div style="font-size:11px;color:#9a6a00;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:8px 10px;margin-top:8px">
+          📋 Este gasto queda pendiente en <b>Deudores</b>. El asiento se genera cuando lo pagues.
+        </div>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
         <button onclick="closeModal('ov-add-gasto')"
           style="padding:14px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">
@@ -2348,9 +2366,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <div class="fgroup"><div class="flabel">Rol</div>
       <select class="inp" id="usu-rol" style="cursor:pointer">
-        <option value="vendedor">Vendedor — Solo ventas</option>
-        <option value="administrativo">Administrativo — Reportes y caja</option>
-        <option value="dueno">Dueño — Acceso completo</option>
+        <option value="empleado">Empleado — Vende, cobra, carga stock y compras</option>
+        <option value="administrativo">Administrativo — Casi todo, autoriza y ve contabilidad</option>
+        <option value="dueño">Dueño — Acceso total</option>
       </select>
     </div>
     <div class="fgroup"><div class="flabel">Contraseña temporal</div>
@@ -2364,6 +2382,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 // ══ SUPABASE CONFIG ══
 let SB = null;
 let USER = null;
+let USER_ROL = 'dueño';
 let STORE = null;
 
 // ══ STATE ══
@@ -2630,8 +2649,14 @@ function asientoVenta(venta) {
 
 function asientoGasto(gasto) {
   const monto = gasto.monto || 0;
+  // Gasto a cuenta corriente: el asiento se genera al PAGAR (asientoPagoDeuda),
+  // no al registrarlo. Acá no devolvemos asiento para no duplicar.
+  if ((gasto.medio_pago || '') === 'Cuenta Corriente') return null;
   const ctaDebe = GASTO_CUENTA[gasto.categoria] || '51117003';
   const ctaNombreDebe = PLAN_CUENTAS.find(c => c.codigo === ctaDebe)?.nombre || gasto.categoria;
+  const ctaHaber = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[gasto.medio_pago]) || '11101001';
+  const ctaHaberNombre = PLAN_CUENTAS.find(c => c.codigo === ctaHaber)?.nombre || 'CAJA EN PESOS';
+  const detalleHaber = 'Pago ' + (gasto.medio_pago || 'Efectivo');
 
   // Pago a proveedor: va a Proveedores no a gasto directo
   if (gasto.categoria === 'Proveedores') {
@@ -2645,7 +2670,7 @@ function asientoGasto(gasto) {
       origen_id: gasto.id,
       lineas: [
         { debe: true,  cuenta: '21101001', nombre: 'PROVEEDORES',    importe: monto, detalle: gasto.descripcion || 'Cancelación factura proveedor' },
-        { debe: false, cuenta: '11101001', nombre: 'CAJA EN PESOS',  importe: monto, detalle: 'Pago efectivo' },
+        { debe: false, cuenta: ctaHaber, nombre: ctaHaberNombre,  importe: monto, detalle: detalleHaber },
       ],
       total_debe: monto, total_haber: monto,
     };
@@ -2661,7 +2686,7 @@ function asientoGasto(gasto) {
     origen_id: gasto.id,
     lineas: [
       { debe: true,  cuenta: ctaDebe,    nombre: ctaNombreDebe,    importe: monto, detalle: gasto.descripcion || gasto.categoria },
-      { debe: false, cuenta: '11101001', nombre: 'CAJA EN PESOS',  importe: monto, detalle: 'Pago efectivo' },
+      { debe: false, cuenta: ctaHaber, nombre: ctaHaberNombre,  importe: monto, detalle: detalleHaber },
     ],
     total_debe: monto, total_haber: monto,
   };
@@ -3005,10 +3030,10 @@ function renderMayor() {
 
   // Gastos
   gastos.filter(g => filtro(g.fecha)).forEach(g => {
-    const ct = GASTO_CUENTA[g.categoria] || '51117003';
-    if (ct === cuentaCod)         movs.push({fecha:g.fecha, desc:g.categoria+(g.descripcion?': '+g.descripcion:''), debe:g.monto, haber:0, origen:'Gasto'});
-    if (cuentaCod==='11101001' && g.categoria!=='Proveedores') movs.push({fecha:g.fecha, desc:'Pago '+g.categoria, debe:0, haber:g.monto, origen:'Gasto'});
-    if (cuentaCod==='21101001' && g.categoria==='Proveedores') movs.push({fecha:g.fecha, desc:g.descripcion||'Pago proveedor', debe:g.monto, haber:0, origen:'Gasto'});
+    const ctD = GASTO_CUENTA[g.categoria] || '51117003';
+    const ctH = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[g.medio_pago]) || '11101001';
+    if (cuentaCod === ctD) movs.push({fecha:g.fecha, desc:g.categoria+(g.descripcion?': '+g.descripcion:''), debe:g.monto, haber:0, origen:'Gasto'});
+    if (cuentaCod === ctH) movs.push({fecha:g.fecha, desc:'Pago '+g.categoria+(g.medio_pago?' ('+g.medio_pago+')':''), debe:0, haber:g.monto, origen:'Gasto'});
   });
 
   // Compras
@@ -3415,26 +3440,33 @@ async function loadPagosDeuda(){
 // Asiento de un cobro/pago de deuda → entra al Mayor/Diario por generarAsientosPeriodo
 function asientoPagoDeuda(p){
   const deuda = (deudas||[]).find(d => d.id === p.deuda_id) || {};
-  const esCliente = deuda.tipo !== 'proveedor'; // por defecto, cobro a cliente
+  const tipoDeuda = deuda.tipo || 'cliente';
+  const esCliente = (tipoDeuda !== 'proveedor' && tipoDeuda !== 'gasto');
+  const esGasto   = (tipoDeuda === 'gasto');
   const nombreDe = (cod) => ((typeof PLAN_CUENTAS!=='undefined'?PLAN_CUENTAS:[]).find(x=>x.codigo===cod)?.nombre) || cod;
   const cuentaMedio = p.cuenta_medio || (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
   const cuentaCC    = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cuenta Corriente']) || '11301001';
   const cuentaProv  = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.proveedores) || '21101001';
+  const cuentaAcree = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.acreedores_varios) || '21102001';
   const monto = p.monto_abonado || 0;
   const quien = deuda.nombre_cliente || '';
   const lineas = [];
   if(esCliente){
     lineas.push({ debe:true,  cuenta:cuentaMedio, nombre:nombreDe(cuentaMedio), importe:monto, detalle:'Cobro deuda '+quien });
     lineas.push({ debe:false, cuenta:cuentaCC,    nombre:nombreDe(cuentaCC),    importe:monto, detalle:'Cancelación CC '+quien });
+  } else if(esGasto){
+    // Pago de un gasto que estaba a cuenta corriente: Debe Acreedores Varios / Haber medio
+    lineas.push({ debe:true,  cuenta:cuentaAcree, nombre:nombreDe(cuentaAcree), importe:monto, detalle:'Cancelación gasto '+quien });
+    lineas.push({ debe:false, cuenta:cuentaMedio, nombre:nombreDe(cuentaMedio), importe:monto, detalle:'Pago a '+quien });
   } else {
     lineas.push({ debe:true,  cuenta:cuentaProv,  nombre:nombreDe(cuentaProv),  importe:monto, detalle:'Cancelación deuda '+quien });
     lineas.push({ debe:false, cuenta:cuentaMedio, nombre:nombreDe(cuentaMedio), importe:monto, detalle:'Pago a '+quien });
   }
   return {
     nro: getNroAsiento(), fecha: p.fecha,
-    tipo: esCliente ? 'COBRO DEUDA' : 'PAGO PROVEEDOR',
+    tipo: esCliente ? 'COBRO DEUDA' : (esGasto ? 'PAGO GASTO' : 'PAGO PROVEEDOR'),
     comprobante: 'PD-' + String(p.id || '').slice(0,8),
-    descripcion: (esCliente ? 'Cobro de deuda · ' : 'Pago a proveedor · ') + quien + (p.nota ? ' · '+p.nota : ''),
+    descripcion: (esCliente ? 'Cobro de deuda · ' : (esGasto ? 'Pago de gasto · ' : 'Pago a proveedor · ')) + quien + (p.nota ? ' · '+p.nota : ''),
     origen: 'pago_deuda', origen_id: p.id, lineas,
     total_debe:  lineas.filter(l=>l.debe).reduce((s,l)=>s+l.importe,0),
     total_haber: lineas.filter(l=>!l.debe).reduce((s,l)=>s+l.importe,0),
@@ -4365,10 +4397,10 @@ function renderBalance() {
 
   // Gastos
   gastos.filter(g => filtro(g.fecha)).forEach(g => {
-    const ct = GASTO_CUENTA[g.categoria] || '51117003';
-    if (totales[ct])        totales[ct].debe += g.monto||0;
-    if (totales['11101001'] && g.categoria !== 'Proveedores') totales['11101001'].haber += g.monto||0;
-    if (totales['21101001'] && g.categoria === 'Proveedores') totales['21101001'].debe += g.monto||0;
+    const ctD = GASTO_CUENTA[g.categoria] || '51117003';
+    const ctH = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[g.medio_pago]) || '11101001';
+    if (totales[ctD]) totales[ctD].debe  += g.monto||0;
+    if (totales[ctH]) totales[ctH].haber += g.monto||0;
   });
 
   // Compras
@@ -7045,12 +7077,23 @@ function initSupabase(url, key) {
 
 function showSetup() { document.getElementById('setup-view').style.display='flex'; }
 function showLogin() { document.getElementById('login-view').style.display='flex'; }
+function aplicarPermisosUI(){
+  const rol=(USER_ROL||'dueño').toLowerCase();
+  const esAdmin = ['dueño','dueno','administrativo','admin'].includes(rol);
+  // Secciones solo para administrativos/dueños: Usuarios, Mi Tienda, Auditoría
+  ['pusu','pcfg','paud'].forEach(pid=>{
+    document.querySelectorAll("[onclick*=\"gp('"+pid+"'\"]").forEach(el=>{ el.style.display = esAdmin?'':'none'; });
+  });
+  document.body.setAttribute('data-rol', rol);
+}
+
 function showApp() {
   document.getElementById('login-view').style.display='none';
   document.getElementById('setup-view').style.display='none';
   document.getElementById('app').classList.add('show');
   document.getElementById('store-name').textContent = STORE?.name || USER?.email || '';
   checkAdmin();
+  aplicarPermisosUI();
   // Hide all pages, show only ventas
   document.querySelectorAll('.page').forEach(p=>{p.style.display='none';p.classList.remove('on');});
   const pv=document.getElementById('pv');
@@ -7094,16 +7137,23 @@ async function doLogin(){
 
 async function loadStore(){
   try{
-    const {data,error}=await SB.from('tiendas').select('*').eq('user_id',USER.id).single();
-    if(data){ STORE=data; return; }
-    // Si no existe tienda, crearla automáticamente
-    const {data:nueva,error:err2}=await SB.from('tiendas').insert({
+    // 1) ¿Es titular de una tienda? → dueño
+    const {data:propia}=await SB.from('tiendas').select('*').eq('user_id',USER.id).maybeSingle();
+    if(propia){ STORE=propia; USER_ROL='dueño'; return; }
+    // 2) ¿Es miembro (empleado/administrativo) de una tienda? → carga ESA tienda
+    const {data:memb}=await SB.from('usuarios_tienda').select('tienda_id,rol')
+      .eq('auth_user_id',USER.id).eq('activo',true).limit(1).maybeSingle();
+    if(memb && memb.tienda_id){
+      const {data:t}=await SB.from('tiendas').select('*').eq('id',memb.tienda_id).maybeSingle();
+      if(t){ STORE=t; USER_ROL=(memb.rol||'empleado').toLowerCase(); return; }
+    }
+    // 3) Dueño nuevo genuino (sin tienda ni membresía) → crear su tienda
+    const {data:nueva}=await SB.from('tiendas').insert({
       user_id:USER.id,
       name: USER.user_metadata?.tienda_name || USER.email?.split('@')[0] || 'Mi Tienda',
       email: USER.email
     }).select().single();
-    if(nueva) STORE=nueva;
-    else STORE=null;
+    if(nueva){ STORE=nueva; USER_ROL='dueño'; } else STORE=null;
   }catch(e){
     console.error('loadStore error',e);
     STORE=null;
@@ -7242,9 +7292,9 @@ function renderDeudas(){
   }
 
   if (deTab === 'proveedores') {
-    pendientes = deudas.filter(d => d.estado !== 'pagado' && d.tipo === 'proveedor');
+    pendientes = deudas.filter(d => d.estado !== 'pagado' && (d.tipo === 'proveedor' || d.tipo === 'gasto'));
   } else {
-    pendientes = deudas.filter(d => d.estado !== 'pagado' && d.tipo !== 'proveedor');
+    pendientes = deudas.filter(d => d.estado !== 'pagado' && d.tipo !== 'proveedor' && d.tipo !== 'gasto');
   }
   const total = pendientes.reduce((s,d) => s+(d.monto||0), 0);
   document.getElementById('de-count').textContent = pendientes.length;
@@ -7262,7 +7312,7 @@ function renderDeudas(){
         <div>
           <div style="display:flex;align-items:center;gap:6px">
             <div style="font-size:13px;font-weight:600">${esc(d.nombre_cliente||'Sin nombre')}</div>
-            ${d.tipo==='proveedor'?'<span style="font-size:10px;background:#e3f2fd;color:#1565c0;padding:2px 7px;border-radius:10px;font-weight:600">PROVEEDOR</span>':'<span style="font-size:10px;background:#fff3e0;color:#e65100;padding:2px 7px;border-radius:10px;font-weight:600">CLIENTE</span>'}
+            ${d.tipo==='proveedor'?'<span style="font-size:10px;background:#e3f2fd;color:#1565c0;padding:2px 7px;border-radius:10px;font-weight:600">PROVEEDOR</span>':(d.tipo==='gasto'?'<span style="font-size:10px;background:#f3e5f5;color:#6a1b9a;padding:2px 7px;border-radius:10px;font-weight:600">GASTO</span>':'<span style="font-size:10px;background:#fff3e0;color:#e65100;padding:2px 7px;border-radius:10px;font-weight:600">CLIENTE</span>')}
           </div>
           ${d.telefono?`<div style="font-size:11px;color:var(--muted)">${esc(d.telefono)}</div>`:''}
         </div>
@@ -9033,25 +9083,52 @@ function selectGasCat(btn) {
   selectedGasCat = btn.dataset.cat;
 }
 
+function onGasMedioChange(){
+  const cc = document.getElementById('gas-medio')?.value === 'Cuenta Corriente';
+  const w = document.getElementById('gas-cc-wrap');
+  if(w) w.style.display = cc ? 'block' : 'none';
+}
+
 async function guardarGasto() {
   const monto = parseFloat(document.getElementById('gas-monto').value);
   const desc  = document.getElementById('gas-desc').value.trim();
   const fecha = document.getElementById('gas-fecha').value || new Date().toISOString().split('T')[0];
   if (!monto || monto <= 0) { showToast('⚠️ Ingresá un monto válido', 'err'); return; }
+  const medio = document.getElementById('gas-medio')?.value || 'Efectivo';
+  const esCC = medio === 'Cuenta Corriente';
+  const acreedor = document.getElementById('gas-acreedor')?.value.trim() || '';
+  if (esCC && !acreedor) { showToast('⚠️ Indicá a quién le debés', 'err'); return; }
+  if (esCC && selectedGasCat === 'Proveedores') {
+    showToast('⚠️ Para facturas de mercadería con proveedores, usá Compras → Cargar Factura (con Cta. Cte.)', 'err');
+    return;
+  }
   try {
     const g = await sbInsert('gastos', {
       tienda_id: STORE.id,
       monto,
       categoria: selectedGasCat,
       descripcion: desc || null,
-      fecha
+      fecha,
+      medio_pago: medio
     });
     gastos.unshift(g);
+    if (esCC) {
+      const deuda = await sbInsert('deudas', {
+        nombre_cliente: acreedor,
+        monto, monto_original: monto,
+        descripcion: `${selectedGasCat}${desc ? ': ' + desc : ''}`,
+        estado: 'pendiente', tipo: 'gasto', gasto_id: g.id,
+      });
+      deudas.unshift(deuda);
+      if (typeof renderDeudas === 'function') renderDeudas();
+    }
     closeModal('ov-add-gasto');
     document.getElementById('gas-monto').value = '';
     document.getElementById('gas-desc').value = '';
+    document.getElementById('gas-acreedor').value = '';
+    onGasMedioChange();
     renderGastos();
-    showToast(`✅ Gasto de $${monto.toLocaleString('es-AR')} registrado`, 'ok');
+    showToast(esCC ? `📋 Gasto registrado — pendiente de pago en Deudores` : `✅ Gasto de $${monto.toLocaleString('es-AR')} registrado`, 'ok');
   } catch(e) {
     console.error(e);
     showToast('❌ Error al registrar gasto', 'err');
