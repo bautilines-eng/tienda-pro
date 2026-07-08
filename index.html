@@ -2773,7 +2773,7 @@ function generarAsientosPeriodo(mesAno) {
 
   movs.forEach(m => {
     if (m.tipo === 'v')  todos.push(asientoVenta(m.data));
-    if (m.tipo === 'g')  todos.push(asientoGasto(m.data));
+    if (m.tipo === 'g')  { const _ag=asientoGasto(m.data); if(_ag) todos.push(_ag); }
     if (m.tipo === 'c')  todos.push(asientoCompra(m.data));
     if (m.tipo === 'm')  todos.push(asientoMinuta(m.data));
     if (m.tipo === 'pd') todos.push(asientoPagoDeuda(m.data));
@@ -3030,10 +3030,19 @@ function renderMayor() {
 
   // Gastos
   gastos.filter(g => filtro(g.fecha)).forEach(g => {
+    if (g.medio_pago === 'Cuenta Corriente') return; // se refleja al pagar (pago de deuda)
     const ctD = GASTO_CUENTA[g.categoria] || '51117003';
     const ctH = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[g.medio_pago]) || '11101001';
     if (cuentaCod === ctD) movs.push({fecha:g.fecha, desc:g.categoria+(g.descripcion?': '+g.descripcion:''), debe:g.monto, haber:0, origen:'Gasto'});
     if (cuentaCod === ctH) movs.push({fecha:g.fecha, desc:'Pago '+g.categoria+(g.medio_pago?' ('+g.medio_pago+')':''), debe:0, haber:g.monto, origen:'Gasto'});
+  });
+
+  // Pagos de deuda (proveedores, clientes, gastos a cuenta corriente)
+  (typeof pagosDeuda!=='undefined'?pagosDeuda:[]).filter(p => filtro(p.fecha)).forEach(p => {
+    const a = asientoPagoDeuda(p); if(!a) return;
+    a.lineas.forEach(l => {
+      if (l.cuenta === cuentaCod) movs.push({fecha:p.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Pago'});
+    });
   });
 
   // Compras
@@ -4397,10 +4406,19 @@ function renderBalance() {
 
   // Gastos
   gastos.filter(g => filtro(g.fecha)).forEach(g => {
+    if (g.medio_pago === 'Cuenta Corriente') return; // se refleja al pagar (pago de deuda)
     const ctD = GASTO_CUENTA[g.categoria] || '51117003';
     const ctH = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[g.medio_pago]) || '11101001';
     if (totales[ctD]) totales[ctD].debe  += g.monto||0;
     if (totales[ctH]) totales[ctH].haber += g.monto||0;
+  });
+
+  // Pagos de deuda (proveedores, clientes, gastos a cuenta corriente)
+  (typeof pagosDeuda!=='undefined'?pagosDeuda:[]).filter(p => filtro(p.fecha)).forEach(p => {
+    const a = asientoPagoDeuda(p); if(!a) return;
+    a.lineas.forEach(l => {
+      if (totales[l.cuenta]) { if(l.debe) totales[l.cuenta].debe += l.importe; else totales[l.cuenta].haber += l.importe; }
+    });
   });
 
   // Compras
