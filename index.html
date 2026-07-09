@@ -2366,7 +2366,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <div class="fgroup"><div class="flabel">Rol</div>
       <select class="inp" id="usu-rol" style="cursor:pointer">
-        <option value="empleado">Empleado — Vende, cobra, carga stock y compras</option>
+        <option value="vendedor">Vendedor — Ventas, historial, caja, stock, compras y gastos</option>
         <option value="administrativo">Administrativo — Casi todo, autoriza y ve contabilidad</option>
         <option value="dueño">Dueño — Acceso total</option>
       </select>
@@ -7101,11 +7101,15 @@ function aplicarPermisosUI(){
   const esAdministrativo = ['administrativo','admin'].includes(rol);
   // Secciones que el VENDEDOR puede ver (el resto se ocultan para él)
   const VENDEDOR_VE = ['pv','ph','pcc','ps','pco','pgas'];
-  const TODAS = ['pv','ph','pcc','pr','ps','pcl','pco','pprec','pde','pusu','paud','pgas','pfin','pcont','pcfg','padmin'];
+  // OJO: 'padmin' NO va acá — el panel Admin lo controla SOLO checkAdmin() por email.
+  const TODAS = ['pv','ph','pcc','pr','ps','pcl','pco','pprec','pde','pusu','paud','pgas','pfin','pcont'];
   TODAS.forEach(pid=>{
     const visible = esVendedor ? VENDEDOR_VE.includes(pid) : true;
     document.querySelectorAll("[onclick*=\"gp('"+pid+"'\"]").forEach(el=>{ el.style.display = visible?'':'none'; });
   });
+  // El panel Admin (tiendas) es exclusivo del email de administrador del sistema.
+  const adminTab=document.getElementById('admin-tab');
+  if(adminTab && (USER?.email !== ADMIN_EMAIL)) adminTab.style.display='none';
   // Vendedor: en Stock solo ve productos disponibles (stock > 0)
   window.STOCK_SOLO_DISPONIBLES = esVendedor;
   // Administrativo: NO puede efectuar ventas
@@ -7575,11 +7579,24 @@ async function loadUsuarios(){
   catch(e){ usuarios = []; renderUsuarios(); }
 }
 
+async function resetPasswordUsuario(email){
+  if(!email){ showToast('Ese usuario no tiene email cargado','err'); return; }
+  if(!confirm('¿Enviar un email para que '+email+' restablezca su contraseña?')) return;
+  try{
+    const { error } = await SB.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    if(error) throw error;
+    showToast('📧 Email de restablecimiento enviado a '+email,'ok');
+  }catch(e){
+    console.error('reset password', e);
+    showToast('No se pudo enviar el email. Verificá la configuración de correo en Supabase.','err');
+  }
+}
+
 function renderUsuarios(){
   document.getElementById('usu-count').textContent = usuarios.length + 1;
   const el = document.getElementById('usu-list');
-  const rolColors = { dueno:'var(--rust)', vendedor:'var(--sky)', administrativo:'var(--pine)' };
-  const rolNames = { dueno:'Dueño', vendedor:'Vendedor', administrativo:'Administrativo' };
+  const rolColors = { dueno:'var(--rust)', 'dueño':'var(--rust)', vendedor:'var(--sky)', empleado:'var(--sky)', administrativo:'var(--pine)', admin:'var(--pine)' };
+  const rolNames = { dueno:'Dueño', 'dueño':'Dueño', vendedor:'Vendedor', empleado:'Vendedor', administrativo:'Administrativo', admin:'Administrativo' };
   
   // Show current user (owner)
   let html = `<div class="card">
@@ -7603,6 +7620,7 @@ function renderUsuarios(){
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           <div style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;background:${rolColors[u.rol]||'var(--cream)'}22;color:${rolColors[u.rol]||'var(--muted)'};border:1px solid ${rolColors[u.rol]||'var(--border)'}">${rolNames[u.rol]||u.rol}</div>
+          <button class="btn btn-sm" style="background:var(--sky-l);color:var(--sky);border:1.5px solid var(--sky)" onclick="resetPasswordUsuario('${esc(u.email||'')}')" title="Restablecer contraseña">🔑</button>
           <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="eliminarUsuario('${u.id}','${esc(u.nombre||u.email)}')">🗑️</button>
         </div>
       </div>
