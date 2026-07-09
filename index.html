@@ -1071,7 +1071,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 
   <!-- MODAL NUEVO GASTO -->
 <div class="overlay" id="ov-add-gasto">
-  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
+  <div class="modal" style="padding:0;overflow-y:auto;max-height:92vh;border-radius:20px 20px 0 0">
     <div style="background:linear-gradient(135deg,#4a1942,#2d0f29);padding:24px 24px 20px">
       <div class="modal-handle" style="background:rgba(255,255,255,.3);margin-bottom:14px"></div>
       <div style="display:flex;align-items:center;gap:12px">
@@ -7097,11 +7097,24 @@ function showSetup() { document.getElementById('setup-view').style.display='flex
 function showLogin() { document.getElementById('login-view').style.display='flex'; }
 function aplicarPermisosUI(){
   const rol=(USER_ROL||'dueño').toLowerCase();
-  const esAdmin = ['dueño','dueno','administrativo','admin'].includes(rol);
-  // Secciones solo para administrativos/dueños: Usuarios, Mi Tienda, Auditoría
-  ['pusu','pcfg','paud'].forEach(pid=>{
-    document.querySelectorAll("[onclick*=\"gp('"+pid+"'\"]").forEach(el=>{ el.style.display = esAdmin?'':'none'; });
+  const esVendedor = ['vendedor','empleado'].includes(rol);
+  const esAdministrativo = ['administrativo','admin'].includes(rol);
+  // Secciones que el VENDEDOR puede ver (el resto se ocultan para él)
+  const VENDEDOR_VE = ['pv','ph','pcc','ps','pco','pgas'];
+  const TODAS = ['pv','ph','pcc','pr','ps','pcl','pco','pprec','pde','pusu','paud','pgas','pfin','pcont','pcfg','padmin'];
+  TODAS.forEach(pid=>{
+    const visible = esVendedor ? VENDEDOR_VE.includes(pid) : true;
+    document.querySelectorAll("[onclick*=\"gp('"+pid+"'\"]").forEach(el=>{ el.style.display = visible?'':'none'; });
   });
+  // Vendedor: en Stock solo ve productos disponibles (stock > 0)
+  window.STOCK_SOLO_DISPONIBLES = esVendedor;
+  // Administrativo: NO puede efectuar ventas
+  window.NO_PUEDE_VENDER = esAdministrativo;
+  const cbtn=document.getElementById('c-btn');
+  if(cbtn){
+    if(esAdministrativo){ cbtn.setAttribute('disabled','true'); cbtn.style.opacity='.5'; cbtn.style.cursor='not-allowed'; cbtn.title='Tu rol (Administrativo) no puede registrar ventas'; }
+    else { cbtn.removeAttribute('disabled'); cbtn.style.opacity=''; cbtn.style.cursor=''; cbtn.title=''; }
+  }
   document.body.setAttribute('data-rol', rol);
 }
 
@@ -7767,6 +7780,11 @@ function updateCart(){
 
 // ══ REGISTER SALE ══
 async function registerSale(){
+  // Permiso: el rol Administrativo no puede efectuar ventas
+  if (window.NO_PUEDE_VENDER || ['administrativo','admin'].includes((USER_ROL||'').toLowerCase())) {
+    showToast('⚠️ Tu rol no tiene permitido registrar ventas', 'err');
+    return;
+  }
   // Rate limiting — previene ventas accidentales múltiples
   if (!rateLimitCheck('registerSale', 20)) return;
   if (!ConnectionMonitor.online) {
@@ -8287,6 +8305,7 @@ function exportarRecuentoExcel(){
 
 function renderStock(f){
   let list=[...prods].sort((a,b)=>a.stock-b.stock);
+  if(window.STOCK_SOLO_DISPONIBLES) list=list.filter(p=>(p.stock||0)>0); // vendedor: solo disponibles
   if(f==='out')list=list.filter(p=>p.stock===0);
   else if(f==='low')list=list.filter(p=>p.stock>0&&p.stock<(p.stock_minimo||10));
   else if(f==='ok')list=list.filter(p=>p.stock>=(p.stock_minimo||10));
