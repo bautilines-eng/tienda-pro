@@ -591,6 +591,24 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div class="mopt" id="m-mp" onclick="setMethod('MercadoPago')"><div class="mopt-ico">🔵</div><div class="mopt-l">MercadoPago</div></div>
         <div class="mopt" id="m-cc" onclick="setMethod('Cuenta Corriente')"><div class="mopt-ico">📒</div><div class="mopt-l">Cta. Cte.</div></div>
       </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;color:#555;margin-top:10px">
+        <input type="checkbox" id="split-toggle" onchange="toggleSplit()" style="width:15px;height:15px"> ➗ Dividir en dos pagos
+      </label>
+      <div id="split-wrap" style="display:none;margin-top:8px">
+        <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+          <select class="inp" id="split-m1" style="flex:1;cursor:pointer" onchange="updateSplit()">
+            <option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>MercadoPago</option>
+          </select>
+          <input class="inp" id="split-a1" type="number" placeholder="$0" style="width:120px" oninput="onSplitA1()">
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select class="inp" id="split-m2" style="flex:1;cursor:pointer" onchange="updateSplit()">
+            <option>Transferencia</option><option>Efectivo</option><option>Tarjeta</option><option>MercadoPago</option>
+          </select>
+          <input class="inp" id="split-a2" type="number" placeholder="$0" style="width:120px" oninput="updateSplit()">
+        </div>
+        <div id="split-info" style="font-size:11px;margin-top:6px;color:#888"></div>
+      </div>
     </div>
     <div style="padding:12px 20px 0">
       <div class="flabel" style="margin-bottom:5px">Cliente (opcional)</div>
@@ -655,6 +673,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div class="cart-ttl-v" id="c-total">$0</div>
         <div class="cart-m" id="c-method-l">Efectivo</div>
       </div>
+      <button onclick="generarPresupuesto()" title="Genera un presupuesto/cotización. NO registra la venta ni descuenta stock." style="width:100%;margin-bottom:8px;padding:11px;border-radius:10px;border:1.5px solid #7c3aed;background:#f3effe;color:#7c3aed;font-size:13px;font-weight:600;cursor:pointer">📄 Generar presupuesto (no registra venta)</button>
       <div style="display:flex;gap:8px;width:100%">
         <button class="btn btn-rust" id="c-btn" onclick="withLoadingButton(this, registerSale)()" style="flex:1">Confirmar →</button>
         <button onclick="generarLinkMP()" title="Generar link de pago MercadoPago"
@@ -2076,7 +2095,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
               <button id="min-tipo-e" onclick="setMinutaTipo('E')" style="flex:1;padding:9px;border-radius:9px;border:1.5px solid #c0392b;background:#fdecea;color:#c0392b;font-weight:700;cursor:pointer">➖ Egreso</button>
               <button id="min-tipo-i" onclick="setMinutaTipo('I')" style="flex:1;padding:9px;border-radius:9px;border:1.5px solid #ddd;background:#fff;color:#888;font-weight:700;cursor:pointer">➕ Ingreso</button>
             </div>
-            <div class="fgroup"><div class="flabel">Fecha</div><input type="date" id="min-fecha" class="inp"></div>
+            <div class="fgroup"><div class="flabel">Fecha</div><input type="date" id="min-fecha" class="inp"><div id="min-fecha-hint" style="display:none;font-size:11px;color:#c0392b;margin-top:5px">🔒 Los egresos se registran con la fecha del día (no se puede cambiar)</div></div>
             <div class="fgroup"><div class="flabel">Concepto</div><select id="min-concepto" class="inp" onchange="onMinutaConceptoChange()"></select></div>
             <div class="fgroup" id="min-otra-wrap" style="display:none"><div class="flabel">Cuenta del plan</div><select id="min-otra-cuenta" class="inp"></select></div>
             <div class="fgroup"><div class="flabel">Medio de pago</div><select id="min-medio" class="inp"></select></div>
@@ -2613,6 +2632,24 @@ function getNroAsiento() {
 // GENERADORES DE ASIENTOS AUTOMÁTICOS
 // ══════════════════════════════════════════
 
+function _debitosVenta(v){
+  let pg = v && v.pagos;
+  if(typeof pg==='string' && pg){ try{ pg=JSON.parse(pg); }catch(_){ pg=null; } }
+  const cuentaDe = (m)=> (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[m]) || '11101001';
+  if(Array.isArray(pg) && pg.length){
+    return pg.map(p=>({ cuenta: cuentaDe(p.metodo), importe: p.monto||0, metodo: p.metodo }));
+  }
+  return [{ cuenta: cuentaDe(v.metodo_pago), importe: (v&&v.total)||0, metodo: (v&&v.metodo_pago) }];
+}
+function _ventaSumaMetodo(v, metodo){
+  let pg = v && v.pagos;
+  if(typeof pg==='string' && pg){ try{ pg=JSON.parse(pg); }catch(_){ pg=null; } }
+  if(Array.isArray(pg) && pg.length){
+    return pg.filter(p=>p.metodo===metodo).reduce((s,p)=>s+(p.monto||0),0);
+  }
+  return (v.metodo_pago===metodo) ? (v.total||0) : 0;
+}
+
 function asientoVenta(venta) {
   const total  = venta.total || 0;
   const iva    = Math.round(total / 1.21 * 0.21 * 100) / 100;
@@ -2622,7 +2659,7 @@ function asientoVenta(venta) {
   const ctaNombreDebe = PLAN_CUENTAS.find(c => c.codigo === ctaDebe)?.nombre || venta.metodo_pago;
 
   const lineas = [
-    { debe: true,  cuenta: ctaDebe,    nombre: ctaNombreDebe,          importe: total, detalle: `Cobro ${venta.metodo_pago}` },
+    ..._debitosVenta(venta).map(d=>({ debe:true, cuenta:d.cuenta, nombre:(PLAN_CUENTAS.find(c=>c.codigo===d.cuenta)?.nombre)||d.metodo, importe:d.importe, detalle:`Cobro ${d.metodo}` })),
     { debe: false, cuenta: CUENTAS_ESPECIALES['ventas']||'4.1.01', nombre: 'Ventas', importe: neto, detalle: 'Ventas netas s/IVA' },
     { debe: false, cuenta: CUENTAS_ESPECIALES['iva_debito']||'2.1.02', nombre: 'IVA Débito Fiscal', importe: iva, detalle: 'IVA 21% débito fiscal' },
   ];
@@ -3021,7 +3058,7 @@ function renderMayor() {
     const iva = calcularIVA(v.total||0).iva;
     const neto = (v.total||0) - iva;
     const iibb = Math.round((v.total||0)*0.03*100)/100;
-    if (ct === cuentaCod)         movs.push({fecha:v.fecha, desc:`Venta ${esc(v.metodo_pago)}`, debe:v.total, haber:0, origen:'Venta'});
+    _debitosVenta(v).forEach(d=>{ if(d.cuenta===cuentaCod) movs.push({fecha:v.fecha, desc:`Venta ${esc(d.metodo)}`, debe:d.importe, haber:0, origen:'Venta'}); });
     if (cuentaCod==='41101007')   movs.push({fecha:v.fecha, desc:'Ventas netas', debe:0, haber:neto, origen:'Venta'});
     if (cuentaCod==='21404')      movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal 21%', debe:0, haber:iva, origen:'Venta'});
     if (cuentaCod==='11403002')   movs.push({fecha:v.fecha, desc:'Percepción IIBB 3%', debe:iibb, haber:0, origen:'Venta'});
@@ -3283,6 +3320,15 @@ function setMinutaTipo(t){
                  be.style.borderColor='#ddd'; be.style.background='#fff'; be.style.color='#888'; }
   }
   _populateMinutaConceptos();
+  // Minuta de EGRESO: fecha siempre la del día, bloqueada
+  const _fEl=document.getElementById('min-fecha');
+  const _hoy=(()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().split('T')[0];})();
+  if(_fEl){
+    if(t==='E'){ _fEl.value=_hoy; _fEl.readOnly=true; _fEl.style.background='#f0f0f0'; _fEl.style.cursor='not-allowed'; _fEl.style.pointerEvents='none'; }
+    else { _fEl.readOnly=false; _fEl.style.background=''; _fEl.style.cursor=''; _fEl.style.pointerEvents=''; if(!_fEl.value) _fEl.value=_hoy; }
+  }
+  const _h=document.getElementById('min-fecha-hint');
+  if(_h) _h.style.display = (t==='E') ? 'block' : 'none';
 }
 
 function _populateMinutaConceptos(){
@@ -3325,7 +3371,9 @@ function _populateMinutaForm(){
 
 async function saveMinuta(){
   const tipo = minutaTipo;
-  const fecha = document.getElementById('min-fecha').value;
+  let fecha = document.getElementById('min-fecha').value;
+  // Egreso: siempre la fecha del día, sin importar lo que muestre el campo
+  if(tipo==='E'){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); fecha=d.toISOString().split('T')[0]; }
   if(!fecha){ showToast('Elegí la fecha','err'); return; }
   const cSel = document.getElementById('min-concepto');
   let cuenta_concepto, concepto;
@@ -4397,7 +4445,7 @@ function renderBalance() {
     const iva = calcularIVA(v.total||0).iva;
     const neto = (v.total||0) - iva;
     const iibb = Math.round((v.total||0)*0.03*100)/100;
-    if (totales[ct])        totales[ct].debe += v.total||0;
+    _debitosVenta(v).forEach(d=>{ if(totales[d.cuenta]) totales[d.cuenta].debe += d.importe; });
     if (totales['41101007'])totales['41101007'].haber += neto;
     if (totales['21404'])   totales['21404'].haber += iva;
     if (totales['11403002'])totales['11403002'].debe += iibb;
@@ -7774,6 +7822,42 @@ function chQ(id,d){
 }
 
 // ══ METHOD ══
+let splitActivo = false;
+function _totalActualVenta(){
+  const sel=prods.filter(p=>(qtys[p.id]||0)>0);
+  const sub=sel.reduce((s,p)=>s+(p.precio||0)*(qtys[p.id]||0),0);
+  const desc=parseFloat(document.getElementById('v-desc')?.value)||0;
+  return Math.round(sub*(1-desc/100));
+}
+function toggleSplit(){
+  splitActivo = !!document.getElementById('split-toggle')?.checked;
+  const w=document.getElementById('split-wrap'); if(w) w.style.display=splitActivo?'block':'none';
+  const msel=document.querySelector('.msel');
+  if(msel){ msel.style.opacity=splitActivo?'0.4':''; msel.style.pointerEvents=splitActivo?'none':''; }
+  if(splitActivo){
+    const t=_totalActualVenta();
+    const a1=document.getElementById('split-a1'); if(a1&&!a1.value) a1.value=t;
+    onSplitA1();
+  } else { updateSplit(); }
+}
+function onSplitA1(){
+  const t=_totalActualVenta();
+  const a1=parseFloat(document.getElementById('split-a1')?.value)||0;
+  const a2El=document.getElementById('split-a2'); if(a2El) a2El.value=Math.max(0, Math.round((t-a1)*100)/100);
+  updateSplit();
+}
+function updateSplit(){
+  const info=document.getElementById('split-info'); if(!info) return;
+  if(!splitActivo){ info.innerHTML=''; return; }
+  const t=_totalActualVenta();
+  const a1=parseFloat(document.getElementById('split-a1')?.value)||0;
+  const a2=parseFloat(document.getElementById('split-a2')?.value)||0;
+  const dif=Math.round((t-(a1+a2))*100)/100;
+  if(Math.abs(dif)<1) info.innerHTML='<span style="color:#1a5c38;font-weight:600">✓ Suma correcta · Total $'+t.toLocaleString('es-AR')+'</span>';
+  else if(dif>0) info.innerHTML='<span style="color:#c0392b">Faltan $'+dif.toLocaleString('es-AR')+' para llegar al total ($'+t.toLocaleString('es-AR')+')</span>';
+  else info.innerHTML='<span style="color:#c0392b">Sobran $'+(-dif).toLocaleString('es-AR')+' (total $'+t.toLocaleString('es-AR')+')</span>';
+}
+
 function setMethod(m){
   method=m;
   ['ef','tr','td'].forEach(k=>document.getElementById('m-'+k)?.classList.remove('on'));
@@ -7793,7 +7877,8 @@ function updateCart(){
   const total=sub*(1-desc/100);
   document.getElementById('c-chips').innerHTML=sel.map(p=>`<div class="chip">${getEm(p.categoria)} ${esc(p.nombre.split(' ')[0])} ×${qtys[p.id]}</div>`).join('');
   document.getElementById('c-total').textContent=`$${Math.round(total).toLocaleString('es-AR')}`;
-  document.getElementById('c-method-l').textContent=`${method}${desc>0?` · ${desc}% desc`:''}`;
+  document.getElementById('c-method-l').textContent=`${splitActivo?'Pago dividido':method}${desc>0?` · ${desc}% desc`:''}`;
+  if(typeof updateSplit==='function') updateSplit();
 }
 
 // ══ REGISTER SALE ══
@@ -7822,6 +7907,20 @@ async function registerSale(){
     const sub=sel.reduce((s,p)=>s+p.precio*(qtys[p.id]||0),0);
     const desc=parseFloat(document.getElementById('v-desc').value)||0;
     const total=Math.round(sub*(1-desc/100));
+
+    // ── Pago dividido (dos métodos) ──
+    let pagosSplit = null;
+    let metodoParaRPC = method;
+    if (splitActivo) {
+      const m1=document.getElementById('split-m1').value, m2=document.getElementById('split-m2').value;
+      const a1=Math.round(parseFloat(document.getElementById('split-a1').value)||0);
+      const a2=Math.round(parseFloat(document.getElementById('split-a2').value)||0);
+      if(m1===m2){ showToast('Elegí dos métodos distintos para dividir el pago','err'); btn.disabled=false; btn.textContent='Confirmar →'; return; }
+      if(a1<=0||a2<=0){ showToast('Ambos montos deben ser mayores a 0','err'); btn.disabled=false; btn.textContent='Confirmar →'; return; }
+      if(Math.abs((a1+a2)-total)>1){ showToast('La suma de los dos pagos debe ser igual al total ($'+total.toLocaleString('es-AR')+')','err'); btn.disabled=false; btn.textContent='Confirmar →'; return; }
+      pagosSplit=[{metodo:m1,monto:a1},{metodo:m2,monto:a2}];
+      metodoParaRPC=m1; // primario (ambos son pagos inmediatos, no cuenta corriente)
+    }
     const clienteEl=document.getElementById('v-cliente');
     const clienteNom=clienteEl.value?(clienteEl.options[clienteEl.selectedIndex]?.text||''):'';
     const nota=document.getElementById('v-nota').value;
@@ -7852,7 +7951,7 @@ async function registerSale(){
     const { data: result, error } = await SB.rpc('procesar_venta_atomica', {
       p_tienda_id:   STORE.id,
       p_items:       items,
-      p_metodo_pago: method,
+      p_metodo_pago: metodoParaRPC,
       p_total:       total,
       p_cliente:     (tipoCbte === 'A' ? (razonSocial || clienteNom) : clienteNom) || null,
       p_nota:        nota || null,
@@ -7867,12 +7966,20 @@ async function registerSale(){
       throw new Error(result?.error || 'Error al procesar la venta');
     }
 
+    // Guardar el detalle del pago dividido en la venta recién creada
+    if (pagosSplit && result.venta_id) {
+      try { await SB.from('ventas').update({ pagos: pagosSplit, metodo_pago: 'Mixto' }).eq('id', result.venta_id); }
+      catch(e){ console.error('No se pudo guardar el split', e); }
+    }
+
     // Construir objeto venta local con lo que devolvió la función
     const venta = {
       id:              result.venta_id,
       tienda_id:       STORE.id,
       total, subtotal: sub, descuento: desc,
-      metodo_pago:     method, nota, cliente: clienteNom,
+      metodo_pago:     pagosSplit ? 'Mixto' : method,
+      pagos:           pagosSplit,
+      nota, cliente: clienteNom,
       items:           JSON.stringify(items),
       fecha:           new Date().toISOString().split('T')[0],
       nro_comprobante: result.nro_comprobante,
@@ -7889,13 +7996,18 @@ async function registerSale(){
     }
 
     // Si fue Cuenta Corriente, recargar deudas (la función ya creó la deuda)
-    if(method === 'Cuenta Corriente'){
+    if(!pagosSplit && method === 'Cuenta Corriente'){
       await loadDeudas();
       renderDeudas();
       showToast(`📒 Venta en Cta. Cte. — $${total.toLocaleString('es-AR')} pasado a Deudores`,'ok');
     }
 
     qtys={};
+    // Reset del pago dividido
+    { const st=document.getElementById('split-toggle'); if(st) st.checked=false; splitActivo=false;
+      const sw=document.getElementById('split-wrap'); if(sw) sw.style.display='none';
+      const a1=document.getElementById('split-a1'), a2=document.getElementById('split-a2'); if(a1)a1.value=''; if(a2)a2.value='';
+      const ms=document.querySelector('.msel'); if(ms){ ms.style.opacity=''; ms.style.pointerEvents=''; } }
     document.getElementById('v-desc').value='';
     document.getElementById('v-nota').value='';
     const cuitInput = document.getElementById('cuit-cte-input');
@@ -7946,6 +8058,49 @@ function showTicket(s){
     </div>`;
   openModal('ov-ticket');
 }
+function generarPresupuesto(){
+  const sel = prods.filter(p => (qtys[p.id]||0) > 0);
+  if(!sel.length){ showToast('Agregá productos al carrito para el presupuesto','err'); return; }
+  const desc = parseFloat(document.getElementById('v-desc')?.value) || 0;
+  const sub = sel.reduce((s,p)=> s + (p.precio||0)*(qtys[p.id]||0), 0);
+  const total = sub*(1-desc/100);
+  const hoy = new Date();
+  const validez = new Date(hoy.getTime() + 7*86400000);
+  const fmt = (d)=> d.toLocaleDateString('es-AR');
+  const filas = sel.map(p=>{
+    const q = qtys[p.id]||0; const imp = (p.precio||0)*q;
+    return '<tr><td>'+esc(p.nombre||'')+'</td><td style="text-align:center">'+q+'</td><td style="text-align:right">$'+(p.precio||0).toLocaleString('es-AR')+'</td><td style="text-align:right">$'+imp.toLocaleString('es-AR')+'</td></tr>';
+  }).join('');
+  const w = window.open('','_blank');
+  if(!w){ showToast('Permití las ventanas emergentes para ver el presupuesto','err'); return; }
+  w.document.write(
+    '<html><head><meta charset="utf-8"><title>Presupuesto</title><style>'+
+    'body{font-family:Arial,Helvetica,sans-serif;max-width:620px;margin:0 auto;padding:28px;color:#1a1a1a}'+
+    '.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #7c3aed;padding-bottom:14px;margin-bottom:18px}'+
+    'h1{font-size:22px;margin:0}'+
+    '.badge{background:#7c3aed;color:#fff;padding:5px 14px;border-radius:6px;font-weight:700;font-size:13px;letter-spacing:.5px}'+
+    'table{width:100%;border-collapse:collapse;margin:14px 0}'+
+    'th{background:#f3effe;text-align:left;padding:9px;font-size:12px;text-transform:uppercase;letter-spacing:.5px}'+
+    'td{padding:9px;border-bottom:1px solid #eee;font-size:13px}'+
+    '.total{text-align:right;font-size:22px;font-weight:700;color:#7c3aed;margin-top:10px}'+
+    '.foot{margin-top:26px;font-size:11px;color:#777;border-top:1px solid #eee;padding-top:14px;line-height:1.6}'+
+    '</style></head><body>'+
+    '<div class="head"><div><h1>'+esc(STORE?.name||'Tienda')+'</h1>'+
+    '<div style="font-size:12px;color:#666">'+(STORE?.cuit?('CUIT: '+esc(STORE.cuit)):'')+'</div></div>'+
+    '<div style="text-align:right"><div class="badge">PRESUPUESTO</div>'+
+    '<div style="font-size:12px;margin-top:8px">Fecha: '+fmt(hoy)+'</div></div></div>'+
+    '<table><thead><tr><th>Producto</th><th style="text-align:center">Cant.</th><th style="text-align:right">Precio</th><th style="text-align:right">Importe</th></tr></thead><tbody>'+filas+'</tbody></table>'+
+    (desc>0?'<div style="text-align:right;font-size:13px;color:#666">Descuento aplicado: '+desc+'%</div>':'')+
+    '<div class="total">Total: $'+Math.round(total).toLocaleString('es-AR')+'</div>'+
+    '<div class="foot"><b>Este documento es un presupuesto, no una factura.</b> No constituye comprobante fiscal ni reserva de stock.<br>'+
+    'Válido hasta: '+fmt(validez)+' · Precios sujetos a modificación sin previo aviso.</div>'+
+    '<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print();},200);}<\/scr'+'ipt>'+
+    '</body></html>'
+  );
+  w.document.close();
+  showToast('📄 Presupuesto generado','ok');
+}
+
 function printTicket(){
   const w=window.open('','_blank');
   w.document.write(`<html><head><title>Ticket</title><style>body{font-family:monospace;font-size:12px;width:300px;margin:0 auto;padding:10px}</style></head><body>
@@ -8098,10 +8253,10 @@ function renderCaja(){
   const today=new Date().toISOString().split('T')[0];
   const todaySales=sales.filter(s=>s.fecha===today);
   const total=todaySales.reduce((s,v)=>s+(v.total||0),0);
-  const ef=todaySales.filter(s=>s.metodo_pago==='Efectivo').reduce((s,v)=>s+(v.total||0),0);
-  const tr=todaySales.filter(s=>s.metodo_pago==='Transferencia').reduce((s,v)=>s+(v.total||0),0);
-  const td=todaySales.filter(s=>s.metodo_pago==='Tarjeta').reduce((s,v)=>s+(v.total||0),0);
-  const mp=todaySales.filter(s=>s.metodo_pago==='MercadoPago').reduce((s,v)=>s+(v.total||0),0);
+  const ef=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
+  const tr=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Transferencia'),0);
+  const td=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Tarjeta'),0);
+  const mp=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'MercadoPago'),0);
   const avg=todaySales.length?Math.round(total/todaySales.length):0;
   const totalProds=todaySales.reduce((s,v)=>{const items=typeof v.items==='string'?JSON.parse(v.items||'[]'):v.items||[];return s+items.reduce((a,i)=>a+(i.cantidad||0),0);},0);
 
@@ -8156,10 +8311,10 @@ function prepararCierre(){
   const todaySales=sales.filter(s=>s.fecha===today);
   if(!todaySales.length){showToast('No hay ventas hoy para cerrar','err');return;}
   const total=todaySales.reduce((s,v)=>s+(v.total||0),0);
-  const ef=todaySales.filter(s=>s.metodo_pago==='Efectivo').reduce((s,v)=>s+(v.total||0),0);
-  const tr=todaySales.filter(s=>s.metodo_pago==='Transferencia').reduce((s,v)=>s+(v.total||0),0);
-  const td=todaySales.filter(s=>s.metodo_pago==='Tarjeta').reduce((s,v)=>s+(v.total||0),0);
-  const mp=todaySales.filter(s=>s.metodo_pago==='MercadoPago').reduce((s,v)=>s+(v.total||0),0);
+  const ef=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
+  const tr=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Transferencia'),0);
+  const td=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Tarjeta'),0);
+  const mp=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'MercadoPago'),0);
   const efCaja=parseFloat(document.getElementById('arq-ef').value)||0;
   const dif=efCaja-ef;
   const obs=document.getElementById('arq-obs').value;
