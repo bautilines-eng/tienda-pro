@@ -1407,6 +1407,56 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+
+<!-- MODAL ANULAR COMPRA/REMITO (Punto 7) -->
+<div class="overlay" id="ov-anular-compra">
+  <div class="modal-content" style="max-width:500px;animation:slideUp .3s ease">
+    <div style="background:linear-gradient(135deg,#c94040,#8b1a1a);padding:20px 24px;border-radius:16px 16px 0 0;color:#fff;position:relative">
+      <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-anular-compra')">✕</span>
+      <div style="font-size:11px;opacity:.7;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">⚠️ Operación irreversible</div>
+      <div style="font-size:18px;font-weight:700">Anular compra / remito</div>
+    </div>
+    <div style="padding:20px;overflow-y:auto;max-height:75vh">
+      <div id="ac-preview" style="margin-bottom:16px"></div>
+      <div id="ac-warnings" style="margin-bottom:12px"></div>
+
+      <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Motivo de la anulación *</label>
+      <select id="ac-motivo" class="inp" style="margin-bottom:10px">
+        <option value="">— Elegí un motivo —</option>
+        <option value="Error de carga">Error de carga</option>
+        <option value="Devolución al proveedor">Devolución al proveedor</option>
+        <option value="Mercadería defectuosa">Mercadería defectuosa</option>
+        <option value="Duplicado">Registro duplicado</option>
+        <option value="Otro">Otro</option>
+      </select>
+
+      <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Detalle (opcional)</label>
+      <textarea id="ac-detalle" class="inp" rows="2" placeholder="Descripción adicional..." style="margin-bottom:16px"></textarea>
+
+      <div id="ac-scope-wrap" style="display:none;margin-bottom:16px;padding:12px;background:#fff3e0;border-radius:10px;border:1px solid #ffe0b2">
+        <div style="font-size:12px;font-weight:700;color:#e65100;margin-bottom:8px">📦 Esta compra es parte de un remito</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;margin-bottom:6px">
+          <input type="radio" name="ac-scope" value="single" checked> Anular solo esta compra
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+          <input type="radio" name="ac-scope" value="remito"> Anular TODO el remito (<span id="ac-remito-count">0</span> compras)
+        </label>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
+        <button onclick="closeModal('ov-anular-compra')"
+          style="padding:13px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">
+          Cancelar
+        </button>
+        <button id="ac-confirm-btn" onclick="confirmarAnularCompra()"
+          style="padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#c94040,#8b1a1a);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+          🗑️ Confirmar anulación
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL NUEVA RECEPCIÓN GRN -->
 <div class="overlay" id="ov-nueva-recepcion">
   <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0;max-height:90vh;overflow-y:auto">
@@ -2798,7 +2848,7 @@ function generarAsientosPeriodo(mesAno) {
                            .sort((a,b) => a.fecha.localeCompare(b.fecha));
   const gastosFilt  = gastos.filter(g => g.fecha >= desde && g.fecha <= hasta)
                             .sort((a,b) => a.fecha.localeCompare(b.fecha));
-  const comprasFilt = compras.filter(c => c.fecha >= desde && c.fecha <= hasta)
+  const comprasFilt = compras.filter(c => !c.anulada && c.fecha >= desde && c.fecha <= hasta)
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
   const minutasFilt = (minutas||[]).filter(m => !m.is_deleted && !m.anulada && m.fecha >= desde && m.fecha <= hasta)
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
@@ -2844,7 +2894,7 @@ function generarAsientoDia() {
   const hoy = new Date().toISOString().split('T')[0];
   const ventasHoy  = sales.filter(s => s.fecha === hoy);
   const gastosHoy  = gastos.filter(g => g.fecha === hoy);
-  const comprasHoy = compras.filter(c => c.fecha === hoy);
+  const comprasHoy = compras.filter(c => !c.anulada && c.fecha === hoy);
 
   if (!ventasHoy.length && !gastosHoy.length && !comprasHoy.length) {
     showToast('No hay movimientos hoy', 'err');
@@ -3101,8 +3151,8 @@ function renderMayor() {
     });
   });
 
-  // Compras
-  compras.filter(c => filtro(c.fecha)).forEach(co => {
+  // Compras (excluye anuladas)
+  compras.filter(c => !c.anulada && filtro(c.fecha)).forEach(co => {
     const total = (co.precio_unitario||0)*(co.cantidad||0);
     const iva   = calcularIVA(total).iva;
     const neto  = total - iva;
@@ -4330,6 +4380,268 @@ async function confirmarRemito(){
   finally{ if(btn){ btn.disabled=false; btn.textContent=txt; } }
 }
 
+
+// ══════════════════════════════════════════════════════════════
+// PUNTO 7 — ANULAR COMPRA/REMITO CON REVERSIÓN COMPLETA
+// Solo dueños y administrativos. Reversión: stock, deuda/gasto,
+// factura, contabilidad. Append-only (soft-delete, no hard delete).
+// ══════════════════════════════════════════════════════════════
+
+let _anularCompraId = null;
+let _anularComprasRelacionadas = [];
+
+function _esRolAdmin() {
+  const rol = (USER_ROL || 'dueño').toLowerCase();
+  return ['dueño', 'dueno', 'administrativo', 'admin'].includes(rol);
+}
+
+function _comprasDelMismoRemito(compraBase) {
+  // Si la compra tiene numero_factura y proveedor_id, buscar las hermanas
+  if (!compraBase.numero_factura || !compraBase.proveedor_id) return [compraBase];
+  const fac = facturas.find(f => f.compra_id === compraBase.id && !f.anulada);
+  if (!fac) {
+    // Buscar si alguna otra factura referencia a esta compra como parte de un remito
+    const facRelacionada = facturas.find(f =>
+      f.numero === compraBase.numero_factura &&
+      !f.anulada &&
+      f.observaciones && f.observaciones.includes('productos')
+    );
+    if (!facRelacionada) return [compraBase];
+  }
+  // Todas las compras con mismo numero_factura, proveedor_id y fecha (patrón de remito)
+  return compras.filter(c =>
+    !c.anulada &&
+    c.numero_factura === compraBase.numero_factura &&
+    c.proveedor_id === compraBase.proveedor_id &&
+    c.fecha === compraBase.fecha
+  );
+}
+
+function abrirAnularCompra(compraId) {
+  if (!_esRolAdmin()) {
+    showToast('Solo dueños o administrativos pueden anular compras', 'err');
+    return;
+  }
+
+  const co = compras.find(c => c.id === compraId);
+  if (!co) { showToast('Compra no encontrada', 'err'); return; }
+  if (co.anulada) { showToast('Esta compra ya fue anulada', 'err'); return; }
+
+  _anularCompraId = compraId;
+  _anularComprasRelacionadas = _comprasDelMismoRemito(co);
+  const esRemito = _anularComprasRelacionadas.length > 1;
+
+  // Preview
+  const preview = document.getElementById('ac-preview');
+  const total = (co.precio_unitario || 0) * (co.cantidad || 0);
+  const facAsociada = facturas.find(f => f.compra_id === co.id && !f.anulada) ||
+    (esRemito ? facturas.find(f =>
+      f.numero === co.numero_factura &&
+      !f.anulada &&
+      _anularComprasRelacionadas.some(c => c.id === f.compra_id)
+    ) : null);
+  const deudaAsociada = deudas.find(d => d.compra_id === co.id && d.tipo === 'proveedor' && d.estado !== 'pagado');
+  // Para remito la deuda puede estar en la primera compra
+  const deudaRemito = esRemito ? deudas.find(d =>
+    _anularComprasRelacionadas.some(c => c.id === d.compra_id) &&
+    d.tipo === 'proveedor' && d.estado !== 'pagado'
+  ) : null;
+
+  preview.innerHTML = `
+    <div style="background:#f8f8f8;border-radius:8px;padding:12px;font-size:12px">
+      <div style="font-weight:700;margin-bottom:6px">Compra a anular:</div>
+      <div style="display:flex;justify-content:space-between">
+        <span style="font-weight:600">${esc(co.producto_nombre || '—')}</span>
+        ${total ? '<span style="font-family:\'DM Mono\',monospace;font-weight:700">$' + total.toLocaleString('es-AR') + '</span>' : ''}
+      </div>
+      <div style="color:#888;margin-top:2px">${co.fecha} · ${esc(co.proveedor || '')} · ${co.cantidad} uds · ${esc(co.forma_pago || 'Contado')}</div>
+      ${co.numero_factura ? '<div style="color:#888;margin-top:2px">📄 Factura: ' + esc(co.numero_factura) + '</div>' : ''}
+    </div>
+    <div style="margin-top:10px;padding:10px;background:#fef2f2;border-radius:8px;border:1px solid #fecaca;font-size:11px;color:#991b1b">
+      <div style="font-weight:700;margin-bottom:4px">Se revertirá:</div>
+      <div>📦 Stock: −${co.cantidad} unidades de ${esc(co.producto_nombre || '')}</div>
+      ${facAsociada || (esRemito && facAsociada) ? '<div>📄 Factura: se marcará como anulada</div>' : ''}
+      ${(deudaAsociada || deudaRemito) ? '<div>💳 Deuda con proveedor: se cancelará</div>' : '<div>💰 Gasto contado: se eliminará</div>'}
+      <div>📊 Contabilidad: se excluirá del Mayor y Balance</div>
+    </div>`;
+
+  // Warnings
+  const warnings = document.getElementById('ac-warnings');
+  let warningHtml = '';
+  // Check if deuda has pagos
+  const deudaCheck = deudaAsociada || deudaRemito;
+  if (deudaCheck) {
+    const pagosExistentes = (pagosDeuda || []).filter(p => p.deuda_id === deudaCheck.id);
+    if (pagosExistentes.length > 0) {
+      warningHtml += '<div style="padding:10px;background:#fff3e0;border:1px solid #ffe0b2;border-radius:8px;font-size:11px;color:#e65100;font-weight:600">⛔ Esta deuda ya tiene pagos registrados. Anulá los pagos primero antes de anular la compra.</div>';
+    }
+    if (deudaCheck.monto_original !== deudaCheck.monto) {
+      warningHtml += '<div style="padding:10px;background:#fff3e0;border:1px solid #ffe0b2;border-radius:8px;font-size:11px;color:#e65100;font-weight:600;margin-top:6px">⚠️ La deuda tiene pagos parciales (saldo $' + (deudaCheck.monto || 0).toLocaleString('es-AR') + ' de $' + (deudaCheck.monto_original || 0).toLocaleString('es-AR') + '). No se puede anular.</div>';
+    }
+  }
+  warnings.innerHTML = warningHtml;
+
+  // Remito scope
+  const scopeWrap = document.getElementById('ac-scope-wrap');
+  if (esRemito) {
+    scopeWrap.style.display = 'block';
+    document.getElementById('ac-remito-count').textContent = _anularComprasRelacionadas.length;
+  } else {
+    scopeWrap.style.display = 'none';
+  }
+
+  // Reset fields
+  document.getElementById('ac-motivo').value = '';
+  document.getElementById('ac-detalle').value = '';
+
+  openModal('ov-anular-compra');
+}
+
+async function confirmarAnularCompra() {
+  if (!_anularCompraId) return;
+
+  const motivo = document.getElementById('ac-motivo')?.value;
+  if (!motivo) { showToast('Seleccioná el motivo de anulación', 'err'); return; }
+
+  const detalle = document.getElementById('ac-detalle')?.value.trim() || '';
+  const scope = document.querySelector('input[name="ac-scope"]:checked')?.value || 'single';
+
+  const comprasAAnular = scope === 'remito' ? _anularComprasRelacionadas : [compras.find(c => c.id === _anularCompraId)];
+  if (!comprasAAnular.length || !comprasAAnular[0]) return;
+
+  // Validar que no haya deudas con pagos parciales
+  for (const co of comprasAAnular) {
+    const deuda = deudas.find(d => d.compra_id === co.id && d.tipo === 'proveedor');
+    if (deuda) {
+      const pagos = (pagosDeuda || []).filter(p => p.deuda_id === deuda.id);
+      if (pagos.length > 0 || (deuda.monto_original && deuda.monto !== deuda.monto_original)) {
+        showToast('No se puede anular: la deuda tiene pagos registrados. Anulá los pagos primero.', 'err');
+        return;
+      }
+    }
+  }
+
+  const btn = document.getElementById('ac-confirm-btn');
+  const txtOriginal = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Procesando...'; }
+
+  try {
+    const ahora = new Date().toISOString();
+    const emailUsuario = USER?.email || 'desconocido';
+
+    for (const co of comprasAAnular) {
+      // 1. Revertir stock via kardex (cantidad NEGATIVA = salida)
+      try {
+        const { data: kResult } = await SB.rpc('mover_stock_con_kardex', {
+          p_tienda_id: STORE.id,
+          p_producto_id: co.producto_id,
+          p_cantidad: -co.cantidad,  // NEGATIVO = egreso
+          p_tipo_mov: 'ANULACION_COMPRA',
+          p_doc_tipo: 'ANULACION_COMPRA',
+          p_doc_id: co.id,
+          p_doc_nro: 'ANUL-' + (co.numero_factura || co.id.slice(0, 8)),
+          p_costo_unit: co.precio_unitario || 0,
+          p_observacion: 'Anulación de compra — ' + motivo + (detalle ? ' · ' + detalle : '')
+        });
+        // Actualizar stock local
+        const prod = prods.find(p => p.id === co.producto_id);
+        if (prod && kResult?.exito) {
+          prod.stock = kResult.stock_nuevo;
+        } else if (prod) {
+          prod.stock = Math.max(0, (prod.stock || 0) - co.cantidad);
+        }
+      } catch (kErr) {
+        console.error('Error revirtiendo stock para compra', co.id, kErr);
+        showToast('⚠️ Error revirtiendo stock de ' + (co.producto_nombre || '') + ': ' + (kErr.message || ''), 'err');
+      }
+
+      // 2. Marcar compra como anulada (soft-delete)
+      await SB.from('compras').update({
+        anulada: true,
+        anulada_at: ahora,
+        anulada_por: emailUsuario
+      }).eq('id', co.id);
+      co.anulada = true;
+      co.anulada_at = ahora;
+      co.anulada_por = emailUsuario;
+
+      // 3. Eliminar deuda asociada (si CC)
+      const deuda = deudas.find(d => d.compra_id === co.id && d.tipo === 'proveedor');
+      if (deuda && deuda.estado !== 'pagado') {
+        await SB.from('deudas').update({
+          estado: 'anulado',
+          is_deleted: true,
+          deleted_at: ahora
+        }).eq('id', deuda.id);
+        deudas = deudas.filter(d => d.id !== deuda.id);
+      }
+    }
+
+    // 4. Anular factura del proveedor asociada
+    // Buscar TODAS las facturas que apunten a alguna de las compras anuladas
+    const idsCompras = comprasAAnular.map(c => c.id);
+    const facturasAsociadas = facturas.filter(f =>
+      !f.anulada && idsCompras.includes(f.compra_id)
+    );
+    for (const fac of facturasAsociadas) {
+      await SB.from('facturas_proveedor').update({
+        anulada: true,
+        anulada_at: ahora,
+        estado: 'anulada'
+      }).eq('id', fac.id);
+      fac.anulada = true;
+      fac.anulada_at = ahora;
+      fac.estado = 'anulada';
+    }
+
+    // 5. Eliminar gasto asociado (si era contado)
+    // El gasto del remito se crea con descripción que incluye el nro de factura
+    if (facturasAsociadas.length > 0) {
+      for (const fac of facturasAsociadas) {
+        if (fac.forma_pago !== 'Cuenta Corriente') {
+          // Buscar gasto por monto + fecha + categoría Proveedores + descripción similar
+          const gastoAsociado = gastos.find(g =>
+            g.categoria === 'Proveedores' &&
+            Math.abs((g.monto || 0) - (fac.total || 0)) < 0.01 &&
+            g.fecha === fac.fecha
+          );
+          if (gastoAsociado) {
+            await SB.from('gastos').update({ is_deleted: true, deleted_at: ahora }).eq('id', gastoAsociado.id);
+            gastos = gastos.filter(g => g.id !== gastoAsociado.id);
+          }
+        }
+      }
+    } else {
+      // Compra individual sin factura — no genera gasto separado
+    }
+
+    // Filtrar compras anuladas de la lista visible
+    compras = compras.filter(c => !c.anulada);
+
+    closeModal('ov-anular-compra');
+    renderCompraList();
+    if (typeof renderStock === 'function' && typeof stockFilter !== 'undefined') renderStock(stockFilter);
+    if (typeof renderProds === 'function') renderProds();
+    if (typeof renderDeudas === 'function') renderDeudas();
+    if (typeof renderGastos === 'function') renderGastos();
+    if (typeof checkAlertBar === 'function') checkAlertBar();
+    if (typeof checkAlertaFacturasPendientes === 'function') checkAlertaFacturasPendientes();
+
+    const msg = comprasAAnular.length > 1
+      ? '✅ Remito anulado: ' + comprasAAnular.length + ' compras revertidas'
+      : '✅ Compra anulada — stock, deuda y contabilidad revertidos';
+    showToast(msg, 'ok');
+    _anularCompraId = null;
+    _anularComprasRelacionadas = [];
+
+  } catch (e) {
+    showToast('❌ Error al anular: ' + (e.message || 'Error desconocido'), 'err');
+    console.error('Error anulando compra:', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = txtOriginal; }
+  }
+}
+
 function _descargarCSV(rows, filename) {
   const csv  = '\uFEFF' + rows.join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -4492,8 +4804,8 @@ function renderBalance() {
     });
   });
 
-  // Compras
-  compras.filter(c => filtro(c.fecha)).forEach(co => {
+  // Compras (excluye anuladas)
+  compras.filter(c => !c.anulada && filtro(c.fecha)).forEach(co => {
     const total = (co.precio_unitario||0)*(co.cantidad||0);
     const iva   = calcularIVA(total).iva;
     const neto  = total - iva;
@@ -4662,7 +4974,7 @@ function generarIVA(tipo) {
 
   } else if (tipo === 'compras_cbte') {
     filename = `LIBRO_IVA_DIGITAL_COMPRAS_CBTE_${periodo.replace('-','')}.txt`;
-    const comps = compras.filter(c => c.fecha >= desde && c.fecha <= hasta)
+    const comps = compras.filter(c => !c.anulada && c.fecha >= desde && c.fecha <= hasta)
                          .sort((a,b) => a.fecha.localeCompare(b.fecha));
     lineas = comps.map((co, i) => {
       const total  = (co.precio_unitario||0)*(co.cantidad||0);
@@ -4691,7 +5003,7 @@ function generarIVA(tipo) {
 
   } else if (tipo === 'compras_alic') {
     filename = `LIBRO_IVA_DIGITAL_COMPRAS_ALICUOTAS_${periodo.replace('-','')}.txt`;
-    const comps = compras.filter(c => c.fecha >= desde && c.fecha <= hasta)
+    const comps = compras.filter(c => !c.anulada && c.fecha >= desde && c.fecha <= hasta)
                          .sort((a,b) => a.fecha.localeCompare(b.fecha));
     lineas = comps.map((co, i) => {
       const total  = (co.precio_unitario||0)*(co.cantidad||0);
@@ -5849,7 +6161,7 @@ async function guardarFactura() {
 
 // ── Alerta de facturas pendientes ──
 function checkAlertaFacturasPendientes() {
-  const pendientes = compras.filter(c => !c.factura_cargada);
+  const pendientes = compras.filter(c => !c.factura_cargada && !c.anulada);
   const alertBar = document.getElementById('alerta-facturas');
   if (!alertBar) return;
   if (pendientes.length > 0) {
@@ -7365,7 +7677,7 @@ async function loadClients(){
 }
 
 async function loadCompras(){
-  try{compras=await sbGet('compras');}
+  try{compras=(await sbGet('compras')).filter(c=>!c.anulada);}
   catch(e){compras=[];}
 }
 
@@ -9106,7 +9418,10 @@ function renderCompraList(){
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div style="font-size:11px;color:#aaa">+${co.cantidad} uds · $${(co.precio_unitario||0).toLocaleString('es-AR')} c/u</div>
-        ${facBadge}
+        <div style="display:flex;gap:6px;align-items:center">
+          ${facBadge}
+          ${_esRolAdmin()?'<button onclick="abrirAnularCompra(\''+co.id+'\');event.stopPropagation()" style="font-size:10px;background:#fef2f2;color:#c94040;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #fecaca;cursor:pointer" title="Anular esta compra">🗑️</button>':''}
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -9940,7 +10255,7 @@ function renderFinanzas(){
   });
 
   // Compras filtradas (egresos de reposición de stock)
-  const comprasFilt = finPeriodo==='todo' ? compras : compras.filter(c=>c.fecha>=cutoff);
+  const comprasFilt = (finPeriodo==='todo' ? compras : compras.filter(c=>c.fecha>=cutoff)).filter(c=>!c.anulada);
   const totalCompras = comprasFilt.reduce((s,c)=>s+(c.precio_unitario||0)*(c.cantidad||0),0);
   const countCompras = comprasFilt.length;
 
