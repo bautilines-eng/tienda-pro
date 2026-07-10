@@ -618,6 +618,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="flabel" style="margin-bottom:5px">Comprobante</div>
       <div style="display:flex;gap:8px">
         <button class="cbte-btn active" data-cbte="T" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #1a5c38;border-radius:9px;background:#eaf5ee;color:#1a5c38;font-size:12px;font-weight:600;cursor:pointer">Tique B</button>
+        <button class="cbte-btn" data-cbte="X" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer" title="Baja stock, sin IVA ni comprobante fiscal">Sin comprob.</button>
         <button class="cbte-btn" data-cbte="B" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">Factura B</button>
         <button class="cbte-btn" data-cbte="A" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">Factura A</button>
       </div>
@@ -674,6 +675,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div class="cart-m" id="c-method-l">Efectivo</div>
       </div>
       <button onclick="generarPresupuesto()" title="Genera un presupuesto/cotización. NO registra la venta ni descuenta stock." style="width:100%;margin-bottom:8px;padding:11px;border-radius:10px;border:1.5px solid #7c3aed;background:#f3effe;color:#7c3aed;font-size:13px;font-weight:600;cursor:pointer">📄 Generar presupuesto (no registra venta)</button>
+      <button onclick="solicitarConsumoPersonal()" title="Consumo del personal a cuenta. Requiere aprobación de un administrativo antes de confirmarse." style="width:100%;margin-bottom:8px;padding:11px;border-radius:10px;border:1.5px solid #c97f1a;background:#fdf5ea;color:#8a5a1a;font-size:13px;font-weight:600;cursor:pointer">🧑‍🔧 Consumo personal (a aprobar)</button>
       <div style="display:flex;gap:8px;width:100%">
         <button class="btn btn-rust" id="c-btn" onclick="withLoadingButton(this, registerSale)()" style="flex:1">Confirmar →</button>
         <button onclick="generarLinkMP()" title="Generar link de pago MercadoPago"
@@ -1060,6 +1062,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div style="padding:14px 20px 0">
       <button class="btn btn-rust btn-full" onclick="openModal('ov-add-deuda')">+ Registrar deuda</button>
       <button onclick="abrirModalNotaDebito()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #8a4b1f;background:#fdf0e6;color:#8a4b1f;font-size:13px;font-weight:600;cursor:pointer">📄 Emitir Nota de Débito</button>
+      <div id="consumos-panel" style="margin-top:12px"></div>
     </div>
     <div class="slabel">
       <span class="slabel-t">Deudas pendientes</span>
@@ -2652,6 +2655,18 @@ function _ventaSumaMetodo(v, metodo){
 
 function asientoVenta(venta) {
   const total  = venta.total || 0;
+  // Venta SIN COMPROBANTE (tipo X): sin IVA ni IIBB, a cuenta interna separada
+  if((venta.tipo_cbte||'')==='X'){
+    const ctaVSC=(typeof CUENTAS_ESPECIALES!=='undefined'&&CUENTAS_ESPECIALES['ventas_sin_comprobante'])||'41101099';
+    const nomVSC=(PLAN_CUENTAS.find(c=>c.codigo===ctaVSC)?.nombre)||'VENTAS SIN COMPROBANTE';
+    const lx=[
+      ..._debitosVenta(venta).map(d=>({debe:true,cuenta:d.cuenta,nombre:(PLAN_CUENTAS.find(c=>c.codigo===d.cuenta)?.nombre)||d.metodo,importe:d.importe,detalle:'Cobro '+d.metodo})),
+      {debe:false,cuenta:ctaVSC,nombre:nomVSC,importe:total,detalle:'Venta sin comprobante'},
+    ];
+    return { nro:getNroAsiento(), fecha:venta.fecha, tipo:'VENTA S/COMPROB.', comprobante:'Sin comprobante',
+      descripcion:'Venta sin comprobante'+(venta.cliente?' · '+esc(venta.cliente):''), origen:'venta', origen_id:venta.id,
+      lineas:lx, total_debe:lx.filter(l=>l.debe).reduce((s,l)=>s+l.importe,0), total_haber:lx.filter(l=>!l.debe).reduce((s,l)=>s+l.importe,0) };
+  }
   const iva    = Math.round(total / 1.21 * 0.21 * 100) / 100;
   const neto   = Math.round((total - iva) * 100) / 100;
   const iibb   = Math.round(total * CONFIG_FISCAL.alicuota_iibb * 100) / 100;
@@ -3054,11 +3069,15 @@ function renderMayor() {
 
   // Ventas
   sales.filter(v => filtro(v.fecha)).forEach(v => {
-    const ct = METODO_CUENTA[v.metodo_pago] || '11101001';
+    _debitosVenta(v).forEach(d=>{ if(d.cuenta===cuentaCod) movs.push({fecha:v.fecha, desc:`Venta ${esc(d.metodo)}`, debe:d.importe, haber:0, origen:'Venta'}); });
+    if((v.tipo_cbte||'')==='X'){
+      const ctaVSC=(typeof CUENTAS_ESPECIALES!=='undefined'&&CUENTAS_ESPECIALES['ventas_sin_comprobante'])||'41101099';
+      if(cuentaCod===ctaVSC) movs.push({fecha:v.fecha, desc:'Venta sin comprobante', debe:0, haber:v.total||0, origen:'Venta'});
+      return;
+    }
     const iva = calcularIVA(v.total||0).iva;
     const neto = (v.total||0) - iva;
     const iibb = Math.round((v.total||0)*0.03*100)/100;
-    _debitosVenta(v).forEach(d=>{ if(d.cuenta===cuentaCod) movs.push({fecha:v.fecha, desc:`Venta ${esc(d.metodo)}`, debe:d.importe, haber:0, origen:'Venta'}); });
     if (cuentaCod==='41101007')   movs.push({fecha:v.fecha, desc:'Ventas netas', debe:0, haber:neto, origen:'Venta'});
     if (cuentaCod==='21404')      movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal 21%', debe:0, haber:iva, origen:'Venta'});
     if (cuentaCod==='11403002')   movs.push({fecha:v.fecha, desc:'Percepción IIBB 3%', debe:iibb, haber:0, origen:'Venta'});
@@ -3184,7 +3203,7 @@ function _ventasFiltradas(desde, hasta){
   return sales.filter(v => !v.is_deleted && !v.anulada
     && (!desde || v.fecha >= desde) && (!hasta || v.fecha <= hasta));
 }
-function _labelCbte(t){ return t==='A'?'Factura A': t==='B'?'Factura B': t==='T'?'Tique B': (t||'Tique B'); }
+function _labelCbte(t){ return t==='A'?'Factura A': t==='B'?'Factura B': t==='T'?'Tique B': t==='X'?'Sin comprobante': (t||'Tique B'); }
 function _ar(n){ return '$' + (Math.round((n||0)*100)/100).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
 function renderVentasDiarias(){
@@ -4441,11 +4460,15 @@ function renderBalance() {
 
   // Ventas
   sales.filter(v => filtro(v.fecha)).forEach(v => {
-    const ct = METODO_CUENTA[v.metodo_pago] || '11101001';
+    _debitosVenta(v).forEach(d=>{ if(totales[d.cuenta]) totales[d.cuenta].debe += d.importe; });
+    if((v.tipo_cbte||'')==='X'){
+      const ctaVSC=(typeof CUENTAS_ESPECIALES!=='undefined'&&CUENTAS_ESPECIALES['ventas_sin_comprobante'])||'41101099';
+      if(totales[ctaVSC]) totales[ctaVSC].haber += (v.total||0);
+      return;
+    }
     const iva = calcularIVA(v.total||0).iva;
     const neto = (v.total||0) - iva;
     const iibb = Math.round((v.total||0)*0.03*100)/100;
-    _debitosVenta(v).forEach(d=>{ if(totales[d.cuenta]) totales[d.cuenta].debe += d.importe; });
     if (totales['41101007'])totales['41101007'].haber += neto;
     if (totales['21404'])   totales['21404'].haber += iva;
     if (totales['11403002'])totales['11403002'].debe += iibb;
@@ -7278,6 +7301,7 @@ async function initApp(){
       loadNotasDebito(),
     loadCierres(),
     loadDeudas(),
+    loadConsumos(),
     loadGastos(),
     loadCombos(),
     loadFacturas(),
@@ -7347,13 +7371,93 @@ async function loadCompras(){
 
 // ══ DEUDORES ══
 let deudas = [];
+let consumosPersonal = [];
 
 async function loadDeudas(){
   try{ deudas = await sbGet('deudas'); }
   catch(e){ deudas = []; }
 }
 
+async function loadConsumos(){
+  try{ consumosPersonal = await sbGet('consumos_personal'); }
+  catch(e){ consumosPersonal = []; }
+}
+
+function renderConsumos(){
+  const el = document.getElementById('consumos-panel'); if(!el) return;
+  const rol=(USER_ROL||'').toLowerCase();
+  const esAdmin=['dueño','dueno','administrativo','admin'].includes(rol);
+  const pend = (consumosPersonal||[]).filter(c=>c.estado==='pendiente');
+  if(!pend.length){ el.innerHTML=''; return; }
+  let html='<div class="card" style="border:1.5px solid #c97f1a;background:#fffdf8">'+
+    '<div style="font-weight:700;font-size:13px;margin-bottom:10px;color:#8a5a1a">🧑‍🔧 Consumos del personal a aprobar ('+pend.length+')</div>';
+  html += pend.map(c=>{
+    let items=c.items; if(typeof items==='string'){ try{items=JSON.parse(items)}catch(_){items=[]} }
+    const detalle=(items||[]).map(i=>esc(i.nombre)+' x'+i.cantidad).join(', ');
+    const fecha=c.created_at?new Date(c.created_at).toLocaleDateString('es-AR'):'';
+    return '<div style="border:1px solid var(--border);border-radius:9px;padding:10px;margin-bottom:8px;background:#fff">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center">'+
+        '<b style="font-size:12.5px">'+esc(c.solicitante_email||'Personal')+'</b>'+
+        '<b style="color:#8a5a1a;font-family:\'DM Mono\',monospace">$'+(c.total||0).toLocaleString('es-AR')+'</b></div>'+
+      '<div style="font-size:11px;color:var(--muted);margin:4px 0">'+esc(detalle)+' · '+fecha+'</div>'+
+      (esAdmin
+        ? '<div style="display:flex;gap:8px;margin-top:6px">'+
+            '<button onclick="aprobarConsumo(\''+c.id+'\')" style="flex:1;padding:8px;border-radius:8px;border:none;background:#1a5c38;color:#fff;font-size:12px;font-weight:600;cursor:pointer">✓ Aprobar</button>'+
+            '<button onclick="rechazarConsumo(\''+c.id+'\')" style="flex:1;padding:8px;border-radius:8px;border:1.5px solid #c94040;background:#fff;color:#c94040;font-size:12px;font-weight:600;cursor:pointer">✕ Rechazar</button>'+
+          '</div>'
+        : '<div style="font-size:11px;color:#c97f1a;margin-top:4px">⏳ Esperando aprobación de un administrativo</div>')+
+      '</div>';
+  }).join('');
+  html+='</div>';
+  el.innerHTML=html;
+}
+
+async function aprobarConsumo(id){
+  const cp=(consumosPersonal||[]).find(x=>x.id===id); if(!cp) return;
+  if(!confirm('¿Aprobar el consumo de '+(cp.solicitante_email||'personal')+' por $'+(cp.total||0).toLocaleString('es-AR')+'?\n\nSe descuenta el stock y se registra la deuda a su nombre.')) return;
+  try{
+    let items=cp.items; if(typeof items==='string'){ try{items=JSON.parse(items)}catch(_){items=[]} }
+    const { data:result, error } = await SB.rpc('procesar_venta_atomica', {
+      p_tienda_id: STORE.id, p_items: items, p_metodo_pago: 'Cuenta Corriente',
+      p_total: cp.total, p_cliente: cp.solicitante_email || 'Personal',
+      p_nota: 'Consumo personal', p_tipo_cbte: 'X', p_request_id: cp.id
+    });
+    if(error) throw error;
+    if(!result || !result.exito) throw new Error(result?.error || 'No se pudo procesar');
+    // La deuda creada (CC) se marca como 'personal'
+    let deudaId=null;
+    try{
+      const { data:d } = await SB.from('deudas')
+        .update({ tipo:'personal', descripcion:'Consumo personal · '+(cp.solicitante_email||'') })
+        .eq('venta_id', result.venta_id).select('id').maybeSingle();
+      deudaId = d?.id || null;
+    }catch(_){}
+    await SB.from('consumos_personal').update({
+      estado:'aprobado', venta_id:result.venta_id, deuda_id:deudaId,
+      aprobado_por: USER?.email, aprobado_uid: USER?.id, resuelto_at: new Date().toISOString()
+    }).eq('id', id);
+    await loadConsumos(); await loadDeudas();
+    try{ prods = await sbGet('productos'); }catch(_){}
+    renderConsumos(); if(typeof renderDeudas==='function') renderDeudas();
+    if(typeof renderStock==='function') renderStock(typeof stockFilter!=='undefined'?stockFilter:'all');
+    showToast('✅ Consumo aprobado — stock descontado y deuda registrada','ok');
+  }catch(e){ console.error('aprobar', e); showToast('❌ '+(e.message||'No se pudo aprobar'),'err'); }
+}
+
+async function rechazarConsumo(id){
+  const motivo = prompt('Motivo del rechazo (opcional):') || '';
+  try{
+    await SB.from('consumos_personal').update({
+      estado:'rechazado', motivo_rechazo:motivo,
+      aprobado_por: USER?.email, aprobado_uid: USER?.id, resuelto_at: new Date().toISOString()
+    }).eq('id', id);
+    await loadConsumos(); renderConsumos();
+    showToast('Consumo rechazado','ok');
+  }catch(e){ console.error('rechazar', e); showToast('Error al rechazar','err'); }
+}
+
 function renderDeudas(){
+  if(typeof renderConsumos === 'function') renderConsumos();
   if(typeof renderNotasDebito === 'function') renderNotasDebito();
   // Filter by tab
   let pendientes;
@@ -7395,7 +7499,7 @@ function renderDeudas(){
         <div>
           <div style="display:flex;align-items:center;gap:6px">
             <div style="font-size:13px;font-weight:600">${esc(d.nombre_cliente||'Sin nombre')}</div>
-            ${d.tipo==='proveedor'?'<span style="font-size:10px;background:#e3f2fd;color:#1565c0;padding:2px 7px;border-radius:10px;font-weight:600">PROVEEDOR</span>':(d.tipo==='gasto'?'<span style="font-size:10px;background:#f3e5f5;color:#6a1b9a;padding:2px 7px;border-radius:10px;font-weight:600">GASTO</span>':'<span style="font-size:10px;background:#fff3e0;color:#e65100;padding:2px 7px;border-radius:10px;font-weight:600">CLIENTE</span>')}
+            ${d.tipo==='proveedor'?'<span style="font-size:10px;background:#e3f2fd;color:#1565c0;padding:2px 7px;border-radius:10px;font-weight:600">PROVEEDOR</span>':(d.tipo==='gasto'?'<span style="font-size:10px;background:#f3e5f5;color:#6a1b9a;padding:2px 7px;border-radius:10px;font-weight:600">GASTO</span>':(d.tipo==='personal'?'<span style="font-size:10px;background:#fdf5ea;color:#8a5a1a;padding:2px 7px;border-radius:10px;font-weight:600">PERSONAL</span>':'<span style="font-size:10px;background:#fff3e0;color:#e65100;padding:2px 7px;border-radius:10px;font-weight:600">CLIENTE</span>'))}
           </div>
           ${d.telefono?`<div style="font-size:11px;color:var(--muted)">${esc(d.telefono)}</div>`:''}
         </div>
@@ -8058,6 +8162,26 @@ function showTicket(s){
     </div>`;
   openModal('ov-ticket');
 }
+async function solicitarConsumoPersonal(){
+  const sel = prods.filter(p => (qtys[p.id]||0) > 0);
+  if(!sel.length){ showToast('Agregá productos al carrito para el consumo','err'); return; }
+  const desc = parseFloat(document.getElementById('v-desc')?.value)||0;
+  const sub = sel.reduce((s,p)=>s+(p.precio||0)*(qtys[p.id]||0),0);
+  const total = Math.round(sub*(1-desc/100));
+  const items = sel.map(p=>({producto_id:p.id, nombre:p.nombre, cantidad:qtys[p.id]||0, precio:p.precio||0, costo:p.costo||0}));
+  if(!confirm('¿Enviar consumo personal por $'+total.toLocaleString('es-AR')+' para aprobación del administrativo?\n\nEl stock se descuenta recién cuando lo aprueben.')) return;
+  try{
+    const cp = await sbInsert('consumos_personal', {
+      solicitante_email: USER?.email || '', solicitante_uid: USER?.id || null,
+      items, total, estado:'pendiente'
+    });
+    if(cp) consumosPersonal.unshift(cp);
+    qtys={}; const vd=document.getElementById('v-desc'); if(vd) vd.value='';
+    if(typeof updateCart==='function') updateCart();
+    showToast('📤 Consumo enviado para aprobación del administrativo','ok');
+  }catch(e){ console.error('consumo', e); showToast('Error al enviar el consumo','err'); }
+}
+
 function generarPresupuesto(){
   const sel = prods.filter(p => (qtys[p.id]||0) > 0);
   if(!sel.length){ showToast('Agregá productos al carrito para el presupuesto','err'); return; }
