@@ -4976,7 +4976,13 @@ function generarIVA(tipo) {
 
   if (tipo === 'ventas_cbte') {
     filename = `LIBRO_IVA_DIGITAL_VENTAS_CBTE_${periodo.replace('-','')}.txt`;
-    const vents = sales.filter(v => v.fecha >= desde && v.fecha <= hasta)
+    // Solo comprobantes FISCALES vigentes: se excluyen las ventas sin
+    // comprobante (tipo X, numeración interna SC-N) y las anuladas.
+    // Incluirlas en el Libro IVA Digital sería declarar ante AFIP algo
+    // que no es un comprobante fiscal.
+    const vents = sales.filter(v => v.fecha >= desde && v.fecha <= hasta
+                                 && (v.tipo_cbte || 'T') !== 'X'
+                                 && !v.anulada && !v.is_deleted)
                        .sort((a,b) => a.fecha.localeCompare(b.fecha));
     lineas = vents.map((v, i) => {
       const nro    = padL(i+1, 20);
@@ -5017,7 +5023,13 @@ function generarIVA(tipo) {
 
   } else if (tipo === 'ventas_alic') {
     filename = `LIBRO_IVA_DIGITAL_VENTAS_ALICUOTAS_${periodo.replace('-','')}.txt`;
-    const vents = sales.filter(v => v.fecha >= desde && v.fecha <= hasta)
+    // Solo comprobantes FISCALES vigentes: se excluyen las ventas sin
+    // comprobante (tipo X, numeración interna SC-N) y las anuladas.
+    // Incluirlas en el Libro IVA Digital sería declarar ante AFIP algo
+    // que no es un comprobante fiscal.
+    const vents = sales.filter(v => v.fecha >= desde && v.fecha <= hasta
+                                 && (v.tipo_cbte || 'T') !== 'X'
+                                 && !v.anulada && !v.is_deleted)
                        .sort((a,b) => a.fecha.localeCompare(b.fecha));
     lineas = vents.map((v, i) => {
       const tipoC  = v.cuit_comprador ? CONFIG_FISCAL.tipo_cbte_fac_a : CONFIG_FISCAL.tipo_cbte_ticket;
