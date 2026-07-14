@@ -2748,11 +2748,21 @@ function asientoVenta(venta) {
     { debe: false, cuenta: CUENTAS_ESPECIALES['iva_debito']||'2.1.02', nombre: 'IVA Débito Fiscal', importe: iva, detalle: 'IVA 21% débito fiscal' },
   ];
 
-  // IIBB: percepción sobre ventas (3%)
-  if (iibb > 0) {
-    lineas.push({ debe: true, cuenta: CUENTAS_ESPECIALES['iibb_percepcion']||'1.1.07', nombre: 'Percepción IIBB', importe: iibb, detalle: 'Percepción IIBB s/ventas' });
-    lineas.push({ debe: false, cuenta: CUENTAS_ESPECIALES['iibb_pagar']||'2.1.03', nombre: 'IIBB a Pagar', importe: iibb, detalle: 'IIBB a depositar' });
-  }
+  // ══════════════════════════════════════════════════════════════
+  // IIBB — PENDIENTE DE DEFINICIÓN CONTABLE
+  //
+  // El código anterior generaba, en CADA venta:
+  //     Debe  11403002 (DGR Percepción IIBB)  ← activo
+  //     Haber 21412002 (IIBB a pagar)         ← pasivo
+  // Eso inventaba un crédito y una deuda de la nada en cada venta.
+  // Además 11403002 es la cuenta de percepciones que NOS practican
+  // (crédito fiscal, se origina en COMPRAS), no en ventas.
+  //
+  // El asiento de venta correcto es: Debe Caja/Banco · Haber Ventas + IVA.
+  // Nada más. El IIBB propio (3% s/actividad) y la percepción a practicar
+  // (solo Factura A > $120.000) se implementan aparte, una vez que la
+  // contadora defina base de cálculo, alícuota y periodicidad.
+  // ══════════════════════════════════════════════════════════════
 
   return {
     nro: getNroAsiento(),
@@ -3036,15 +3046,13 @@ ${Object.keys(metodos).length ? `
     }).join('')}
     <tr><td class="cod">41101007</td><td>VENTA DE MERCADERÍAS</td><td class="vacio">—</td><td class="haber">$${netaVentas.toLocaleString('es-AR')}</td></tr>
     <tr><td class="cod">21404</td><td>IVA DÉBITO FISCAL (RI)</td><td class="vacio">—</td><td class="haber">$${ivaDebito.toLocaleString('es-AR')}</td></tr>
-    ${iibb > 0 ? `
-    <tr><td class="cod">11403002</td><td>DGR PERCEPCIÓN IIBB 3%</td><td class="debe">$${iibb.toLocaleString('es-AR')}</td><td class="vacio">—</td></tr>
-    <tr><td class="cod">21412002</td><td>INGRESOS BRUTOS A PAGAR</td><td class="vacio">—</td><td class="haber">$${iibb.toLocaleString('es-AR')}</td></tr>
+    ${false ? `
     ` : ''}
   </tbody>
   <tfoot class="tfoot">
     <tr><td colspan="2">TOTALES</td>
-        <td class="r">$${(totalVentas+iibb).toLocaleString('es-AR')}</td>
-        <td class="r">$${(totalVentas+iibb).toLocaleString('es-AR')}</td></tr>
+        <td class="r">$${totalVentas.toLocaleString('es-AR')}</td>
+        <td class="r">$${totalVentas.toLocaleString('es-AR')}</td></tr>
   </tfoot>
 </table>` : ''}
 
@@ -3149,8 +3157,8 @@ function renderMayor() {
     const iibb = Math.round((v.total||0)*0.03*100)/100;
     if (cuentaCod==='41101007')   movs.push({fecha:v.fecha, desc:'Ventas netas', debe:0, haber:neto, origen:'Venta'});
     if (cuentaCod==='21404')      movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal 21%', debe:0, haber:iva, origen:'Venta'});
-    if (cuentaCod==='11403002')   movs.push({fecha:v.fecha, desc:'Percepción IIBB 3%', debe:iibb, haber:0, origen:'Venta'});
-    if (cuentaCod==='21412002')   movs.push({fecha:v.fecha, desc:'IIBB a pagar DGR', debe:0, haber:iibb, origen:'Venta'});
+    // IIBB: pendiente de definición contable — ver nota en asientoVenta.
+    // Las ventas ya no generan percepción automática (era un asiento ficticio).
   });
 
   // Gastos
@@ -4835,11 +4843,9 @@ function renderBalance() {
     }
     const iva = calcularIVA(v.total||0).iva;
     const neto = (v.total||0) - iva;
-    const iibb = Math.round((v.total||0)*0.03*100)/100;
     if (totales['41101007'])totales['41101007'].haber += neto;
     if (totales['21404'])   totales['21404'].haber += iva;
-    if (totales['11403002'])totales['11403002'].debe += iibb;
-    if (totales['21412002'])totales['21412002'].haber += iibb;
+    // IIBB: pendiente de definición contable — ver nota en asientoVenta.
   });
 
   // Gastos
