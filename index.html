@@ -4592,8 +4592,22 @@ async function confirmarAnularCompra() {
         p_precio_unit: (prodRef && prodRef.precio) || 0,
         p_observacion: 'Anulación de compra — ' + motivo + (detalle ? ' · ' + detalle : '')
       });
-      if (kErr) throw new Error('No se pudo revertir el stock de "' + (co.producto_nombre||'') + '": ' + kErr.message);
-      if (kResult && kResult.exito === false) throw new Error(kResult.error || 'El kardex rechazó la reversión');
+      if (kErr || (kResult && kResult.exito === false)) {
+        const msg = (kErr && kErr.message) || (kResult && kResult.error) || '';
+        // El kardex tiene CHECK (stock_nuevo >= 0): si la mercadería de esta
+        // compra ya se vendió, la reversión dejaría el stock en negativo y la
+        // base la rechaza. Es correcto que la rechace: hay que explicarlo bien.
+        const stockActual = prodRef ? (prodRef.stock || 0) : 0;
+        if (/negativ|>= 0|check|constraint|stock_nuevo/i.test(msg) || stockActual < co.cantidad) {
+          throw new Error(
+            'No se puede anular: "' + (co.producto_nombre||'') + '" tiene ' + stockActual +
+            ' unidades en stock y esta compra ingresó ' + co.cantidad + '. ' +
+            'Parte de esa mercadería ya se vendió, así que revertirla dejaría el stock negativo. ' +
+            'Anulá primero las ventas correspondientes (con nota de crédito) o hacé un ajuste de stock.'
+          );
+        }
+        throw new Error('No se pudo revertir el stock de "' + (co.producto_nombre||'') + '": ' + msg);
+      }
       if (prodRef && kResult && kResult.stock_nuevo != null) prodRef.stock = kResult.stock_nuevo;
 
       // 2. Marcar compra como anulada (soft-delete)
