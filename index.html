@@ -675,7 +675,26 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div class="cart-m" id="c-method-l">Efectivo</div>
       </div>
       <button onclick="generarPresupuesto()" title="Genera un presupuesto/cotización. NO registra la venta ni descuenta stock." style="width:100%;margin-bottom:8px;padding:11px;border-radius:10px;border:1.5px solid #7c3aed;background:#f3effe;color:#7c3aed;font-size:13px;font-weight:600;cursor:pointer">📄 Generar presupuesto (no registra venta)</button>
-      <button onclick="solicitarConsumoPersonal()" title="Consumo del personal a cuenta. Requiere aprobación de un administrativo antes de confirmarse." style="width:100%;margin-bottom:8px;padding:11px;border-radius:10px;border:1.5px solid #c97f1a;background:#fdf5ea;color:#8a5a1a;font-size:13px;font-weight:600;cursor:pointer">🧑‍🔧 Consumo personal (a aprobar)</button>
+      <!-- Punto 9: consumo personal detrás de un menú discreto (no a mano en cada venta) -->
+      <div style="margin-bottom:8px">
+        <button onclick="toggleOpcionesAvanzadas()" id="opc-toggle"
+          style="width:100%;padding:7px;border-radius:8px;border:1px dashed #ccc;background:transparent;
+                 color:#999;font-size:11px;font-weight:500;cursor:pointer">
+          ⋯ Más opciones
+        </button>
+        <div id="opc-avanzadas" style="display:none;margin-top:8px;padding:10px;background:#fafafa;
+             border:1px solid #eee;border-radius:10px">
+          <button onclick="solicitarConsumoPersonal()"
+            title="Consumo del personal a cuenta. Requiere aprobación de un administrativo antes de confirmarse."
+            style="width:100%;padding:10px;border-radius:9px;border:1.5px solid #c97f1a;background:#fdf5ea;
+                   color:#8a5a1a;font-size:12px;font-weight:600;cursor:pointer">
+            🧑‍🔧 Consumo personal (requiere aprobación)
+          </button>
+          <div style="font-size:10px;color:#999;margin-top:6px;text-align:center">
+            No descuenta stock hasta que un administrativo lo apruebe
+          </div>
+        </div>
+      </div>
       <div style="display:flex;gap:8px;width:100%">
         <button class="btn btn-rust" id="c-btn" onclick="withLoadingButton(this, registerSale)()" style="flex:1">Confirmar →</button>
         <button onclick="generarLinkMP()" title="Generar link de pago MercadoPago"
@@ -3254,6 +3273,33 @@ function _ventasFiltradas(desde, hasta){
     && (!desde || v.fecha >= desde) && (!hasta || v.fecha <= hasta));
 }
 function _labelCbte(t){ return t==='A'?'Factura A': t==='B'?'Factura B': t==='T'?'Tique B': t==='X'?'Sin comprobante': (t||'Tique B'); }
+
+// ── Detalle legible del método de pago (soporta pago dividido) — Punto 3 ──
+function _metodoDetalle(s){
+  let pagos = s && s.pagos;
+  if(typeof pagos === 'string'){ try{ pagos = JSON.parse(pagos); }catch(_){ pagos = null; } }
+  if(Array.isArray(pagos) && pagos.length){
+    return pagos.map(function(p){
+      return esc(p.metodo) + ' $' + Math.round(p.monto||0).toLocaleString('es-AR');
+    }).join(' + ');
+  }
+  return esc(s && s.metodo_pago ? s.metodo_pago : '—');
+}
+
+// ── ¿La venta fue con pago dividido? ──
+function _esPagoDividido(s){
+  let pagos = s && s.pagos;
+  if(typeof pagos === 'string'){ try{ pagos = JSON.parse(pagos); }catch(_){ pagos = null; } }
+  return Array.isArray(pagos) && pagos.length > 1;
+}
+
+// ── Color del badge segun tipo de comprobante — Punto 1 ──
+function _colorCbte(t){
+  if(t==='A') return {bg:'#dbeafe', fg:'#1e40af'};   // Factura A — azul
+  if(t==='B') return {bg:'#e0e7ff', fg:'#3730a3'};   // Factura B
+  if(t==='X') return {bg:'#fef3c7', fg:'#92400e'};   // Sin comprobante — ambar
+  return {bg:'#f1f5f9', fg:'#475569'};               // Tique B — gris
+}
 function _ar(n){ return '$' + (Math.round((n||0)*100)/100).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
 function renderVentasDiarias(){
@@ -4531,29 +4577,24 @@ async function confirmarAnularCompra() {
 
     for (const co of comprasAAnular) {
       // 1. Revertir stock via kardex (cantidad NEGATIVA = salida)
-      try {
-        const { data: kResult } = await SB.rpc('mover_stock_con_kardex', {
-          p_tienda_id: STORE.id,
-          p_producto_id: co.producto_id,
-          p_cantidad: -co.cantidad,  // NEGATIVO = egreso
-          p_tipo_mov: 'ANULACION_COMPRA',
-          p_doc_tipo: 'ANULACION_COMPRA',
-          p_doc_id: co.id,
-          p_doc_nro: 'ANUL-' + (co.numero_factura || co.id.slice(0, 8)),
-          p_costo_unit: co.precio_unitario || 0,
-          p_observacion: 'Anulación de compra — ' + motivo + (detalle ? ' · ' + detalle : '')
-        });
-        // Actualizar stock local
-        const prod = prods.find(p => p.id === co.producto_id);
-        if (prod && kResult?.exito) {
-          prod.stock = kResult.stock_nuevo;
-        } else if (prod) {
-          prod.stock = Math.max(0, (prod.stock || 0) - co.cantidad);
-        }
-      } catch (kErr) {
-        console.error('Error revirtiendo stock para compra', co.id, kErr);
-        showToast('⚠️ Error revirtiendo stock de ' + (co.producto_nombre || '') + ': ' + (kErr.message || ''), 'err');
-      }
+      // El movimiento de salida en el kardex es OBLIGATORIO. Si falla, se aborta
+      // la anulación entera: es preferible no anular a dejar el stock descuadrado.
+      const prodRef = prods.find(p => p.id === co.producto_id);
+      const { data: kResult, error: kErr } = await SB.rpc('mover_stock_con_kardex', {
+        p_tienda_id:   STORE.id,
+        p_producto_id: co.producto_id,
+        p_cantidad:    -co.cantidad,          // NEGATIVO = egreso (salida por anulación)
+        p_tipo_mov:    'ANULACION_COMPRA',
+        p_doc_tipo:    'ANULACION_COMPRA',
+        p_doc_id:      co.id,
+        p_doc_nro:     'ANUL-' + (co.numero_factura || String(co.id).slice(0, 8)),
+        p_costo_unit:  co.precio_unitario || 0,
+        p_precio_unit: (prodRef && prodRef.precio) || 0,
+        p_observacion: 'Anulación de compra — ' + motivo + (detalle ? ' · ' + detalle : '')
+      });
+      if (kErr) throw new Error('No se pudo revertir el stock de "' + (co.producto_nombre||'') + '": ' + kErr.message);
+      if (kResult && kResult.exito === false) throw new Error(kResult.error || 'El kardex rechazó la reversión');
+      if (prodRef && kResult && kResult.stock_nuevo != null) prodRef.stock = kResult.stock_nuevo;
 
       // 2. Marcar compra como anulada (soft-delete)
       await SB.from('compras').update({
@@ -8457,23 +8498,101 @@ function showTicket(s){
   const items=typeof s.items==='string'?JSON.parse(s.items):s.items||[];
   const rows=items.map(i=>`<div class="ticket-row"><span>${i.emoji||''} ${esc(i.nombre)} ×${i.cantidad}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
   const d=new Date(s.created_at||Date.now());
+
+  // ── Punto 1: identificacion fiscal completa del comprobante ──
+  const tipo   = s.tipo_cbte || 'T';
+  const label  = _labelCbte(tipo);
+  const col    = _colorCbte(tipo);
+  const esA    = tipo === 'A';
+  const esX    = tipo === 'X';
+
+  // Discriminacion de IVA (obligatoria en Factura A, RI a RI)
+  const total  = s.total || 0;
+  let neto = s.neto_gravado, iva = s.importe_iva;
+  if(esA && (neto == null || iva == null)){
+    const c = calcularIVA(total); neto = c.neto; iva = c.iva;
+  }
+
+  // Encabezado fiscal: tipo + numero de comprobante
+  const cabecera = `
+    <div style="text-align:center;margin:6px 0 10px">
+      <div style="display:inline-block;padding:4px 12px;border-radius:6px;
+                  background:${col.bg};color:${col.fg};font-weight:800;
+                  font-size:13px;letter-spacing:.5px">${label}</div>
+      ${s.nro_comprobante?`<div style="font-family:'DM Mono',monospace;font-size:12px;
+           font-weight:700;margin-top:5px">N° ${esc(s.nro_comprobante)}</div>`:''}
+    </div>`;
+
+  // Datos fiscales del emisor (solo en comprobantes fiscales)
+  const emisor = (!esX && STORE?.cuit) ? `
+      <div class="ticket-row"><span>CUIT</span><span>${esc(STORE.cuit)}</span></div>
+      ${STORE.condicion_iva?`<div class="ticket-row"><span>Cond. IVA</span><span>${esc(STORE.condicion_iva)}</span></div>`:''}` : '';
+
+  // Datos del comprador (obligatorios en Factura A)
+  const comprador = esA ? `
+      <hr class="ticket-divider">
+      <div style="font-size:10px;font-weight:700;color:#666;margin:4px 0">DATOS DEL COMPRADOR</div>
+      ${s.cliente?`<div class="ticket-row"><span>Razón social</span><span>${esc(s.cliente)}</span></div>`:''}
+      ${s.cuit_comprador?`<div class="ticket-row"><span>CUIT</span><span>${esc(s.cuit_comprador)}</span></div>`:''}
+      <div class="ticket-row"><span>Cond. IVA</span><span>Responsable Inscripto</span></div>`
+    : (s.cliente?`<div class="ticket-row"><span>Cliente</span><span>${esc(s.cliente)}</span></div>`:'');
+
+  // Bloque de totales: Factura A discrimina IVA; el resto muestra IVA incluido
+  const totales = esA ? `
+      <div class="ticket-row"><span>Neto gravado</span><span>$${(neto||0).toLocaleString('es-AR')}</span></div>
+      <div class="ticket-row"><span>IVA 21%</span><span>$${(iva||0).toLocaleString('es-AR')}</span></div>
+      <div class="ticket-row total"><span>TOTAL</span><span>$${total.toLocaleString('es-AR')}</span></div>`
+    : `<div class="ticket-row total"><span>TOTAL</span><span>$${total.toLocaleString('es-AR')}</span></div>
+       ${!esX?`<div style="font-size:10px;color:#888;text-align:right">IVA 21% incluido</div>`:''}`;
+
+  // Pie legal segun tipo
+  const pieLegal = esX
+    ? `<div style="margin-top:8px;padding:6px;border:1px dashed #d97706;border-radius:6px;
+            text-align:center;font-size:10px;font-weight:700;color:#92400e">
+         ⚠️ DOCUMENTO NO VÁLIDO COMO FACTURA<br>
+         <span style="font-weight:500">Comprobante interno sin valor fiscal</span>
+       </div>`
+    : '';
+
+  // Punto 3: metodo de pago detallado (pago dividido incluido)
+  const metodoRow = _esPagoDividido(s)
+    ? `<div class="ticket-row"><span>Pago dividido</span><span></span></div>
+       ${(typeof s.pagos==='string'?JSON.parse(s.pagos):s.pagos).map(p=>
+          `<div class="ticket-row" style="padding-left:10px;color:#555">
+             <span>· ${esc(p.metodo)}</span><span>$${Math.round(p.monto||0).toLocaleString('es-AR')}</span></div>`
+        ).join('')}`
+    : `<div class="ticket-row"><span>Método</span><span>${_metodoDetalle(s)}</span></div>`;
+
   document.getElementById('ticket-content').innerHTML=`
     <div class="ticket">
       <div class="ticket-title">${STORE?.name||'Tienda Pro'}</div>
-      <div class="ticket-sub">Comprobante de venta</div>
+      ${cabecera}
+      ${emisor}
       <div class="ticket-row"><span>Fecha</span><span>${d.toLocaleDateString('es-AR')} ${d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span></div>
-      ${s.cliente?`<div class="ticket-row"><span>Cliente</span><span>${esc(s.cliente)}</span></div>`:''}
+      ${comprador}
       <hr class="ticket-divider">
       ${rows}
       ${s.descuento>0?`<div class="ticket-row"><span>Descuento ${s.descuento}%</span><span>-$${((s.subtotal||s.total)-s.total).toLocaleString('es-AR')}</span></div>`:''}
-      <div class="ticket-row total"><span>TOTAL</span><span>$${(s.total||0).toLocaleString('es-AR')}</span></div>
       <hr class="ticket-divider">
-      <div class="ticket-row"><span>Método</span><span>${s.metodo_pago||'—'}</span></div>
+      ${totales}
+      <hr class="ticket-divider">
+      ${metodoRow}
       ${s.nota?`<div class="ticket-row"><span>Nota</span><span>${esc(s.nota)}</span></div>`:''}
+      ${pieLegal}
       <div class="ticket-footer">¡Gracias por su compra!</div>
     </div>`;
   openModal('ov-ticket');
 }
+// ── Punto 9: menú de opciones avanzadas (colapsado por defecto) ──
+function toggleOpcionesAvanzadas(){
+  const panel = document.getElementById('opc-avanzadas');
+  const btn   = document.getElementById('opc-toggle');
+  if(!panel) return;
+  const abierto = panel.style.display !== 'none';
+  panel.style.display = abierto ? 'none' : 'block';
+  if(btn) btn.textContent = abierto ? '⋯ Más opciones' : '✕ Cerrar opciones';
+}
+
 async function solicitarConsumoPersonal(){
   const sel = prods.filter(p => (qtys[p.id]||0) > 0);
   if(!sel.length){ showToast('Agregá productos al carrito para el consumo','err'); return; }
@@ -8571,7 +8690,12 @@ function renderHist(){
         <div><div class="hc-total">$${(s.total||0).toLocaleString('es-AR')}</div>${s.descuento>0?`<div style="font-size:10px;color:var(--muted);text-align:right">-${s.descuento}%</div>`:''}</div>
       </div>
       <div class="hc-tags">
-        <span class="htag ${mc}">${s.metodo_pago||'—'}</span>
+        <span class="htag" style="background:${_colorCbte(s.tipo_cbte||'T').bg};color:${_colorCbte(s.tipo_cbte||'T').fg};font-weight:700">${_labelCbte(s.tipo_cbte||'T')}</span>
+        ${_esPagoDividido(s)
+          ? (typeof s.pagos==='string'?JSON.parse(s.pagos):s.pagos).map(p=>
+              `<span class="htag ${p.metodo==='Efectivo'?'tef':p.metodo==='Transferencia'?'ttr':'ttd'}">${esc(p.metodo)} $${Math.round(p.monto||0).toLocaleString('es-AR')}</span>`
+            ).join('')
+          : `<span class="htag ${mc}">${esc(s.metodo_pago||'—')}</span>`}
         ${items.map(i=>`<span class="htag tprod">${i.emoji||''}${esc(i.nombre.split(' ')[0])} ×${i.cantidad}</span>`).join('')}
         ${s.nota?`<span class="htag" style="background:var(--purple-l);color:var(--purple)">${esc(s.nota)}</span>`:''}
       </div>
@@ -9395,18 +9519,63 @@ async function doCompra(){
 function renderCompraList(){
   const el=document.getElementById('colist');
   if(!compras.length){el.innerHTML='<div class="empty">Sin compras aún</div>';return;}
-  el.innerHTML=compras.map(co=>{
-    const total = (co.precio_unitario||0)*(co.cantidad||0);
-    const estadoColor = co.estado_pedido==='faltante'?'#e65100':co.estado_pedido==='roto'?'#c94040':'#1a5c38';
-    const pagoColor = co.forma_pago==='Cuenta Corriente'?'#1565c0':co.forma_pago==='Transferencia'?'#1a5c38':'#555';
+
+  // ── Punto 4: agrupar las compras que pertenecen al MISMO remito/factura ──
+  // Un remito genera N compras (una por producto) pero UNA sola factura.
+  // Se agrupan por numero_factura + proveedor_id + fecha.
+  const grupos = [];
+  const idx = {};
+  compras.forEach(co => {
+    const clave = (co.numero_factura && co.proveedor_id)
+      ? 'REM|'+co.numero_factura+'|'+co.proveedor_id+'|'+co.fecha
+      : 'IND|'+co.id;
+    if(idx[clave] === undefined){
+      idx[clave] = grupos.length;
+      grupos.push({ clave, items:[], esRemito:false });
+    }
+    grupos[idx[clave]].items.push(co);
+  });
+  grupos.forEach(g => { g.esRemito = g.items.length > 1; });
+
+  el.innerHTML = grupos.map(g => {
+    const co       = g.items[0];
+    const totalGrp = g.items.reduce((s,c)=> s + (c.precio_unitario||0)*(c.cantidad||0), 0);
+    const unidades = g.items.reduce((s,c)=> s + (c.cantidad||0), 0);
     const tieneFac = co.factura_cargada;
+    const pagoColor = co.forma_pago==='Cuenta Corriente'?'#1565c0':co.forma_pago==='Transferencia'?'#1a5c38':'#555';
+    const estadoColor = co.estado_pedido==='faltante'?'#e65100':co.estado_pedido==='roto'?'#c94040':'#1a5c38';
+
     const facBadge = tieneFac
       ? `<span style="font-size:10px;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:10px;font-weight:600">✅ Factura cargada</span>`
-      : `<button onclick="abrirModalFactura('${co.id}')" style="font-size:10px;background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:10px;font-weight:600;border:none;cursor:pointer">⚠️ Cargar factura</button>`;
+      : `<button onclick="abrirModalFactura('${co.id}');event.stopPropagation()" style="font-size:10px;background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:10px;font-weight:600;border:none;cursor:pointer">⚠️ Cargar factura</button>`;
+
+    // Titulo: si es remito, mostrar el remito como unidad; si no, el producto
+    const titulo = g.esRemito
+      ? `<span style="font-weight:700">📦 Remito · ${g.items.length} productos</span>`
+      : `<span style="font-weight:600">${esc(co.producto_nombre||'—')}</span>`;
+
+    // Detalle de articulos (solo para remitos): lista interna
+    const detalle = g.esRemito
+      ? `<div style="margin-top:8px;padding:8px;background:#fafafa;border-radius:8px;border:1px solid #eee">
+           ${g.items.map(c=>{
+             const t=(c.precio_unitario||0)*(c.cantidad||0);
+             return `<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px dashed #eee">
+               <span>${esc(c.producto_nombre||'—')} <span style="color:#aaa">×${c.cantidad}</span></span>
+               <span style="font-family:'DM Mono',monospace">${t?'$'+t.toLocaleString('es-AR'):'—'}</span>
+             </div>`;
+           }).join('')}
+         </div>`
+      : '';
+
+    // Boton anular: para remito anula todo el grupo; para compra individual, esa sola
+    const btnAnular = _esRolAdmin()
+      ? `<button onclick="abrirAnularCompra('${co.id}');event.stopPropagation()" style="font-size:10px;background:#fef2f2;color:#c94040;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #fecaca;cursor:pointer" title="${g.esRemito?'Anular remito':'Anular compra'}">🗑️</button>`
+      : '';
+
     return `<div class="ccard" style="border-left:3px solid ${tieneFac?'#16a34a':'#dc2626'}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <div class="cc-prod" style="font-weight:600">${esc(co.producto_nombre||'—')}</div>
-        ${total?`<div class="cc-total" style="font-family:'DM Mono',monospace;font-weight:700">$${total.toLocaleString('es-AR')}</div>`:''}
+        <div class="cc-prod">${titulo}</div>
+        ${totalGrp?`<div class="cc-total" style="font-family:'DM Mono',monospace;font-weight:700">$${totalGrp.toLocaleString('es-AR')}</div>`:''}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px">
         <span style="font-size:10px;color:#888">${co.fecha||'—'}</span>
@@ -9416,11 +9585,12 @@ function renderCompraList(){
         ${co.estado_pedido&&co.estado_pedido!=='completo'?`<span style="font-size:10px;font-weight:600;color:${estadoColor}">${co.estado_pedido==='faltante'?'⚠️ Faltante':'❌ Roto'}</span>`:''}
         ${co.vence_pago?`<span style="font-size:10px;color:#e65100">📅 Vence: ${co.vence_pago}</span>`:''}
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div style="font-size:11px;color:#aaa">+${co.cantidad} uds · $${(co.precio_unitario||0).toLocaleString('es-AR')} c/u</div>
+      ${detalle}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+        <div style="font-size:11px;color:#aaa">+${unidades} uds${g.esRemito?'':` · $${(co.precio_unitario||0).toLocaleString('es-AR')} c/u`}</div>
         <div style="display:flex;gap:6px;align-items:center">
           ${facBadge}
-          ${_esRolAdmin()?'<button onclick="abrirAnularCompra(\''+co.id+'\');event.stopPropagation()" style="font-size:10px;background:#fef2f2;color:#c94040;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #fecaca;cursor:pointer" title="Anular esta compra">🗑️</button>':''}
+          ${btnAnular}
         </div>
       </div>
     </div>`;
