@@ -14,6 +14,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1060,6 +1061,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </button>
     </div>
 
+    <!-- Alerta: comprobantes fiscales SIN CAE (sin validez fiscal) -->
+    <div id="alerta-cae" style="display:none;margin:10px 20px 0;padding:11px 14px;
+         background:#fef2f2;border:1px solid #fecaca;border-radius:10px"></div>
+
     <!-- Alerta facturas pendientes -->
     <div id="alerta-facturas" style="display:none;margin:10px 20px 0;padding:10px 14px;
       background:#fee2e2;border:1.5px solid #dc2626;border-radius:10px;
@@ -1426,6 +1431,56 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+
+
+<!-- MODAL CARGAR CAE (facturación electrónica, modo manual) -->
+<div class="overlay" id="ov-cae">
+  <div class="modal-content" style="max-width:460px;animation:slideUp .3s ease">
+    <div style="background:linear-gradient(135deg,#1a5c38,#0d3a22);padding:20px 24px;border-radius:16px 16px 0 0;color:#fff;position:relative">
+      <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-cae')">✕</span>
+      <div style="font-size:11px;opacity:.75;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Facturación electrónica</div>
+      <div style="font-size:18px;font-weight:700">Cargar CAE</div>
+    </div>
+    <div style="padding:20px;overflow-y:auto;max-height:78vh">
+
+      <div id="cae-info"></div>
+
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;padding:10px;margin-bottom:14px;font-size:11px;color:#1e40af">
+        <div style="font-weight:700;margin-bottom:3px">📋 Cómo obtenerlo</div>
+        Entrá a <b>ARCA → Comprobantes en Línea</b>, emitĺ el comprobante,
+        y copiá acá los tres datos que te devuelve.
+      </div>
+
+      <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:5px">
+        N° de comprobante (el que asignó ARCA) *
+      </label>
+      <input class="inp" id="cae-nro" placeholder="00013-00000001"
+             style="font-family:'DM Mono',monospace;margin-bottom:12px">
+
+      <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:5px">
+        CAE (14 dígitos) *
+      </label>
+      <input class="inp" id="cae-numero" inputmode="numeric" maxlength="14" placeholder="75123456789012"
+             style="font-family:'DM Mono',monospace;margin-bottom:12px">
+
+      <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:5px">
+        Vencimiento del CAE *
+      </label>
+      <input class="inp" id="cae-vto" type="date" style="margin-bottom:18px">
+
+      <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
+        <button onclick="closeModal('ov-cae')"
+          style="padding:13px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">
+          Cancelar
+        </button>
+        <button id="cae-btn" onclick="guardarCAE()"
+          style="padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#1a5c38,#0d3a22);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+          💾 Guardar CAE
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL ANULAR COMPRA/REMITO (Punto 7) -->
 <div class="overlay" id="ov-anular-compra">
@@ -4689,6 +4744,7 @@ async function confirmarAnularCompra() {
     if (typeof renderGastos === 'function') renderGastos();
     if (typeof checkAlertBar === 'function') checkAlertBar();
     if (typeof checkAlertaFacturasPendientes === 'function') checkAlertaFacturasPendientes();
+    if (typeof checkAlertaCAE === 'function') checkAlertaCAE();
 
     const msg = comprasAAnular.length > 1
       ? '✅ Remito anulado: ' + comprasAAnular.length + ' compras revertidas'
@@ -6225,6 +6281,7 @@ async function guardarFactura() {
 
     // Verificar alertas pendientes
     checkAlertaFacturasPendientes();
+    checkAlertaCAE();
 
   } catch(e) {
     showToast('❌ Error al guardar la factura', 'err');
@@ -7706,7 +7763,7 @@ function updateDate(){
 
 function renderAll(){
   renderCats();renderProds();renderHist();renderCaja();
-  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();renderProyecciones();setTimeout(checkVencimientos,2000);cargarConfigFiscal();loadPlanCuentas();checkAlertaFacturasPendientes();
+  renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();renderProyecciones();setTimeout(checkVencimientos,2000);cargarConfigFiscal();loadPlanCuentas();checkAlertaFacturasPendientes();checkAlertaCAE();
 }
 
 // ══ SUPABASE CRUD ══
@@ -8526,6 +8583,214 @@ async function registerSale(){
 }
 
 // ══ TICKET ══
+
+// ══════════════════════════════════════════════════════════════
+// FACTURACIÓN ELECTRÓNICA — CAE
+//
+// Modo 'manual': se factura en Comprobantes en Línea (ARCA) y se
+//   carga acá el nº de comprobante + CAE + vencimiento.
+// Modo 'wsfe' (Fase 2): el CAE lo pide el sistema por web services.
+//
+// Un comprobante fiscal SIN CAE no tiene validez. El sistema lo marca
+// en rojo y no deja que pase desapercibido.
+// ══════════════════════════════════════════════════════════════
+
+// Tipos de comprobante que requieren CAE (X = sin comprobante, no lleva)
+function _requiereCAE(v){
+  const t = (v && v.tipo_cbte) || 'T';
+  return t !== 'X';
+}
+
+function _tieneCAE(v){ return !!(v && v.cae); }
+
+// Ventas fiscales pendientes de CAE
+function _ventasSinCAE(){
+  return sales.filter(v => !v.anulada && !v.is_deleted && _requiereCAE(v) && !_tieneCAE(v));
+}
+
+// ── Código de tipo de comprobante según ARCA (para el QR) ──
+function _codigoAfipCbte(t){
+  if(t === 'A') return 1;    // Factura A
+  if(t === 'B') return 6;    // Factura B
+  if(t === 'T') return 6;    // Tique B → se emite como Factura B por WS
+  return 0;
+}
+
+// ══════════════════════════════════════════════════════════════
+// QR del comprobante electrónico — RG 4892/2021
+// El QR es OBLIGATORIO. Codifica un JSON en base64 sobre una URL fija
+// de ARCA, para que el cliente pueda verificar el comprobante.
+// ══════════════════════════════════════════════════════════════
+function _datosQR(v){
+  if(!v || !v.cae || !STORE) return null;
+
+  const cuitLimpio = String(STORE.cuit || '').replace(/\D/g, '');
+  const nro = String(v.nro_comprobante || '');
+  // nro_comprobante viene como "00013-00000001" → extraer las dos partes
+  const partes = nro.split('-');
+  const ptoVta = parseInt(partes[0] || STORE.punto_venta || 0, 10);
+  const nroCmp = parseInt(partes[1] || 0, 10);
+
+  const cuitRec = String(v.cuit_comprador || '').replace(/\D/g, '');
+
+  const datos = {
+    ver:        1,
+    fecha:      v.fecha,
+    cuit:       parseInt(cuitLimpio, 10),
+    ptoVta:     ptoVta,
+    tipoCmp:    _codigoAfipCbte(v.tipo_cbte),
+    nroCmp:     nroCmp,
+    importe:    Number(v.total || 0),
+    moneda:     'PES',
+    ctz:        1,
+    tipoDocRec: cuitRec ? 80 : 99,          // 80 = CUIT · 99 = consumidor final
+    nroDocRec:  cuitRec ? parseInt(cuitRec, 10) : 0,
+    tipoCodAut: 'E',                        // E = CAE
+    codAut:     parseInt(String(v.cae), 10)
+  };
+
+  try{
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(datos))));
+    return 'https://www.afip.gob.ar/fe/qr/?p=' + b64;
+  }catch(e){
+    console.error('Error generando QR', e);
+    return null;
+  }
+}
+
+// Renderiza el QR dentro de un contenedor
+function _pintarQR(contenedorId, url){
+  const el = document.getElementById(contenedorId);
+  if(!el || !url) return;
+  el.innerHTML = '';
+  try{
+    new QRCode(el, { text: url, width: 90, height: 90, correctLevel: QRCode.CorrectLevel.M });
+  }catch(e){ console.error('QRCode lib no disponible', e); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Cargar CAE manualmente (modo Comprobantes en Línea)
+// ══════════════════════════════════════════════════════════════
+let _caeVentaId = null;
+
+function abrirCargarCAE(ventaId){
+  const v = sales.find(s => s.id === ventaId);
+  if(!v){ showToast('Venta no encontrada','err'); return; }
+  if(!_requiereCAE(v)){ showToast('Una venta sin comprobante no lleva CAE','err'); return; }
+
+  _caeVentaId = ventaId;
+
+  const info = document.getElementById('cae-info');
+  if(info){
+    info.innerHTML = `
+      <div style="background:#f8f8f8;border-radius:8px;padding:12px;font-size:12px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;font-weight:700;margin-bottom:4px">
+          <span>${_labelCbte(v.tipo_cbte)}</span>
+          <span style="font-family:'DM Mono',monospace">$${(v.total||0).toLocaleString('es-AR')}</span>
+        </div>
+        <div style="color:#888">${v.fecha} · ${esc(v.cliente||'Consumidor final')}</div>
+        ${v.cuit_comprador?`<div style="color:#888">CUIT: ${esc(v.cuit_comprador)}</div>`:''}
+      </div>`;
+  }
+
+  // Precargar con lo que ya tenga
+  const elNro = document.getElementById('cae-nro');
+  const elCae = document.getElementById('cae-numero');
+  const elVto = document.getElementById('cae-vto');
+  if(elNro) elNro.value = v.nro_comprobante || '';
+  if(elCae) elCae.value = v.cae || '';
+  if(elVto) elVto.value = v.cae_vto || '';
+
+  openModal('ov-cae');
+}
+
+async function guardarCAE(){
+  if(!_caeVentaId) return;
+
+  const nro = (document.getElementById('cae-nro')?.value || '').trim();
+  const cae = (document.getElementById('cae-numero')?.value || '').trim();
+  const vto = document.getElementById('cae-vto')?.value || '';
+
+  // Validaciones: un CAE mal cargado es un comprobante inválido
+  if(!nro){ showToast('Ingresá el nº de comprobante que te dio ARCA','err'); return; }
+  if(!/^\d{1,5}-\d{1,8}$/.test(nro)){
+    showToast('El nº debe tener formato 00013-00000001','err'); return;
+  }
+  if(!cae){ showToast('Ingresá el CAE','err'); return; }
+  if(!/^\d{14}$/.test(cae)){
+    showToast('El CAE debe tener exactamente 14 dígitos','err'); return;
+  }
+  if(!vto){ showToast('Ingresá el vencimiento del CAE','err'); return; }
+
+  // Normalizar el nº a 00013-00000001
+  const [p, n] = nro.split('-');
+  const nroNorm = String(p).padStart(5,'0') + '-' + String(n).padStart(8,'0');
+
+  const btn = document.getElementById('cae-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Guardando...'; }
+
+  try{
+    const ahora = new Date().toISOString();
+    const { error } = await SB.from('ventas').update({
+      nro_comprobante: nroNorm,
+      cae:             cae,
+      cae_vto:         vto,
+      cae_origen:      'manual',
+      cae_cargado_por: USER?.email || 'desconocido',
+      cae_cargado_at:  ahora
+    }).eq('id', _caeVentaId);
+
+    if(error) throw error;
+
+    const v = sales.find(s => s.id === _caeVentaId);
+    if(v){
+      v.nro_comprobante = nroNorm;
+      v.cae = cae; v.cae_vto = vto; v.cae_origen = 'manual';
+    }
+
+    closeModal('ov-cae');
+    renderHist();
+    checkAlertaCAE();
+    showToast('✅ CAE cargado — el comprobante ya es válido','ok');
+    _caeVentaId = null;
+
+  }catch(e){
+    const msg = String(e.message||'');
+    if(/unique|duplicad/i.test(msg)){
+      showToast('❌ Ese CAE ya está cargado en otra venta','err');
+    }else{
+      showToast('❌ Error al guardar el CAE: ' + msg,'err');
+    }
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '💾 Guardar CAE'; }
+  }
+}
+
+// ── Alerta: comprobantes fiscales sin CAE ──
+function checkAlertaCAE(){
+  const bar = document.getElementById('alerta-cae');
+  if(!bar) return;
+  const pend = _ventasSinCAE();
+  if(!pend.length){ bar.style.display = 'none'; return; }
+
+  const total = pend.reduce((s,v)=> s + (v.total||0), 0);
+  bar.style.display = 'block';
+  bar.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="font-size:12px;font-weight:700;color:#991b1b">
+        ⚠️ ${pend.length} comprobante${pend.length>1?'s':''} SIN CAE · $${total.toLocaleString('es-AR')}
+        <div style="font-weight:500;font-size:11px;margin-top:2px">
+          Sin CAE no tienen validez fiscal. Facturalos en ARCA y cargá el CAE acá.
+        </div>
+      </div>
+      <button onclick="showScreen('historial')"
+        style="font-size:11px;padding:6px 12px;border-radius:8px;border:none;
+               background:#991b1b;color:#fff;font-weight:600;cursor:pointer">
+        Ver ventas
+      </button>
+    </div>`;
+}
+
 function showTicket(s){
   const items=typeof s.items==='string'?JSON.parse(s.items):s.items||[];
   const rows=items.map(i=>`<div class="ticket-row"><span>${i.emoji||''} ${esc(i.nombre)} ×${i.cantidad}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
@@ -8595,6 +8860,35 @@ function showTicket(s){
         ).join('')}`
     : `<div class="ticket-row"><span>Método</span><span>${_metodoDetalle(s)}</span></div>`;
 
+  // ── CAE + QR (obligatorio en comprobantes electrónicos, RG 4892) ──
+  const urlQR = _requiereCAE(s) && _tieneCAE(s) ? _datosQR(s) : null;
+
+  let bloqueCAE = '';
+  if (_requiereCAE(s)) {
+    if (_tieneCAE(s)) {
+      const vto = s.cae_vto ? new Date(s.cae_vto + 'T00:00:00').toLocaleDateString('es-AR') : '—';
+      bloqueCAE = `
+        <hr class="ticket-divider">
+        <div style="display:flex;gap:10px;align-items:center;margin-top:6px">
+          <div id="ticket-qr" style="flex-shrink:0"></div>
+          <div style="font-size:10px;line-height:1.5">
+            <div style="font-weight:700">CAE N°</div>
+            <div style="font-family:'DM Mono',monospace">${esc(s.cae)}</div>
+            <div style="font-weight:700;margin-top:3px">Vto. CAE</div>
+            <div style="font-family:'DM Mono',monospace">${vto}</div>
+          </div>
+        </div>`;
+    } else {
+      // Sin CAE el comprobante NO es válido. Hay que gritarlo, no esconderlo.
+      bloqueCAE = `
+        <div style="margin-top:8px;padding:8px;border:2px solid #dc2626;border-radius:6px;
+             text-align:center;font-size:10px;font-weight:800;color:#991b1b;background:#fef2f2">
+          ⚠️ COMPROBANTE SIN CAE — SIN VALIDEZ FISCAL<br>
+          <span style="font-weight:500">Facturar en ARCA y cargar el CAE antes de entregarlo</span>
+        </div>`;
+    }
+  }
+
   document.getElementById('ticket-content').innerHTML=`
     <div class="ticket">
       <div class="ticket-title">${STORE?.name||'Tienda Pro'}</div>
@@ -8611,8 +8905,13 @@ function showTicket(s){
       ${metodoRow}
       ${s.nota?`<div class="ticket-row"><span>Nota</span><span>${esc(s.nota)}</span></div>`:''}
       ${pieLegal}
+      ${bloqueCAE}
       <div class="ticket-footer">¡Gracias por su compra!</div>
     </div>`;
+
+  // El QR se pinta después de insertar el HTML (necesita el div en el DOM)
+  if (urlQR) _pintarQR('ticket-qr', urlQR);
+
   openModal('ov-ticket');
 }
 // ── Punto 9: menú de opciones avanzadas (colapsado por defecto) ──
@@ -8723,6 +9022,10 @@ function renderHist(){
       </div>
       <div class="hc-tags">
         <span class="htag" style="background:${_colorCbte(s.tipo_cbte||'T').bg};color:${_colorCbte(s.tipo_cbte||'T').fg};font-weight:700">${_labelCbte(s.tipo_cbte||'T')}</span>
+        ${_requiereCAE(s) ? (_tieneCAE(s)
+          ? `<span class="htag" style="background:#dcfce7;color:#16a34a;font-weight:700" title="CAE ${esc(s.cae)}">✅ CAE</span>`
+          : `<button onclick="abrirCargarCAE('${s.id}');event.stopPropagation()" class="htag" style="background:#fee2e2;color:#dc2626;font-weight:700;border:none;cursor:pointer" title="Sin CAE no tiene validez fiscal">⚠️ SIN CAE — cargar</button>`
+        ) : ''}
         ${_esPagoDividido(s)
           ? (typeof s.pagos==='string'?JSON.parse(s.pagos):s.pagos).map(p=>
               `<span class="htag ${p.metodo==='Efectivo'?'tef':p.metodo==='Transferencia'?'ttr':'ttd'}">${esc(p.metodo)} $${Math.round(p.monto||0).toLocaleString('es-AR')}</span>`
