@@ -499,7 +499,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
     </div>
 <div class="fgroup"><div class="flabel">Proveedor</div>
-      <select class="inp" id="np-proveedor" style="cursor:pointer">
+      <select class="inp" id="np-proveedor" style="cursor:pointer" onchange="toggleProvProducto()">
         <option value="">— Sin proveedor —</option>
       </select>
       <div style="font-size:11px;color:var(--pine);margin-top:6px">Si elegís proveedor, el precio se calcula solo con su margen cuando cargues la factura.</div>
@@ -9553,8 +9553,8 @@ function abrirAltaProducto(){
   { const _h=document.getElementById('np-stock-calc'); if(_h) _h.style.display='none'; }
   const t=document.querySelector('#ov-add-prod .modal-title'); if(t) t.textContent='Nuevo Producto';
   const btn=document.querySelector('#ov-add-prod .btn-ink'); if(btn){ btn.textContent='Guardar producto'; btn.onclick=saveProduct; }
-  const blk=document.getElementById('np-pricing-block'); if(blk) blk.style.display='none';
-  const hint=document.getElementById('np-alta-hint'); if(hint) hint.style.display='block';
+  const blk=document.getElementById('np-pricing-block'); if(blk) blk.style.display='';
+  const hint=document.getElementById('np-alta-hint'); if(hint) hint.style.display='none';
   openModal('ov-add-prod');
 }
 
@@ -10625,6 +10625,18 @@ function cargarConfigFiscal() {
   // Update CONFIG_FISCAL with stored values
   if (STORE.punto_venta) CONFIG_FISCAL.punto_venta = String(STORE.punto_venta).padStart(5,'0');
   if (STORE.alicuota_iibb) CONFIG_FISCAL.alicuota_iibb = STORE.alicuota_iibb / 100;
+}
+
+// ── Mostrar precio/stock manual solo SIN proveedor ──
+// Con proveedor: el stock y el precio vienen de la compra → se ocultan.
+// Sin proveedor: se cargan a mano acá.
+function toggleProvProducto(){
+  const prov = document.getElementById('np-proveedor')?.value;
+  const blk  = document.getElementById('np-pricing-block');
+  const hint = document.getElementById('np-alta-hint');
+  const conProveedor = !!prov;
+  if(blk)  blk.style.display  = conProveedor ? 'none' : '';
+  if(hint) hint.style.display = conProveedor ? 'block' : 'none';
 }
 
 // ── Autocalcular stock inicial: cantidad de bultos × unidades por bulto ──
