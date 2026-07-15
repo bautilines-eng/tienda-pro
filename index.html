@@ -2793,7 +2793,6 @@ function asientoVenta(venta) {
   }
   const iva    = Math.round(total / 1.21 * 0.21 * 100) / 100;
   const neto   = Math.round((total - iva) * 100) / 100;
-  const iibb   = Math.round(total * CONFIG_FISCAL.alicuota_iibb * 100) / 100;
   const ctaDebe = METODO_CUENTA[venta.metodo_pago] || PLAN_CUENTAS.find(x=>x.grupo==='Caja y Bancos')?.codigo || '1.1.01';
   const ctaNombreDebe = PLAN_CUENTAS.find(c => c.codigo === ctaDebe)?.nombre || venta.metodo_pago;
 
@@ -2802,6 +2801,9 @@ function asientoVenta(venta) {
     { debe: false, cuenta: CUENTAS_ESPECIALES['ventas']||'4.1.01', nombre: 'Ventas', importe: neto, detalle: 'Ventas netas s/IVA' },
     { debe: false, cuenta: CUENTAS_ESPECIALES['iva_debito']||'2.1.02', nombre: 'IVA Débito Fiscal', importe: iva, detalle: 'IVA 21% débito fiscal' },
   ];
+  // NOTA: TODO PYMES NO es agente de percepción → las ventas NO practican
+  // percepción de IVA. La percepción que la empresa SUFRE (compras) va al
+  // activo 11403018 y es pago a cuenta de la DDJJ de IVA.
 
   // ══════════════════════════════════════════════════════════════
   // IIBB — PENDIENTE DE DEFINICIÓN CONTABLE
@@ -2989,10 +2991,11 @@ function generarAsientoDia() {
   const totalGastos  = gastosHoy.reduce((s,g)  => s + (g.monto||0), 0);
   const totalCompras = comprasHoy.reduce((s,c) => s + (c.precio_unitario||0)*(c.cantidad||0), 0);
   const ivaDebito    = Math.round(totalVentas / 1.21 * 0.21 * 100) / 100;
-  const ivaCredito   = Math.round(totalCompras / 1.21 * 0.21 * 100) / 100;
+  // IVA crédito: suma el IVA real de cada compra según su alícuota (21/27/10,5)
+  const ivaCredito   = comprasHoy.reduce((s,c) => s + _ivaCompra(c).iva, 0);
   const netaVentas   = totalVentas - ivaDebito;
   const netoCompras  = totalCompras - ivaCredito;
-  const iibb         = Math.round(totalVentas * 0.03 * 100) / 100;
+  const iibb         = Math.round(netaVentas * 0.03 * 100) / 100;  // KPI informativo (IIBB 3% s/neto)
 
   // Build per-method breakdown
   const metodos = {};
@@ -3209,11 +3212,10 @@ function renderMayor() {
     }
     const iva = calcularIVA(v.total||0).iva;
     const neto = (v.total||0) - iva;
-    const iibb = Math.round((v.total||0)*0.03*100)/100;
     if (cuentaCod==='41101007')   movs.push({fecha:v.fecha, desc:'Ventas netas', debe:0, haber:neto, origen:'Venta'});
     if (cuentaCod==='21404')      movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal 21%', debe:0, haber:iva, origen:'Venta'});
-    // IIBB: pendiente de definición contable — ver nota en asientoVenta.
-    // Las ventas ya no generan percepción automática (era un asiento ficticio).
+    // IIBB propio: se registra por Minuta de egreso. TODO PYMES no es agente
+    // de percepción, así que las ventas no practican percepción.
   });
 
   // Gastos
@@ -3235,11 +3237,9 @@ function renderMayor() {
 
   // Compras (excluye anuladas)
   compras.filter(c => !c.anulada && filtro(c.fecha)).forEach(co => {
-    const total = (co.precio_unitario||0)*(co.cantidad||0);
-    const iva   = calcularIVA(total).iva;
-    const neto  = total - iva;
+    const {neto, iva, total, ali} = _ivaCompra(co);   // alícuota real (21/27/10,5)
     if (cuentaCod==='11501008') movs.push({fecha:co.fecha, desc:'Compra '+co.producto_nombre, debe:neto, haber:0, origen:'Compra'});
-    if (cuentaCod==='11403005') movs.push({fecha:co.fecha, desc:'CF IVA 21% — '+co.proveedor, debe:iva, haber:0, origen:'Compra'});
+    if (cuentaCod==='11403005') movs.push({fecha:co.fecha, desc:'CF IVA '+ali+'% — '+co.proveedor, debe:iva, haber:0, origen:'Compra'});
     if (cuentaCod==='21101001') movs.push({fecha:co.fecha, desc:'A pagar — '+(co.proveedor||'Proveedor'), debe:0, haber:total, origen:'Compra'});
   });
 
@@ -4901,7 +4901,7 @@ function renderBalance() {
     const neto = (v.total||0) - iva;
     if (totales['41101007'])totales['41101007'].haber += neto;
     if (totales['21404'])   totales['21404'].haber += iva;
-    // IIBB: pendiente de definición contable — ver nota en asientoVenta.
+    // IIBB propio: por Minuta de egreso. Sin percepción en ventas (no es agente).
   });
 
   // Gastos
@@ -4921,13 +4921,11 @@ function renderBalance() {
     });
   });
 
-  // Compras (excluye anuladas)
+  // Compras (excluye anuladas) — IVA con alícuota real (21/27/10,5)
   compras.filter(c => !c.anulada && filtro(c.fecha)).forEach(co => {
-    const total = (co.precio_unitario||0)*(co.cantidad||0);
-    const iva   = calcularIVA(total).iva;
-    const neto  = total - iva;
+    const {neto, iva, total} = _ivaCompra(co);
     if (totales['11501008'])totales['11501008'].debe += neto;
-    if (totales['11403005'])totales['11403005'].debe += iva;
+    if (totales['11403005'])totales['11403005'].debe += iva;   // todo el CF junto (decisión contadora)
     if (totales['21101001'])totales['21101001'].haber += total;
   });
 
@@ -6241,9 +6239,13 @@ async function guardarFactura() {
           const { data: fresh } = await SB.from('productos').select('precio,costo').eq('id', compra.producto_id).single();
           if (fresh && prodRef) { prodRef.costo = fresh.costo; prodRef.precio = fresh.precio; }
         } catch(_) {}
-        await sbUpdate('compras', facCompraId, { precio_unitario: costoUnit });
+        await sbUpdate('compras', facCompraId, { precio_unitario: costoUnit, iva_alicuota: alic });
         compra.precio_unitario = costoUnit;
+        compra.iva_alicuota = alic;
       } catch(e) { console.error('No se pudo actualizar el costo', e); }
+    } else if (compra) {
+      // Aunque no cambie el costo, guardar la alícuota elegida en la compra
+      try { await sbUpdate('compras', facCompraId, { iva_alicuota: alic }); compra.iva_alicuota = alic; } catch(_){}
     }
 
     // Si es Cuenta Corriente → crear deuda con proveedor
@@ -10183,6 +10185,30 @@ function renderProyecciones() {
 // ══════════════════════════════════
 // PRECISIÓN DECIMAL — evita errores IVA
 // ══════════════════════════════════
+
+
+// ══════════════════════════════════════════════════════════════
+// IVA DE COMPRAS — multi-alícuota (21% / 27% / 10,5%)
+// La alícuota sale de la compra; si no, del producto; si no, 21%.
+// UNA sola función: los 3 motores contables la usan → no se desincronizan.
+// ══════════════════════════════════════════════════════════════
+function _alicuotaCompra(co){
+  if(co && co.iva_alicuota != null) return Number(co.iva_alicuota);
+  const prod = (typeof prods!=='undefined') ? prods.find(p=>p.id===(co&&co.producto_id)) : null;
+  if(prod && prod.iva_alicuota != null) return Number(prod.iva_alicuota);
+  return 21;
+}
+
+// Devuelve {neto, iva, total, ali} de una compra usando su alícuota real
+function _ivaCompra(co){
+  const total = (co.precio_unitario||0)*(co.cantidad||0);
+  const ali = _alicuotaCompra(co);
+  const factor = 1 + ali/100;
+  const neto = redondear(total / factor, 2);
+  const iva = redondear(total - neto, 2);
+  return { neto, iva, total, ali };
+}
+
 function redondear(valor, decimales = 2) {
   // Usa Number.EPSILON para evitar errores de floating point
   return Math.round((valor + Number.EPSILON) * Math.pow(10, decimales)) / Math.pow(10, decimales);
