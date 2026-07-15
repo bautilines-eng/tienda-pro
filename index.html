@@ -523,12 +523,16 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <span style="font-family:'DM Mono',monospace;font-weight:700" id="np-margen-preview">—</span>
     </div>
     <div class="frow" style="margin-bottom:10px">
-      <div><div class="flabel">Stock inicial</div><input class="inp" id="np-stock" type="number" placeholder="0"></div>
-      <div><div class="flabel">Stock mínimo</div><input class="inp" id="np-min" type="number" placeholder="10"></div>
+      <div><div class="flabel">Cantidad de bultos</div><input class="inp" id="np-cant-bultos" type="number" min="0" placeholder="0" oninput="calcStockDesdeBultos()"></div>
+      <div><div class="flabel">Unidades por bulto</div><input class="inp" id="np-bulto" type="number" min="1" placeholder="1" oninput="calcStockDesdeBultos()"></div>
     </div>
     <div class="frow" style="margin-bottom:10px">
-      <div><div class="flabel">Unidades por bulto</div><input class="inp" id="np-bulto" type="number" min="1" placeholder="1"></div>
-      <div></div>
+      <div>
+        <div class="flabel">Stock inicial (unidades)</div>
+        <input class="inp" id="np-stock" type="number" placeholder="0">
+        <div id="np-stock-calc" style="display:none;font-size:11px;color:#1a5c38;margin-top:3px;font-weight:600"></div>
+      </div>
+      <div><div class="flabel">Stock mínimo</div><input class="inp" id="np-min" type="number" placeholder="10"></div>
     </div>
     </div>
     <div id="np-alta-hint" style="display:none;margin-bottom:12px;padding:10px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:12px;color:#9a3412">📦 El stock y el precio de venta se cargan al registrar la <b>compra</b> del proveedor.</div>
@@ -9456,6 +9460,8 @@ function editProduct(id){
   document.getElementById('np-cat').value=p.categoria||'';
   document.getElementById('np-min').value=p.stock_minimo||10;
   { const _b=document.getElementById('np-bulto'); if(_b) _b.value=p.unidades_por_bulto||1; }
+  { const _cb=document.getElementById('np-cant-bultos'); if(_cb) _cb.value=''; }
+  { const _h=document.getElementById('np-stock-calc'); if(_h) _h.style.display='none'; }
   actualizarMargenPreview();
   const _blk=document.getElementById('np-pricing-block'); if(_blk) _blk.style.display='';
   const _hint=document.getElementById('np-alta-hint'); if(_hint) _hint.style.display='none';
@@ -9543,6 +9549,8 @@ function abrirAltaProducto(){
   const npProv=document.getElementById('np-proveedor');
   if(npProv) npProv.innerHTML='<option value="">— Sin proveedor —</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
   { const _b=document.getElementById('np-bulto'); if(_b) _b.value=''; }
+  { const _cb=document.getElementById('np-cant-bultos'); if(_cb) _cb.value=''; }
+  { const _h=document.getElementById('np-stock-calc'); if(_h) _h.style.display='none'; }
   const t=document.querySelector('#ov-add-prod .modal-title'); if(t) t.textContent='Nuevo Producto';
   const btn=document.querySelector('#ov-add-prod .btn-ink'); if(btn){ btn.textContent='Guardar producto'; btn.onclick=saveProduct; }
   const blk=document.getElementById('np-pricing-block'); if(blk) blk.style.display='none';
@@ -10617,6 +10625,26 @@ function cargarConfigFiscal() {
   // Update CONFIG_FISCAL with stored values
   if (STORE.punto_venta) CONFIG_FISCAL.punto_venta = String(STORE.punto_venta).padStart(5,'0');
   if (STORE.alicuota_iibb) CONFIG_FISCAL.alicuota_iibb = STORE.alicuota_iibb / 100;
+}
+
+// ── Autocalcular stock inicial: cantidad de bultos × unidades por bulto ──
+function calcStockDesdeBultos(){
+  const bultos = parseInt(document.getElementById('np-cant-bultos')?.value) || 0;
+  const uxb    = parseInt(document.getElementById('np-bulto')?.value) || 0;
+  const stockInput = document.getElementById('np-stock');
+  const hint = document.getElementById('np-stock-calc');
+  if(!stockInput) return;
+
+  if(bultos > 0 && uxb > 0){
+    const total = bultos * uxb;
+    stockInput.value = total;
+    if(hint){
+      hint.style.display = 'block';
+      hint.textContent = '📦 ' + bultos + ' bulto' + (bultos>1?'s':'') + ' × ' + uxb + ' u = ' + total + ' unidades';
+    }
+  } else if(hint){
+    hint.style.display = 'none';
+  }
 }
 
 function actualizarMargenPreview(){
