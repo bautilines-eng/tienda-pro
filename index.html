@@ -2713,11 +2713,12 @@ const PLAN_CUENTAS_FALLBACK = [
 // Se carga desde Supabase según la tienda activa
 // Los valores son códigos del plan de cuentas de la tienda
 let METODO_CUENTA = {
-  'Efectivo':         '1.1.01',
-  'Transferencia':    '1.1.02',
-  'MercadoPago':      '1.1.03',
-  'Tarjeta':          '1.1.04',
-  'Cuenta Corriente': '1.1.05',
+  // Códigos reales de Chess (se sobreescriben si el mapeo de la tienda existe)
+  'Efectivo':         '11101001',  // Caja en pesos
+  'Transferencia':    '11102006',  // Banco Patagonia
+  'MercadoPago':      '11102006',  // Banco (MercadoPago se asimila a banco)
+  'Tarjeta':          '11301002',  // Tarjetas a cobrar
+  'Cuenta Corriente': '11301001',  // Cuenta corriente clientes
 };
 
 let GASTO_CUENTA = {
@@ -2733,11 +2734,11 @@ let GASTO_CUENTA = {
 
 // Cuentas especiales (IVA, IIBB, etc.)
 let CUENTAS_ESPECIALES = {
-  'iva_debito':     '2.1.02',
+  'iva_debito':     '21404',
   'iva_credito':    '1.1.06',
   'iibb_pagar':     '2.1.03',
   'iibb_percepcion':'1.1.07',
-  'ventas':         '4.1.01',
+  'ventas':         '41101007',
   'mercaderias':    '1.2.01',
   'proveedores':    '2.1.01',
 };
@@ -3686,7 +3687,7 @@ function asientoPagoDeuda(p){
   const cuentaMedio = p.cuenta_medio || (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
   const cuentaCC    = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cuenta Corriente']) || '11301001';
   const cuentaProv  = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.proveedores) || '21101001';
-  const cuentaAcree = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.acreedores_varios) || '21102001';
+  const cuentaAcree = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.acreedores_varios) || '21102002';
   const monto = p.monto_abonado || 0;
   const quien = deuda.nombre_cliente || '';
   const lineas = [];
