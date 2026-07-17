@@ -1403,9 +1403,15 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
 
       <!-- Total calculado -->
-      <div id="fac-total-preview" style="background:#1a3a5c;color:#fff;border-radius:10px;padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+      <div id="fac-total-preview" style="background:#1a3a5c;color:#fff;border-radius:10px;padding:12px 16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:12px;opacity:.8">TOTAL FACTURA</span>
         <span style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700" id="fac-total-display">$0</span>
+      </div>
+      <!-- Ajuste fino: igualar al total exacto del comprobante -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;padding:9px 12px;background:#f8fafc;border:1px solid #e6edf3;border-radius:9px">
+        <span style="font-size:11px;color:#64748b;font-weight:600;white-space:nowrap">¿El total del comprobante es distinto?</span>
+        <input type="number" id="fac-total-exacto" placeholder="238555.30" class="inp" style="flex:1;padding:7px 9px;font-size:12px;font-family:'DM Mono',monospace">
+        <button type="button" onclick="ajustarNetoAlTotal()" style="padding:7px 12px;border-radius:8px;border:none;background:#1a5c38;color:#fff;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Ajustar</button>
       </div>
 
       <!-- Forma de pago -->
@@ -6305,6 +6311,31 @@ function calcularTotalesFac() {
 
   const totalEl = document.getElementById('fac-total-display');
   if (totalEl) totalEl.textContent = '$' + total.toLocaleString('es-AR', {minimumFractionDigits:2});
+}
+
+// ── Ajustar el neto para que el total cierre EXACTO con el comprobante ──
+// Los descuentos por línea del proveedor generan diferencias de centavos.
+// El comprobante es la fuente de verdad: se ajusta el neto para igualarlo.
+function ajustarNetoAlTotal(){
+  const totalDeseado = parseFloat(document.getElementById('fac-total-exacto')?.value) || 0;
+  if(totalDeseado <= 0){ showToast('Ingresá el total exacto del comprobante','err'); return; }
+
+  const alicPct = parseFloat(document.getElementById('fac-alic-iva')?.value) || 21;
+  const percIva = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
+  const percIIBB= parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
+  const impInt  = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
+  const noGrav  = parseFloat(document.getElementById('fac-no-grav')?.value) || 0;
+
+  // total = neto + neto*alic + percIva + percIIBB + impInt + noGrav
+  // → neto = (total − percIva − percIIBB − impInt − noGrav) / (1 + alic/100)
+  const otros = percIva + percIIBB + impInt + noGrav;
+  const netoAjustado = Math.round((totalDeseado - otros) / (1 + alicPct/100) * 100) / 100;
+
+  if(netoAjustado <= 0){ showToast('El total es menor que los otros conceptos','err'); return; }
+
+  const netoEl = document.getElementById('fac-neto');
+  if(netoEl){ netoEl.value = netoAjustado; calcularTotalesFac(); }
+  showToast('✅ Neto ajustado para que el total cierre exacto','ok');
 }
 
 // ── Guardar factura ──
