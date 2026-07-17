@@ -4082,9 +4082,11 @@ let reglasPrecios = [];
 function calcPrecioJS(costo, margen, iva, redondeo){
   costo = +costo || 0;
   if(costo <= 0) return 0;
-  iva = (iva==null ? 21 : +iva);
   redondeo = (redondeo==null ? 1 : +redondeo);
-  let p = costo * (1 + (+margen||0)/100) * (1 + iva/100);
+  // Precio de venta = costo + margen. NO se suma IVA: el precio de góndola
+  // ya es final (el IVA está contenido en el precio que paga el cliente).
+  // El parámetro 'iva' se mantiene por compatibilidad pero no se usa.
+  let p = costo * (1 + (+margen||0)/100);
   if(redondeo > 0) p = Math.round(p/redondeo)*redondeo;
   else p = Math.round(p*100)/100;
   return p;
@@ -4166,7 +4168,7 @@ function selectPrecioProv(id){
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
           <div style="min-width:0">
             <div style="font-weight:600;font-size:13px">${esc(cat)}</div>
-            <div style="font-size:11px;color:var(--muted)">${n} producto${n!==1?'s':''}${me.propia?'':' · hereda del proveedor'}</div>
+            <div style="font-size:11px;color:var(--muted)">${n} producto${n!==1?'s':''}${me.propia?' · <b style=\'color:#e65100\'>margen propio (pisa el base)</b>':' · hereda del proveedor'}</div>
           </div>
           <span style="font-family:'DM Mono',monospace;font-weight:700;font-size:17px;color:var(--pine)">${me.margen}%</span>
         </div>
@@ -4194,8 +4196,16 @@ async function guardarMargenBase(id){
     if(error) throw error;
     await loadProds();
     try{ proveedores = await sbGet('proveedores'); }catch(e){}
+    // ¿Hay categorías con margen propio que NO reciben el margen base?
+    const prov2 = proveedores.find(p=>p.id===id);
+    const catsPropias = [...new Set(prods.filter(p=>p.proveedor_id===id&&p.categoria).map(p=>p.categoria))]
+      .filter(cat=>margenEfectivo(prov2, cat).propia);
     selectPrecioProv(id);
-    showToast(`✅ Margen guardado · ${data||0} precios recalculados`,'ok');
+    if(catsPropias.length){
+      showToast(`⚠️ Margen base guardado, pero ${catsPropias.length} categoría(s) tienen margen propio y NO cambian: ${catsPropias.join(', ')}. Ajustalas abajo.`,'err');
+    } else {
+      showToast(`✅ Margen guardado · ${data||0} precios recalculados`,'ok');
+    }
   }catch(e){ showToast('Error al guardar el margen','err'); console.error(e); }
 }
 
@@ -9583,7 +9593,7 @@ function renderStock(f){
       ${p.costo>0?`<div style="display:flex;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
         <span style="color:#1a5c38;font-weight:600">Margen: $${((p.precio||0)-(p.costo||0)).toLocaleString('es-AR')}</span>
         <span style="color:#999">·</span>
-        <span style="color:#1a5c38;font-weight:600">${p.precio>0?Math.round(((p.precio-p.costo)/p.precio)*100):0}%</span>
+        <span style="color:#1a5c38;font-weight:600">${p.costo>0?Math.round(((p.precio-p.costo)/p.costo)*100):0}%</span>
       </div>`:''}
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
         <span style="font-size:11px;color:var(--muted)">Ajustar stock:</span>
@@ -10837,7 +10847,7 @@ function actualizarMargenPreview(){
   const el = document.getElementById('np-margen-preview');
   if(!el) return;
   if(precio > 0 && costo > 0){
-    const margen = Math.round((precio-costo)/precio*100);
+    const margen = Math.round((precio-costo)/costo*100);  // margen sobre costo
     const ganancia = precio - costo;
     el.textContent = `$${ganancia.toLocaleString('es-AR')} · ${margen}% margen`;
     el.style.color = margen >= 30 ? '#1a5c38' : margen >= 10 ? '#e65100' : '#c94040';
