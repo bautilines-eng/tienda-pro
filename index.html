@@ -1146,16 +1146,38 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <!-- Categoría -->
       <div style="margin-bottom:16px">
         <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Categoría *</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px" id="gas-cat-grid">
-          <button class="gas-cat-btn active" data-cat="Servicios" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #4a1942;background:#fdf8fd;font-size:12px;font-weight:600;color:#4a1942;cursor:pointer">⚡ Servicios</button>
-          <button class="gas-cat-btn" data-cat="Proveedores" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">🏭 Proveedores</button>
-          <button class="gas-cat-btn" data-cat="Personal" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">👤 Personal</button>
-          <button class="gas-cat-btn" data-cat="Alquiler" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">🏠 Alquiler</button>
-          <button class="gas-cat-btn" data-cat="Transporte" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">🚗 Transporte</button>
-          <button class="gas-cat-btn" data-cat="Marketing" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">📣 Marketing</button>
-          <button class="gas-cat-btn" data-cat="Impuestos" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">🧾 Impuestos</button>
-          <button class="gas-cat-btn" data-cat="Otro" onclick="selectGasCat(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid #e0e0e0;background:#fff;font-size:12px;font-weight:600;color:#555;cursor:pointer">📦 Otro</button>
-        </div>
+        <select class="inp" id="gas-cat-select" onchange="selectGasCatFromSelect()" style="cursor:pointer">
+          <option value="Flete preventa">Flete preventa</option>
+          <option value="Elementos seguridad personal">Elementos seguridad personal</option>
+          <option value="Consumo personal">Consumo personal</option>
+          <option value="Movilidad y viáticos">Movilidad y viáticos</option>
+          <option value="Otros honorarios">Otros honorarios</option>
+          <option value="Limpieza y desinfección">Limpieza y desinfección</option>
+          <option value="Seguridad privada">Seguridad privada</option>
+          <option value="Insumos de computación">Insumos de computación</option>
+          <option value="Teléfono fijo">Teléfono fijo</option>
+          <option value="Teléfono móvil">Teléfono móvil</option>
+          <option value="Internet">Internet</option>
+          <option value="Electricidad">Electricidad</option>
+          <option value="Agua">Agua</option>
+          <option value="Otros servicios">Otros servicios</option>
+          <option value="Alquiler inmuebles">Alquiler inmuebles</option>
+          <option value="Rep. y mant. instalaciones">Rep. y mant. instalaciones</option>
+          <option value="Rep. y mant. rodados">Rep. y mant. rodados</option>
+          <option value="Rep. y mant. autoelevadores">Rep. y mant. autoelevadores</option>
+          <option value="Neumáticos autoelevadores">Neumáticos autoelevadores</option>
+          <option value="Combustible">Combustible</option>
+          <option value="Lubricantes y aceites">Lubricantes y aceites</option>
+          <option value="Publicidad">Publicidad</option>
+          <option value="Papelería/librería">Papelería/librería</option>
+          <option value="Mensajería">Mensajería</option>
+          <option value="Otros gastos">Otros gastos</option>
+          <option value="Factura alquiler">Factura alquiler</option>
+          <option value="Sueldos (horas extras)">Sueldos (horas extras)</option>
+          <option value="Impuestos varios">Impuestos varios</option>
+          <option value="Gastos gerencia">Gastos gerencia</option>
+          <option value="Proveedores">Proveedores (mercadería)</option>
+        </select>
       </div>
       <!-- Descripción -->
       <div style="margin-bottom:12px" id="gas-proveedor-wrap" style="display:none">
@@ -2008,7 +2030,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <div style="height:100px"></div>
     <!-- FAB -->
-    <button onclick="openModal('ov-add-gasto')"
+    <button onclick="openModal('ov-add-gasto');selectGasCatFromSelect()"
       style="position:fixed;bottom:24px;right:20px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#4a1942,#2d0f29);border:none;color:#fff;font-size:24px;cursor:pointer;box-shadow:0 4px 16px rgba(74,25,66,.4);z-index:300;display:flex;align-items:center;justify-content:center">
       +
     </button>
@@ -2721,15 +2743,41 @@ let METODO_CUENTA = {
   'Cuenta Corriente': '11301001',  // Cuenta corriente clientes
 };
 
+// Categorías de Minuta de Egreso = los 29 códigos de Chess.
+// La clave es el concepto (se guarda en gastos.categoria); el valor es la cuenta.
+// Se sobreescriben desde el mapeo de la tienda (tipo 'categoria_gasto') si existe.
 let GASTO_CUENTA = {
-  'Servicios':   '5.2.02',
-  'Personal':    '5.2.01',
-  'Alquiler':    '5.2.03',
-  'Transporte':  '5.2.04',
-  'Marketing':   '5.2.05',
-  'Impuestos':   '5.2.06',
-  'Proveedores': '2.1.01',
-  'Otro':        '5.2.08',
+  'Flete preventa':                  '51107002',
+  'Elementos seguridad personal':    '51104005',
+  'Consumo personal':                '51104001',
+  'Movilidad y viáticos':            '51105003',
+  'Otros honorarios':                '51106003',
+  'Limpieza y desinfección':         '11501005',
+  'Seguridad privada':               '51107008',
+  'Insumos de computación':          '51108003',
+  'Teléfono fijo':                   '51109001',
+  'Teléfono móvil':                  '51109002',
+  'Internet':                        '51109003',
+  'Electricidad':                    '51109004',
+  'Agua':                            '51109005',
+  'Otros servicios':                 '51108007',
+  'Alquiler inmuebles':              '51110001',
+  'Rep. y mant. instalaciones':      '51111003',
+  'Rep. y mant. rodados':            '51111001',
+  'Rep. y mant. autoelevadores':     '51111002',
+  'Neumáticos autoelevadores':       '51111002',
+  'Combustible':                     '51111201',
+  'Lubricantes y aceites':           '51112001',
+  'Publicidad':                      '51117002',
+  'Papelería/librería':              '51117001',
+  'Mensajería':                      '51117002',
+  'Otros gastos':                    '51117003',
+  'Factura alquiler':                '51110001',
+  'Sueldos (horas extras)':          '51103001',
+  'Impuestos varios':                '51114009',
+  'Gastos gerencia':                 '51117005',
+  // Proveedores se mantiene: lo usa el flujo de compras/factura de mercadería
+  'Proveedores':                     '21101001',
 };
 
 // Cuentas especiales (IVA, IIBB, etc.)
@@ -10259,17 +10307,12 @@ const GAS_CATS = {
   'Otro':        { icon: '📦', color: '#555',    bg: '#f5f5f5' }
 };
 
-let selectedGasCat = 'Servicios';
+let selectedGasCat = 'Flete preventa';  // primer concepto de la lista de minutas
 
-function selectGasCat(btn) {
-  document.querySelectorAll('.gas-cat-btn').forEach(b => {
-    b.style.borderColor = '#e0e0e0';
-    b.style.background = '#fff';
-    b.style.color = '#555';
-    b.classList.remove('active');
-  });
-  btn.classList.add('active');
-  selectedGasCat = btn.dataset.cat;
+// La categoría de gasto (concepto de minuta) sale del <select>
+function selectGasCatFromSelect() {
+  const sel = document.getElementById('gas-cat-select');
+  if (sel) selectedGasCat = sel.value;
 }
 
 function onGasMedioChange(){
