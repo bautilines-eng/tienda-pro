@@ -4477,9 +4477,16 @@ function renderRemitoLineas(){
           </select>
         </div>
         <div>
-          <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Costo unit. <span style="text-transform:none;color:#c0c0c0">(opc.)</span></div>
+          <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Costo <span style="text-transform:none;color:#c0c0c0">(opc.)</span></div>
           <input type="number" id="rem-costo-${l.uid}" min="0" placeholder="0" class="inp" style="padding:9px 10px" oninput="recalcRemitoTotales()">
         </div>
+      </div>
+      <div style="margin-top:8px">
+        <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">El costo que puse es...</div>
+        <select id="rem-costomodo-${l.uid}" class="inp" style="cursor:pointer;padding:8px 10px;font-size:12px" onchange="recalcRemitoTotales()">
+          <option value="unidad">Por unidad (cada botella/lata)</option>
+          <option value="bulto">Por bulto entero</option>
+        </select>
       </div>
       <div id="rem-sub-${l.uid}" style="font-size:11.5px;color:#1a5c38;margin-top:9px;padding-top:8px;border-top:1px dashed #eef3f0;font-weight:600;display:flex;justify-content:space-between;align-items:center"></div>
     </div>`).join('');
@@ -4492,8 +4499,12 @@ function recalcRemitoTotales(){
     const qty=parseFloat(document.getElementById('rem-qty-'+l.uid)?.value)||0;
     const modo=document.getElementById('rem-modo-'+l.uid)?.value||'bulto';
     const costo=parseFloat(document.getElementById('rem-costo-'+l.uid)?.value)||0;
+    const costoModo=document.getElementById('rem-costomodo-'+l.uid)?.value||'unidad';
     const unidades = modo==='bulto'? qty*l.upb : qty;
-    const neto = costo*qty;
+    // Costo por unidad: si lo cargó por bulto, se divide por las unidades del bulto
+    const costoUnit = costoModo==='bulto' ? (l.upb>0 ? costo/l.upb : costo) : costo;
+    // Neto de la línea = costo por unidad × unidades totales
+    const neto = Math.round(costoUnit * unidades * 100)/100;
     netoTotal+=neto; unidadesTotal+=unidades;
     const sub=document.getElementById('rem-sub-'+l.uid);
     if(sub){
@@ -4547,10 +4558,16 @@ async function confirmarRemito(){
     const qty=parseFloat(document.getElementById('rem-qty-'+l.uid)?.value)||0;
     const modo=document.getElementById('rem-modo-'+l.uid)?.value||'bulto';
     const costo=parseFloat(document.getElementById('rem-costo-'+l.uid)?.value)||0;
+    const costoModo=document.getElementById('rem-costomodo-'+l.uid)?.value||'unidad';
     if(qty<=0){ showToast('Revisá las cantidades (deben ser mayores a 0)','err'); return; }
     const unidades = modo==='bulto'? qty*l.upb : qty;
-    const costoUnit = costo>0 ? (modo==='bulto'? Math.round(costo/l.upb*100)/100 : costo) : null;
-    lineas.push({...l, qty, modo, costo, unidades, costoUnit, neto: costo*qty});
+    // Costo por unidad (lo que se guarda). Si lo cargó por bulto, se divide por upb.
+    const costoUnit = costo>0
+      ? (costoModo==='bulto' ? Math.round(costo/l.upb*100)/100 : costo)
+      : null;
+    // Neto de la línea = costo por unidad × unidades totales
+    const neto = costoUnit!=null ? Math.round(costoUnit*unidades*100)/100 : 0;
+    lineas.push({...l, qty, modo, costo, unidades, costoUnit, neto});
   }
 
   const btn=document.getElementById('rem-btn'); const txt=btn?btn.textContent:'';
