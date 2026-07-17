@@ -6248,11 +6248,12 @@ function abrirModalFactura(compraId) {
     if (el) el.value = '';
   });
 
-  // Pre-calcular neto: si es remito, suma el total de TODAS sus compras
-  const totalBruto = comprasRemito.reduce((s,c) => s + (c.precio_unitario || 0) * (c.cantidad || 0), 0);
+  // Pre-calcular neto: suma (costo unitario × cantidad) de las compras.
+  // precio_unitario ya es el costo NETO por unidad → el resultado ya es el neto.
+  const netoRemito = comprasRemito.reduce((s,c) => s + (c.precio_unitario || 0) * (c.cantidad || 0), 0);
   const netoEl = document.getElementById('fac-neto');
-  if (netoEl && totalBruto > 0) {
-    netoEl.value = Math.round(totalBruto / 1.21 * 100) / 100;
+  if (netoEl && netoRemito > 0) {
+    netoEl.value = Math.round(netoRemito * 100) / 100;
     calcularTotalesFac();
   }
 
