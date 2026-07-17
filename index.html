@@ -9585,7 +9585,7 @@ function renderStock(f){
         <div style="display:flex;align-items:center;gap:6px">
           <div class="sc-dot ${dc}"></div>
           <button class="btn btn-sm btn-outline" onclick="editProduct('${p.id}')">✏️</button>
-          <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteProduct('${p.id}','${esc(p.nombre)}')">🗑️</button>
+          ${['dueño','dueno','administrativo','admin'].includes((USER_ROL||'').toLowerCase()) ? `<button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteProduct('${p.id}','${esc(p.nombre)}')">🗑️</button>` : ''}
         </div>
       </div>
       <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${p.stock} uds</div></div>
@@ -9659,7 +9659,12 @@ async function updateProduct(id){
   const nombre=document.getElementById('np-name').value.trim();
   if(!nombre){showToast('Ingresá el nombre','err');return;}
   const precioAnterior = prodActual?.precio || 0;
-    const updates={nombre,precio:parseFloat(document.getElementById('np-price').value)||0,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
+    const precioNuevo = parseFloat(document.getElementById('np-price').value)||0;
+    const updates={nombre,precio:precioNuevo,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
+    // Si cambió el precio a mano, bloquearlo para que las listas nuevas no lo pisen
+    if(precioNuevo>0 && Math.abs(precioNuevo-precioAnterior)>0.01){
+      updates.precio_bloqueado = true;
+    }
   try{
     await SB.from('productos').update(updates).eq('id',id);
     const idx=prods.findIndex(x=>x.id==id);
@@ -9683,7 +9688,11 @@ async function updateProduct(id){
 }
 
 async function deleteProduct(id,nombre){
-  if(!confirm(`¿Eliminar "${esc(nombre)}"? Esta acción no se puede deshacer.`))return;
+  const rol=(USER_ROL||'').toLowerCase();
+  if(!['dueño','dueno','administrativo','admin'].includes(rol)){
+    showToast('Solo dueño o administrativo pueden eliminar productos','err'); return;
+  }
+  if(!confirm(`¿Eliminar "${esc(nombre)}"? El producto se dará de baja (podés recuperarlo desde la base si hace falta).`))return;
   try{
     await SB.from('productos').update({
     is_deleted: true,
