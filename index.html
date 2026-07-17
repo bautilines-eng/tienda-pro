@@ -4556,6 +4556,8 @@ async function confirmarRemito(){
   const btn=document.getElementById('rem-btn'); const txt=btn?btn.textContent:'';
   if(btn){ btn.disabled=true; btn.textContent='Cargando...'; }
   try{
+    // ID único de este remito: agrupa todas sus compras aunque no tengan factura
+    const remitoId = 'REM-' + Date.now() + '-' + Math.floor(Math.random()*10000);
     let netoTotal=0, primeraCompraId=null;
     for(const ln of lineas){
       const compra=await sbInsert('compras',{
@@ -4563,7 +4565,7 @@ async function confirmarRemito(){
         cantidad: ln.unidades, precio_unitario: ln.costoUnit||0,
         numero_factura: nro||null, proveedor: prov||null, proveedor_id: provId,
         forma_pago: pago, vence_pago: vence, estado_pedido:'completo',
-        factura_cargada: ln.costo>0, fecha
+        factura_cargada: ln.costo>0, fecha, remito_id: remitoId
       });
       compras.unshift(compra);
       if(!primeraCompraId) primeraCompraId=compra.id;
@@ -4631,25 +4633,23 @@ function _esRolAdmin() {
 }
 
 function _comprasDelMismoRemito(compraBase) {
-  // Si la compra tiene numero_factura y proveedor_id, buscar las hermanas
-  if (!compraBase.numero_factura || !compraBase.proveedor_id) return [compraBase];
-  const fac = facturas.find(f => f.compra_id === compraBase.id && !f.anulada);
-  if (!fac) {
-    // Buscar si alguna otra factura referencia a esta compra como parte de un remito
-    const facRelacionada = facturas.find(f =>
-      f.numero === compraBase.numero_factura &&
-      !f.anulada &&
-      f.observaciones && f.observaciones.includes('productos')
-    );
-    if (!facRelacionada) return [compraBase];
+  // Método principal: agrupar por remito_id (funciona SIEMPRE, con o sin factura).
+  // Todas las compras de un mismo remito comparten el mismo remito_id.
+  if (compraBase.remito_id) {
+    const grupo = compras.filter(c => !c.anulada && c.remito_id === compraBase.remito_id);
+    if (grupo.length) return grupo;
   }
-  // Todas las compras con mismo numero_factura, proveedor_id y fecha (patrón de remito)
-  return compras.filter(c =>
-    !c.anulada &&
-    c.numero_factura === compraBase.numero_factura &&
-    c.proveedor_id === compraBase.proveedor_id &&
-    c.fecha === compraBase.fecha
-  );
+  // Fallback para compras antiguas (sin remito_id): agrupar por factura+proveedor+fecha.
+  if (compraBase.numero_factura && compraBase.proveedor_id) {
+    return compras.filter(c =>
+      !c.anulada &&
+      c.numero_factura === compraBase.numero_factura &&
+      c.proveedor_id === compraBase.proveedor_id &&
+      c.fecha === compraBase.fecha
+    );
+  }
+  // Compra individual suelta
+  return [compraBase];
 }
 
 function abrirAnularCompra(compraId) {
@@ -4721,6 +4721,9 @@ function abrirAnularCompra(compraId) {
   if (esRemito) {
     scopeWrap.style.display = 'block';
     document.getElementById('ac-remito-count').textContent = _anularComprasRelacionadas.length;
+    // Preseleccionar "anular todo el remito" (es lo esperado al tocar 🗑️ en un remito)
+    const radioRemito = document.querySelector('input[name="ac-scope"][value="remito"]');
+    if (radioRemito) radioRemito.checked = true;
   } else {
     scopeWrap.style.display = 'none';
   }
@@ -9987,15 +9990,18 @@ function renderCompraList(){
   const el=document.getElementById('colist');
   if(!compras.length){el.innerHTML='<div class="empty">Sin compras aún</div>';return;}
 
-  // ── Punto 4: agrupar las compras que pertenecen al MISMO remito/factura ──
-  // Un remito genera N compras (una por producto) pero UNA sola factura.
-  // Se agrupan por numero_factura + proveedor_id + fecha.
+  // ── Agrupar las compras del MISMO remito ──
+  // Un remito genera N compras (una por producto). Se agrupan por remito_id
+  // (robusto, con o sin factura); fallback a factura+proveedor+fecha para
+  // compras antiguas sin remito_id.
   const grupos = [];
   const idx = {};
   compras.forEach(co => {
-    const clave = (co.numero_factura && co.proveedor_id)
-      ? 'REM|'+co.numero_factura+'|'+co.proveedor_id+'|'+co.fecha
-      : 'IND|'+co.id;
+    const clave = co.remito_id
+      ? 'REM|'+co.remito_id
+      : (co.numero_factura && co.proveedor_id)
+        ? 'REM|'+co.numero_factura+'|'+co.proveedor_id+'|'+co.fecha
+        : 'IND|'+co.id;
     if(idx[clave] === undefined){
       idx[clave] = grupos.length;
       grupos.push({ clave, items:[], esRemito:false });
