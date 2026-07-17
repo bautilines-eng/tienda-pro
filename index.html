@@ -4565,7 +4565,7 @@ async function confirmarRemito(){
         cantidad: ln.unidades, precio_unitario: ln.costoUnit||0,
         numero_factura: nro||null, proveedor: prov||null, proveedor_id: provId,
         forma_pago: pago, vence_pago: vence, estado_pedido:'completo',
-        factura_cargada: ln.costo>0, fecha, remito_id: remitoId
+        factura_cargada: false, fecha, remito_id: remitoId   // la factura se carga aparte
       });
       compras.unshift(compra);
       if(!primeraCompraId) primeraCompraId=compra.id;
@@ -4583,36 +4583,16 @@ async function confirmarRemito(){
            if(fresh&&pref){ pref.costo=fresh.costo; pref.precio=fresh.precio; pref.stock=fresh.stock; } }catch(_){}
       netoTotal+=ln.neto;
     }
-    if(netoTotal>0){
-      const iva=Math.round(netoTotal*alic/100*100)/100;
-      const total=Math.round((netoTotal+iva)*100)/100;
-      const factura=await sbInsert('facturas_proveedor',{
-        tienda_id:STORE.id, compra_id:primeraCompraId, tipo_cbte:'A', numero:nro||null,
-        proveedor:prov||null, fecha, fecha_vence:vence,
-        neto_gravado:netoTotal, alicuota_iva:alic, importe_iva:iva, total,
-        forma_pago:pago, estado:'registrada', observaciones:`Remito con ${lineas.length} productos`
-      });
-      facturas.unshift(factura);
-      if(pago==='Cuenta Corriente'){
-        const deuda=await sbInsert('deudas',{
-          tienda_id:STORE.id, nombre_cliente:prov||'Proveedor', monto:total, monto_original:total,
-          descripcion:`Factura ${nro||''} · ${lineas.length} productos`, estado:'pendiente',
-          fecha_limite:vence, tipo:'proveedor', compra_id:primeraCompraId
-        });
-        deudas.unshift(deuda);
-        if(typeof renderDeudas==='function') renderDeudas();
-      } else {
-        await sbInsert('gastos',{tienda_id:STORE.id, monto:total, categoria:'Proveedores', descripcion:`Factura ${nro||''} · ${esc(prov||'')}`, fecha});
-        if(typeof renderGastos==='function') renderGastos();
-      }
-    }
+    // El remito SOLO ingresa mercadería al stock. La factura (con su deuda o
+    // gasto y su impacto contable) se carga aparte, desde el botón "Cargar
+    // factura" de cada compra. Así se separa el ingreso físico del comprobante.
     closeModal('ov-remito');
     if(typeof renderCompraList==='function') renderCompraList();
     if(typeof renderStock==='function' && typeof stockFilter!=='undefined') renderStock(stockFilter);
     if(typeof checkAlertBar==='function') checkAlertBar();
     if(typeof renderProds==='function') renderProds();
-    const totalMsg = netoTotal>0 ? ` · Total $${Math.round(netoTotal*(1+alic/100)).toLocaleString('es-AR')}` : '';
-    showToast(`✅ Remito cargado: ${lineas.length} productos${totalMsg}`,'ok');
+    if(typeof checkAlertaFacturasPendientes==='function') checkAlertaFacturasPendientes();
+    showToast(`✅ Remito cargado: ${lineas.length} productos al stock. Ahora cargá la factura desde la lista de compras.`,'ok');
   }catch(e){ showToast('❌ Error al cargar el remito','err'); console.error(e); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=txt; } }
 }
@@ -6222,9 +6202,19 @@ function abrirModalFactura(compraId) {
   const compra = compras.find(c => c.id === compraId);
   if (!compra) return;
 
-  // Pre-rellenar datos de la compra
+  // ¿Es parte de un remito? Entonces la factura cubre TODAS sus compras.
+  const comprasRemito = compra.remito_id
+    ? compras.filter(c => c.remito_id === compra.remito_id && !c.anulada)
+    : [compra];
+  const esRemitoMulti = comprasRemito.length > 1;
+
+  // Pre-rellenar datos de la compra / remito
   const descEl = document.getElementById('fac-compra-desc');
-  if (descEl) descEl.textContent = `${esc(compra.producto_nombre || '')} · ${esc(compra.proveedor || '')}`;
+  if (descEl) {
+    descEl.textContent = esRemitoMulti
+      ? `📦 Remito · ${comprasRemito.length} productos · ${esc(compra.proveedor || '')}`
+      : `${esc(compra.producto_nombre || '')} · ${esc(compra.proveedor || '')}`;
+  }
 
   const provEl = document.getElementById('fac-proveedor');
   if (provEl && compra.proveedor) provEl.value = compra.proveedor;
@@ -6241,11 +6231,11 @@ function abrirModalFactura(compraId) {
     if (el) el.value = '';
   });
 
-  // Pre-calcular neto desde el total de la compra
-  const total = (compra.precio_unitario || 0) * (compra.cantidad || 0);
+  // Pre-calcular neto: si es remito, suma el total de TODAS sus compras
+  const totalBruto = comprasRemito.reduce((s,c) => s + (c.precio_unitario || 0) * (c.cantidad || 0), 0);
   const netoEl = document.getElementById('fac-neto');
-  if (netoEl && total > 0) {
-    netoEl.value = Math.round(total / 1.21 * 100) / 100;
+  if (netoEl && totalBruto > 0) {
+    netoEl.value = Math.round(totalBruto / 1.21 * 100) / 100;
     calcularTotalesFac();
   }
 
@@ -6350,20 +6340,31 @@ async function guardarFactura() {
 
     facturas.unshift(factura);
 
-    // Marcar la compra como con factura cargada
-    await sbUpdate('compras', facCompraId, { factura_cargada: true });
+    // Marcar como facturada la compra. Si es parte de un remito, marcar TODAS
+    // las compras del remito (una sola factura cubre el remito completo).
     const compra = compras.find(c => c.id === facCompraId);
-    if (compra) compra.factura_cargada = true;
+    const delRemito = (compra && compra.remito_id)
+      ? compras.filter(c => c.remito_id === compra.remito_id && !c.anulada)
+      : (compra ? [compra] : []);
+    const esRemitoFactura = delRemito.length > 1;
+    for (const c of delRemito) {
+      await sbUpdate('compras', c.id, { factura_cargada: true });
+      c.factura_cargada = true;
+    }
 
-    // Actualizar el COSTO del producto y de la compra desde la factura (neto ÷ cantidad)
-    if (compra && compra.producto_id && compra.cantidad > 0 && neto > 0) {
+    // Actualizar la alícuota de IVA en todas las compras de la factura.
+    // En un remito, cada producto ya trae su costo cargado → NO se pisa.
+    // En una compra suelta sin costo previo, se reparte el neto ÷ cantidad.
+    if (esRemitoFactura) {
+      for (const c of delRemito) {
+        try { await sbUpdate('compras', c.id, { iva_alicuota: alic }); c.iva_alicuota = alic; } catch(_){}
+      }
+    } else if (compra && compra.producto_id && compra.cantidad > 0 && neto > 0 && !(compra.precio_unitario > 0)) {
       const costoUnit = Math.round((neto / compra.cantidad) * 100) / 100;
       try {
-        // Actualiza costo neto + IVA; el trigger de la base recalcula el precio de venta solo
         await SB.from('productos').update({ costo: costoUnit, iva_alicuota: alic }).eq('id', compra.producto_id);
         const prodRef = prods.find(p => p.id === compra.producto_id);
         if (prodRef) { prodRef.costo = costoUnit; prodRef.iva_alicuota = alic; }
-        // Traer el precio que recalculó el motor para reflejarlo en pantalla
         try {
           const { data: fresh } = await SB.from('productos').select('precio,costo').eq('id', compra.producto_id).single();
           if (fresh && prodRef) { prodRef.costo = fresh.costo; prodRef.precio = fresh.precio; }
@@ -6373,7 +6374,6 @@ async function guardarFactura() {
         compra.iva_alicuota = alic;
       } catch(e) { console.error('No se pudo actualizar el costo', e); }
     } else if (compra) {
-      // Aunque no cambie el costo, guardar la alícuota elegida en la compra
       try { await sbUpdate('compras', facCompraId, { iva_alicuota: alic }); compra.iva_alicuota = alic; } catch(_){}
     }
 
