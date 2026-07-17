@@ -7979,7 +7979,8 @@ async function sbUpdate(table,id,fields){
 // ══ LOADERS ══
 async function loadProds(){
   try{
-    prods=await sbGet('productos');
+    const data=await sbGet('productos');
+    prods=data.filter(p=>!p.is_deleted);   // no traer los eliminados
     filtered=[...prods];
   }catch(e){console.error('loadProds',e);prods=[];}
 }
@@ -8069,7 +8070,7 @@ async function aprobarConsumo(id){
       aprobado_por: USER?.email, aprobado_uid: USER?.id, resuelto_at: new Date().toISOString()
     }).eq('id', id);
     await loadConsumos(); await loadDeudas();
-    try{ prods = await sbGet('productos'); }catch(_){}
+    try{ const _d = await sbGet('productos'); prods = _d.filter(p=>!p.is_deleted); }catch(_){}
     renderConsumos(); if(typeof renderDeudas==='function') renderDeudas();
     if(typeof renderStock==='function') renderStock(typeof stockFilter!=='undefined'?stockFilter:'all');
     showToast('✅ Consumo aprobado — stock descontado y deuda registrada','ok');
