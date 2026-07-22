@@ -8641,6 +8641,119 @@ function updateCart(){
 }
 
 // ══ REGISTER SALE ══
+// ══════════════════════════════════════════════════════════════
+// FACTURACIÓN ELECTRÓNICA AUTOMÁTICA — Fase 2 (Factura A/B)
+//
+// Se llama ANTES de procesar_venta_atomica: si ARCA rechaza o falla,
+// no se creó nada todavía (ni stock, ni venta, ni numeración interna
+// consumida) — el cajero reintenta limpio. Con CAE aprobado, recién
+// ahí se confirma la venta, pasándole el CAE para que quede grabado
+// en el mismo insert atómico.
+//
+// Solo Factura A y B piden CAE automático en esta etapa. Tique (T),
+// Sin comprobante (X) y Factura C siguen exactamente igual que antes
+// (sin tocar ARCA), y el flujo manual de guardarCAE() sigue disponible
+// para cualquier caso que necesite carga a mano.
+//
+// LIMITACIÓN CONOCIDA: la verificación de stock previa (Opción A) NO
+// cubre productos combo (es_combo) — se saltean del chequeo, igual
+// que ya hace el resto del código con el stock local tras la venta.
+// El riesgo residual de carrera (dos cajeros vendiendo el último
+// producto casi al mismo tiempo) sigue existiendo igual que antes
+// para combos; para productos normales, se reduce a la ventana chica
+// entre este chequeo y el pedido a ARCA.
+// ══════════════════════════════════════════════════════════════
+
+// Mismo cálculo que hace procesar_venta_atomica internamente
+// (ROUND(total/1.21,2) y total-neto) — tienen que cerrar exacto.
+function _calcularNetoIvaAfip(total){
+  const neto = Math.round((total/1.21) * 100) / 100;
+  const iva  = Math.round((total - neto) * 100) / 100;
+  return { neto, iva };
+}
+
+// Factura A → CUIT del comprador, Responsable Inscripto.
+// Factura B → siempre Consumidor Final (decisión explícita: no se
+// contemplan monotributistas facturando B con su propio CUIT).
+function _datosReceptorAfip(tipoCbte, cuitDigits){
+  if (tipoCbte === 'A') {
+    return { docTipo: 80, docNro: Number(cuitDigits), condicionIvaReceptorId: 1 };
+  }
+  return { docTipo: 99, docNro: 0, condicionIvaReceptorId: 5 };
+}
+
+// Chequeo de stock en vivo contra la base, ANTES de pedir el CAE.
+// No reserva nada (eso lo sigue haciendo procesar_venta_atomica de
+// forma atómica) — solo reduce la ventana de una carrera entre dos
+// cajeros. Tira si falta stock, con el mismo texto que ya reconoce
+// el catch de registerSale ("Stock insuficiente").
+async function _verificarStockDisponible(sel, qtys){
+  const noCombo = sel.filter(p => !p.es_combo);
+  if (!noCombo.length) return;
+  const ids = noCombo.map(p => p.id);
+  const { data, error } = await SB.from('productos').select('id,nombre,stock').in('id', ids);
+  if (error) throw new Error('No se pudo verificar stock antes de facturar: ' + error.message);
+  for (const p of noCombo) {
+    const actual = data.find(d => d.id === p.id);
+    const disponible = actual ? actual.stock : 0;
+    const pedido = qtys[p.id] || 0;
+    if (disponible < pedido) {
+      throw new Error(`Stock insuficiente para "${p.nombre}": disponible ${disponible}, solicitado ${pedido}`);
+    }
+  }
+}
+
+// Pide el CAE real a ARCA vía la Edge Function afip-cae. Llama con el
+// JWT de la sesión actual (SB.functions.invoke lo manda solo) — la
+// función verifica que este usuario sea miembro de STORE.id antes de
+// emitir nada. es_produccion:true fijo por ahora (único cliente real
+// del sistema); cuando haya más de un comercio en el SaaS, esto tiene
+// que salir de una config por tienda en vez de estar hardcodeado acá.
+async function _pedirCaeAfip({ tipoCbte, total, cuitDigits, requestId }){
+  const { neto, iva } = _calcularNetoIvaAfip(total);
+  const { docTipo, docNro, condicionIvaReceptorId } = _datosReceptorAfip(tipoCbte, cuitDigits);
+  const cbteTipo = _codigoAfipCbte(tipoCbte);
+
+  const { data, error } = await SB.functions.invoke('afip-cae', {
+    body: {
+      tienda_id: STORE.id,
+      accion: 'emitir',
+      es_produccion: true,
+      id_referencia_interna: requestId,
+      cbte_tipo: cbteTipo,
+      concepto: 1,
+      doc_tipo: docTipo,
+      doc_nro: docNro,
+      condicion_iva_receptor_id: condicionIvaReceptorId,
+      imp_neto: neto,
+      imp_iva: iva,
+      imp_trib: 0,
+      alicuotas: [{ id: 5, base_imp: neto, importe: iva }],
+    },
+  });
+
+  let resultado = data;
+  // Ante un status no-2xx, supabase-js a veces deja el body real en
+  // error.context (Response) en vez de en `data`. Se intenta leer ahí
+  // para no perder el motivo puntual (ej. un rechazo real de ARCA).
+  if (error && !resultado) {
+    try {
+      if (error.context && typeof error.context.json === 'function') {
+        resultado = await error.context.json();
+      }
+    } catch(_e) { /* sigue con el mensaje genérico si no se puede parsear */ }
+  }
+
+  if (!resultado) {
+    throw new Error('AFIP: no se pudo conectar (' + (error?.message || 'error desconocido') + ')');
+  }
+  if (resultado.ok !== true) {
+    throw new Error('AFIP: ' + (resultado.error || resultado.mensaje || 'ARCA rechazó el comprobante'));
+  }
+
+  return { cae: resultado.cae, caeVto: resultado.cae_vto, cbteNumeroReal: resultado.cbte_numero };
+}
+
 async function registerSale(){
   // Permiso: el rol Administrativo no puede efectuar ventas
   if (window.NO_PUEDE_VENDER || ['administrativo','admin'].includes((USER_ROL||'').toLowerCase())) {
@@ -8703,10 +8816,33 @@ async function registerSale(){
       }
     }
 
+    // ══════════════════════════════════════════════════════════════
+    // FACTURACIÓN ELECTRÓNICA AUTOMÁTICA (Fase 2 — Factura A/B)
+    // Se pide el CAE ANTES de tocar la base. Si ARCA rechaza o falla,
+    // no se llama a la RPC — no se creó nada, reintento limpio.
+    // ══════════════════════════════════════════════════════════════
+    const requestId = crypto.randomUUID();
+    let afipResultado = null;
+
+    if (tipoCbte === 'A' || tipoCbte === 'B') {
+      btn.textContent = 'Verificando stock...';
+      await _verificarStockDisponible(sel, qtys);
+
+      btn.textContent = 'Pidiendo CAE a ARCA...';
+      afipResultado = await _pedirCaeAfip({ tipoCbte, total, cuitDigits, requestId });
+    }
+
+    btn.textContent = 'Guardando...';
+
     // ══ VENTA ATÓMICA ══
     // Una sola transacción PostgreSQL: stock + venta + deuda CC
     // Con FOR UPDATE (previene sobreventa) y rollback automático
-    // request_id garantiza idempotencia (anti doble-registro)
+    // request_id garantiza idempotencia (anti doble-registro) — es
+    // el MISMO uuid usado como id_referencia_interna para ARCA arriba.
+    const nroComprobanteAfip = afipResultado?.cbteNumeroReal
+      ? String(STORE.punto_venta || '00001').padStart(5,'0') + '-' + String(afipResultado.cbteNumeroReal).padStart(8,'0')
+      : null;
+
     const { data: result, error } = await SB.rpc('procesar_venta_atomica', {
       p_tienda_id:   STORE.id,
       p_items:       items,
@@ -8716,8 +8852,11 @@ async function registerSale(){
       p_nota:        nota || null,
       p_tipo_cbte:   tipoCbte,
       p_cuit_cte:    (tipoCbte === 'A' ? cuitDigits : (cuitCte || null)),
-      p_request_id:  crypto.randomUUID(),
+      p_request_id:  requestId,
       p_pto_venta:   String(STORE.punto_venta || '00001').padStart(5,'0'),
+      p_afip_cae:             afipResultado?.cae || null,
+      p_afip_cae_vto:         afipResultado?.caeVto || null,
+      p_afip_nro_comprobante: nroComprobanteAfip,
     });
 
     if (error) throw error;
@@ -8746,6 +8885,8 @@ async function registerSale(){
       neto_gravado:    result.neto,
       importe_iva:     result.iva,
       anulada:         false,
+      cae:             result.cae || null,
+      cae_vto:         result.cae_vto || null,
     };
     sales.unshift(venta);
 
@@ -8787,6 +8928,8 @@ async function registerSale(){
       showToast('❌ ' + msg, 'err');
     } else if (msg.includes('DUPLICADO')) {
       showToast('⚠️ Esta venta ya fue registrada', 'err');
+    } else if (msg.startsWith('AFIP:')) {
+      showToast('❌ ' + msg.replace(/^AFIP:\s*/, ''), 'err');
     } else {
       showToast('❌ Error al guardar la venta', 'err');
     }
