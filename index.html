@@ -991,7 +991,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div class="fgroup"><div class="flabel">Proveedor</div>
           <div style="display:flex;gap:8px;align-items:center">
             <select class="inp" id="co-prov-select" style="flex:1;cursor:pointer"><option value="">— Elegí un proveedor —</option></select>
-            <button type="button" onclick="openModal('ov-add-prov')" style="padding:10px 12px;border:1.5px solid #c94f1a;border-radius:9px;background:#fdf0ea;color:#c94f1a;font-weight:700;cursor:pointer;white-space:nowrap">+ Nuevo</button>
+            <button type="button" onclick="abrirAltaProveedor()" style="padding:10px 12px;border:1.5px solid #c94f1a;border-radius:9px;background:#fdf0ea;color:#c94f1a;font-weight:700;cursor:pointer;white-space:nowrap">+ Nuevo</button>
           </div>
         </div>
         <div class="frow" style="margin-bottom:10px">
@@ -10277,6 +10277,14 @@ function populateProveedoresSelect(){
       .map(p=>`<option value="${p.id}">${esc(p.razon_social)}${p.cuit?' · '+p.cuit:''}</option>`).join('');
   if(actual) sel.value = actual;
 }
+function abrirAltaProveedor(){
+  ['pr-razon','pr-cuit','pr-iibb','pr-provincia','pr-domicilio','pr-telefono','pr-email'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  const condiva=document.getElementById('pr-condiva'); if(condiva) condiva.value='RI';
+  const formapago=document.getElementById('pr-formapago'); if(formapago) formapago.value='Cuenta Corriente';
+  const t=document.querySelector('#ov-add-prov .modal-title'); if(t) t.textContent='Nuevo Proveedor';
+  const btn=document.querySelector('#ov-add-prov .btn-ink'); if(btn){ btn.textContent='Guardar proveedor'; btn.onclick=saveProveedor; }
+  openModal('ov-add-prov');
+}
 async function saveProveedor(){
   const razon = document.getElementById('pr-razon').value.trim();
   if(!razon){ showToast('Ingresá la razón social','err'); return; }
@@ -10304,15 +10312,91 @@ async function saveProveedor(){
     ['pr-razon','pr-cuit','pr-iibb','pr-provincia','pr-domicilio','pr-telefono','pr-email'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   }catch(e){ showToast('❌ Error al guardar proveedor','err'); console.error(e); }
 }
+
+// ── Editar proveedor (solo dueño/administrativo) ──
+// OJO: compras.proveedor guarda el nombre en texto en el momento de la carga
+// (dato histórico del comprobante) — corregir la razón social acá NO reescribe
+// compras/facturas ya cargadas, solo corrige el maestro de proveedores hacia
+// adelante. Es el mismo criterio que ya se usa con producto_nombre en compras.
+function editProveedor(id){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden editar proveedores','err'); return; }
+  const p = proveedores.find(x=>x.id===id);
+  if(!p){ showToast('Proveedor no encontrado','err'); return; }
+  document.getElementById('pr-razon').value = p.razon_social || '';
+  document.getElementById('pr-cuit').value = p.cuit || '';
+  document.getElementById('pr-condiva').value = p.condicion_iva || 'RI';
+  document.getElementById('pr-iibb').value = p.iibb || '';
+  document.getElementById('pr-provincia').value = p.provincia || '';
+  document.getElementById('pr-domicilio').value = p.domicilio || '';
+  document.getElementById('pr-telefono').value = p.telefono || '';
+  document.getElementById('pr-email').value = p.email || '';
+  document.getElementById('pr-formapago').value = p.forma_pago || 'Cuenta Corriente';
+  const t=document.querySelector('#ov-add-prov .modal-title'); if(t) t.textContent='Editar Proveedor';
+  const btn=document.querySelector('#ov-add-prov .btn-ink');
+  if(btn){ btn.textContent='Guardar cambios'; btn.onclick=()=>updateProveedor(id); }
+  openModal('ov-add-prov');
+}
+
+async function updateProveedor(id){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden editar proveedores','err'); return; }
+  const razon = document.getElementById('pr-razon').value.trim();
+  if(!razon){ showToast('Ingresá la razón social','err'); return; }
+  const cuit = document.getElementById('pr-cuit').value.trim();
+  if(cuit && cuit.replace(/\D/g,'').length !== 11){ showToast('El CUIT debe tener 11 dígitos','err'); return; }
+
+  const idx = proveedores.findIndex(x=>x.id===id);
+  if(idx<0){ showToast('Proveedor no encontrado','err'); return; }
+  const oldValue = { razon_social: proveedores[idx].razon_social, cuit: proveedores[idx].cuit, condicion_iva: proveedores[idx].condicion_iva };
+
+  const updates = {
+    razon_social: razon,
+    cuit: cuit || null,
+    condicion_iva: document.getElementById('pr-condiva').value,
+    iibb: document.getElementById('pr-iibb').value.trim() || null,
+    provincia: document.getElementById('pr-provincia').value.trim() || null,
+    domicilio: document.getElementById('pr-domicilio').value.trim() || null,
+    telefono: document.getElementById('pr-telefono').value.trim() || null,
+    email: document.getElementById('pr-email').value.trim() || null,
+    forma_pago: document.getElementById('pr-formapago').value,
+  };
+
+  try{
+    const { error } = await SB.from('proveedores').update(updates).eq('id', id);
+    if(error) throw error;
+    proveedores[idx] = {...proveedores[idx], ...updates};
+
+    closeModal('ov-add-prov');
+    const t=document.querySelector('#ov-add-prov .modal-title'); if(t) t.textContent='Nuevo Proveedor';
+    const btn=document.querySelector('#ov-add-prov .btn-ink'); if(btn){ btn.textContent='Guardar proveedor'; btn.onclick=saveProveedor; }
+    ['pr-razon','pr-cuit','pr-iibb','pr-provincia','pr-domicilio','pr-telefono','pr-email'].forEach(idEl=>{const el=document.getElementById(idEl); if(el) el.value='';});
+
+    populateProveedoresSelect();
+    renderProveedores();
+    if(typeof renderStock==='function' && typeof stockFilter!=='undefined') renderStock(stockFilter);
+    if(typeof renderCompraList==='function') renderCompraList();
+
+    await auditLog('EDICION_PROVEEDOR', 'proveedores', id, {}, oldValue, updates);
+    showToast('✅ Proveedor actualizado', 'ok');
+  }catch(e){
+    const dup = /duplicate|unique|ya existe/i.test(e?.message||'');
+    showToast(dup ? '❌ Ya existe otro proveedor con ese CUIT' : ('❌ Error al actualizar: '+(e?.message||'')), 'err');
+    console.error('Error editando proveedor:', e);
+  }
+}
+
 function renderProveedores(){
   const el = document.getElementById('co-prov-panel');
   if(!el) return;
   const list = proveedores.filter(p=>!p.is_deleted);
+  const esAdmin = _esRolAdmin();
   el.innerHTML =
-    `<button class="btn btn-ink btn-full" style="margin-bottom:12px" onclick="openModal('ov-add-prov')">+ Nuevo Proveedor</button>` +
+    `<button class="btn btn-ink btn-full" style="margin-bottom:12px" onclick="abrirAltaProveedor()">+ Nuevo Proveedor</button>` +
     (list.length ? list.map(p=>`
       <div style="padding:12px;border:1px solid #eee;border-radius:10px;margin-bottom:8px">
-        <div style="font-weight:700">${esc(p.razon_social)}</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <div style="font-weight:700">${esc(p.razon_social)}</div>
+          ${esAdmin ? `<button onclick="editProveedor('${p.id}')" title="Editar proveedor" style="font-size:10px;background:#eef6ff;color:#1565c0;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #cfe2f7;cursor:pointer;flex-shrink:0">✏️ Editar</button>` : ''}
+        </div>
         <div style="font-size:12px;color:var(--muted)">${p.cuit?('CUIT '+p.cuit+' · '):''}${p.condicion_iva||''}${p.provincia?(' · '+p.provincia):''}</div>
         <div style="font-size:12px;color:var(--muted)">Pago: ${p.forma_pago||'—'} · Cuenta ${p.cuenta_contable||'21101001'}</div>
       </div>`).join('') : '<div class="empty">Sin proveedores cargados aún</div>');
