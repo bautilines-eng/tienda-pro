@@ -4521,7 +4521,7 @@ function onRemitoPago(){
 function agregarLineaRemito(pid){
   const p=(prods||[]).find(x=>x.id===pid); if(!p) return;
   if(remitoLineas.some(l=>l.prodId===pid)){ showToast('Ese producto ya está en el remito','err'); return; }
-  remitoLineas.push({uid:'L'+Date.now()+Math.floor(Math.random()*1000), prodId:pid, nombre:p.nombre, upb:p.unidades_por_bulto||1});
+  remitoLineas.push({uid:'L'+Date.now()+Math.floor(Math.random()*1000), prodId:pid, nombre:p.nombre, upb:p.unidades_por_bulto||1, cantidad:'1', modo:'bulto', costo:'', costoModo:'unidad'});
   renderRemitoLineas();
 }
 function quitarLineaRemito(uid){
@@ -4555,24 +4555,24 @@ function renderRemitoLineas(){
       <div style="display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:7px;align-items:end">
         <div>
           <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Cantidad</div>
-          <input type="number" id="rem-qty-${l.uid}" min="1" value="1" class="inp" style="padding:9px 10px" oninput="recalcRemitoTotales()">
+          <input type="number" id="rem-qty-${l.uid}" min="1" value="${escAttr(l.cantidad ?? '1')}" class="inp" style="padding:9px 10px" oninput="recalcRemitoTotales()">
         </div>
         <div>
           <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">En</div>
           <select id="rem-modo-${l.uid}" class="inp" style="cursor:pointer;padding:9px 10px" onchange="recalcRemitoTotales()">
-            <option value="bulto">Bultos</option><option value="unidad">Unidades</option>
+            <option value="bulto" ${(l.modo||'bulto')==='bulto'?'selected':''}>Bultos</option><option value="unidad" ${(l.modo||'bulto')==='unidad'?'selected':''}>Unidades</option>
           </select>
         </div>
         <div>
           <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Costo <span style="text-transform:none;color:#c0c0c0">(opc.)</span></div>
-          <input type="number" id="rem-costo-${l.uid}" min="0" placeholder="0" class="inp" style="padding:9px 10px" oninput="recalcRemitoTotales()">
+          <input type="number" id="rem-costo-${l.uid}" min="0" placeholder="0" value="${escAttr(l.costo ?? '')}" class="inp" style="padding:9px 10px" oninput="recalcRemitoTotales()">
         </div>
       </div>
       <div style="margin-top:8px">
         <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">El costo que puse es...</div>
         <select id="rem-costomodo-${l.uid}" class="inp" style="cursor:pointer;padding:8px 10px;font-size:12px" onchange="recalcRemitoTotales()">
-          <option value="unidad">Por unidad (cada botella/lata)</option>
-          <option value="bulto">Por bulto entero</option>
+          <option value="unidad" ${(l.costoModo||'unidad')==='unidad'?'selected':''}>Por unidad (cada botella/lata)</option>
+          <option value="bulto" ${(l.costoModo||'unidad')==='bulto'?'selected':''}>Por bulto entero</option>
         </select>
       </div>
       <div id="rem-sub-${l.uid}" style="font-size:11.5px;color:#1a5c38;margin-top:9px;padding-top:8px;border-top:1px dashed #eef3f0;font-weight:600;display:flex;justify-content:space-between;align-items:center"></div>
@@ -4583,10 +4583,18 @@ function recalcRemitoTotales(){
   const alic=parseFloat(document.getElementById('rem-alic')?.value)||21;
   let netoTotal=0, unidadesTotal=0;
   remitoLineas.forEach(l=>{
-    const qty=parseFloat(document.getElementById('rem-qty-'+l.uid)?.value)||0;
-    const modo=document.getElementById('rem-modo-'+l.uid)?.value||'bulto';
-    const costo=parseFloat(document.getElementById('rem-costo-'+l.uid)?.value)||0;
-    const costoModo=document.getElementById('rem-costomodo-'+l.uid)?.value||'unidad';
+    const qtyRaw=document.getElementById('rem-qty-'+l.uid)?.value ?? '';
+    const modoRaw=document.getElementById('rem-modo-'+l.uid)?.value || 'bulto';
+    const costoRaw=document.getElementById('rem-costo-'+l.uid)?.value ?? '';
+    const costoModoRaw=document.getElementById('rem-costomodo-'+l.uid)?.value || 'unidad';
+    // Guardamos lo que el usuario tipeó en la línea misma, para que sobreviva
+    // si se re-renderiza la lista (por ej. al agregar/quitar otro producto)
+    l.cantidad=qtyRaw; l.modo=modoRaw; l.costo=costoRaw; l.costoModo=costoModoRaw;
+
+    const qty=parseFloat(qtyRaw)||0;
+    const modo=modoRaw;
+    const costo=parseFloat(costoRaw)||0;
+    const costoModo=costoModoRaw;
     const unidades = modo==='bulto'? qty*l.upb : qty;
     // Costo por unidad: si lo cargó por bulto, se divide por las unidades del bulto
     const costoUnit = costoModo==='bulto' ? (l.upb>0 ? costo/l.upb : costo) : costo;
