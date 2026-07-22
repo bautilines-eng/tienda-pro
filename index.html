@@ -1568,6 +1568,77 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<!-- MODAL EDITAR COMPRA / LÍNEA DE REMITO (solo dueño/administrativo, solo antes de cargar factura) -->
+<div class="overlay" id="ov-editar-compra">
+  <div class="modal-content" style="max-width:500px;animation:slideUp .3s ease">
+    <div style="background:linear-gradient(135deg,#1565c0,#0d3d6b);padding:20px 24px;border-radius:16px 16px 0 0;color:#fff;position:relative">
+      <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-editar-compra')">✕</span>
+      <div style="font-size:11px;opacity:.7;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">✏️ Corrección de carga</div>
+      <div style="font-size:18px;font-weight:700">Editar compra / remito</div>
+    </div>
+    <div style="padding:20px;overflow-y:auto;max-height:78vh">
+      <div style="margin-bottom:14px;padding:10px 12px;background:#eef6ff;border:1px solid #cfe2f7;border-radius:10px;font-size:11.5px;color:#1565c0">
+        Al guardar, el stock se ajusta automáticamente según la diferencia. Si esta compra ya tiene <b>factura cargada</b>, no se puede editar así — anulá la compra/remito y volvé a cargarla (eso revierte también la deuda/gasto y la contabilidad).
+      </div>
+      <div id="edc-remito-info" style="display:none;margin-bottom:14px;padding:10px 12px;background:#fff3e0;border:1px solid #ffe0b2;border-radius:10px;font-size:11.5px;color:#e65100">
+        📦 Esta línea es parte de un remito con varios productos — solo se corrige <b>este producto</b>, el resto del remito no se modifica.
+      </div>
+
+      <div class="fgroup" style="position:relative">
+        <div class="flabel">Producto</div>
+        <input type="hidden" id="edc-prod">
+        <input type="text" class="inp" id="edc-prod-search" autocomplete="off" placeholder="Buscar producto por nombre o código..." oninput="filtrarComboProd('edc-prod', this.value)" onfocus="filtrarComboProd('edc-prod', this.value)">
+        <div id="edc-prod-list" class="combo-list"></div>
+      </div>
+
+      <div class="frow" style="margin-bottom:10px">
+        <div><div class="flabel">Cantidad (unidades)</div><input class="inp" id="edc-qty" type="number" min="1" step="1" placeholder="0"></div>
+        <div><div class="flabel">Costo unitario</div><input class="inp" id="edc-costo" type="number" min="0" step="0.01" placeholder="$0"></div>
+      </div>
+
+      <div class="fgroup"><div class="flabel">Proveedor</div>
+        <select class="inp" id="edc-prov" style="cursor:pointer"><option value="">— Sin proveedor —</option></select>
+      </div>
+
+      <div class="frow" style="margin-bottom:10px">
+        <div><div class="flabel">N° remito / factura</div><input class="inp" id="edc-nro" placeholder="REMITO-0001"></div>
+        <div><div class="flabel">Fecha</div><input class="inp" id="edc-fecha" type="date"></div>
+      </div>
+
+      <div class="frow" style="margin-bottom:10px">
+        <div><div class="flabel">Forma de pago</div>
+          <select class="inp" id="edc-pago" style="cursor:pointer">
+            <option value="Contado">💵 Contado</option>
+            <option value="Cuenta Corriente">📒 Cta. Cte.</option>
+            <option value="Transferencia">🏦 Transferencia</option>
+          </select>
+        </div>
+        <div><div class="flabel">Estado del pedido</div>
+          <select class="inp" id="edc-estado" style="cursor:pointer">
+            <option value="completo">✅ Completo</option>
+            <option value="faltante">⚠️ Faltante</option>
+            <option value="roto">❌ Roto</option>
+          </select>
+        </div>
+      </div>
+
+      <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Motivo de la corrección *</label>
+      <textarea id="edc-motivo" class="inp" rows="2" placeholder="Ej: se cargó mal la cantidad, decía 10 y eran 12..." style="margin-bottom:16px"></textarea>
+
+      <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
+        <button onclick="closeModal('ov-editar-compra')"
+          style="padding:13px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">
+          Cancelar
+        </button>
+        <button id="edc-btn" onclick="guardarEdicionCompra()"
+          style="padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#1565c0,#0d3d6b);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+          ✏️ Guardar corrección
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL NUEVA RECEPCIÓN GRN -->
 <div class="overlay" id="ov-nueva-recepcion">
   <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0;max-height:90vh;overflow-y:auto">
@@ -4903,6 +4974,202 @@ async function confirmarAnularCompra() {
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// EDITAR COMPRA / LÍNEA DE REMITO — corregir algo mal cargado
+// Solo dueños y administrativos, y SOLO mientras no tenga factura
+// cargada (si ya tiene factura, la deuda/gasto/contabilidad ya se
+// generaron a partir de ese comprobante — para corregir hay que
+// anular con reversión completa y volver a cargar).
+// ══════════════════════════════════════════════════════════════
+
+let _editarCompraId = null;
+
+function _mensajeErrorStock(err, result, prodRef, cantidadRevertir, nombreProd) {
+  const msg = (err && err.message) || (result && result.error) || '';
+  const stockActual = prodRef ? (prodRef.stock || 0) : 0;
+  if (/negativ|>= 0|check|constraint|stock_nuevo/i.test(msg) || stockActual < cantidadRevertir) {
+    return 'No se puede corregir: "' + (nombreProd || '') + '" tiene ' + stockActual +
+      ' unidades en stock y la corrección requiere revertir ' + cantidadRevertir + '. ' +
+      'Parte de esa mercadería ya se vendió, así que el ajuste dejaría el stock negativo. ' +
+      'Anulá primero las ventas correspondientes (con nota de crédito) o hacé un ajuste de stock.';
+  }
+  return 'No se pudo ajustar el stock de "' + (nombreProd || '') + '": ' + msg;
+}
+
+function abrirEditarCompra(compraId) {
+  if (!_esRolAdmin()) {
+    showToast('Solo dueños o administrativos pueden editar compras/remitos', 'err');
+    return;
+  }
+  const co = compras.find(c => c.id === compraId);
+  if (!co) { showToast('Compra no encontrada', 'err'); return; }
+  if (co.anulada) { showToast('Esta compra está anulada', 'err'); return; }
+  if (co.factura_cargada) {
+    showToast('Esta compra ya tiene factura cargada — para corregirla, anulá la compra/remito y volvé a cargarla (así se revierte también la deuda/gasto y la contabilidad).', 'err');
+    return;
+  }
+
+  _editarCompraId = compraId;
+
+  const prodHidden = document.getElementById('edc-prod');
+  const prodSearch = document.getElementById('edc-prod-search');
+  if (prodHidden) prodHidden.value = co.producto_id || '';
+  if (prodSearch) prodSearch.value = co.producto_nombre || '';
+  const list = document.getElementById('edc-prod-list');
+  if (list) { list.style.display = 'none'; list.innerHTML = ''; }
+
+  const qtyEl = document.getElementById('edc-qty'); if (qtyEl) qtyEl.value = co.cantidad || '';
+  const costoEl = document.getElementById('edc-costo'); if (costoEl) costoEl.value = co.precio_unitario || '';
+  const nroEl = document.getElementById('edc-nro'); if (nroEl) nroEl.value = co.numero_factura || '';
+  const fechaEl = document.getElementById('edc-fecha'); if (fechaEl) fechaEl.value = co.fecha || '';
+  const pagoEl = document.getElementById('edc-pago'); if (pagoEl) pagoEl.value = co.forma_pago || 'Contado';
+  const estadoEl = document.getElementById('edc-estado'); if (estadoEl) estadoEl.value = co.estado_pedido || 'completo';
+  const motivoEl = document.getElementById('edc-motivo'); if (motivoEl) motivoEl.value = '';
+
+  const provSel = document.getElementById('edc-prov');
+  if (provSel) {
+    provSel.innerHTML = '<option value="">— Sin proveedor —</option>' +
+      (proveedores || []).filter(p => !p.is_deleted)
+        .map(p => `<option value="${p.id}">${esc(p.razon_social || p.nombre || '')}</option>`).join('');
+    provSel.value = co.proveedor_id || '';
+  }
+
+  const remitoInfo = document.getElementById('edc-remito-info');
+  if (remitoInfo) remitoInfo.style.display = co.remito_id ? 'block' : 'none';
+
+  openModal('ov-editar-compra');
+}
+
+async function guardarEdicionCompra() {
+  if (!_editarCompraId) return;
+  if (!_esRolAdmin()) {
+    showToast('Solo dueños o administrativos pueden editar compras/remitos', 'err');
+    return;
+  }
+
+  const co = compras.find(c => c.id === _editarCompraId);
+  if (!co) { showToast('Compra no encontrada', 'err'); return; }
+  if (co.factura_cargada) {
+    showToast('Esta compra ya tiene factura cargada, no se puede editar así. Anulá y volvé a cargarla.', 'err');
+    return;
+  }
+
+  const nuevoProdId = document.getElementById('edc-prod')?.value || '';
+  const nuevaCantidad = parseFloat(document.getElementById('edc-qty')?.value);
+  const nuevoCosto = parseFloat(document.getElementById('edc-costo')?.value) || 0;
+  const nuevoProvId = document.getElementById('edc-prov')?.value || '';
+  const nuevoNro = document.getElementById('edc-nro')?.value.trim() || null;
+  const nuevaFecha = document.getElementById('edc-fecha')?.value || co.fecha;
+  const nuevoPago = document.getElementById('edc-pago')?.value || 'Contado';
+  const nuevoEstado = document.getElementById('edc-estado')?.value || 'completo';
+  const motivo = document.getElementById('edc-motivo')?.value.trim();
+
+  if (!nuevoProdId) { showToast('Elegí el producto', 'err'); return; }
+  if (!nuevaCantidad || nuevaCantidad <= 0) { showToast('La cantidad debe ser mayor a 0', 'err'); return; }
+  if (!motivo) { showToast('Indicá el motivo de la corrección (queda en la auditoría)', 'err'); return; }
+
+  const nuevoProdObj = prods.find(p => p.id === nuevoProdId);
+  if (!nuevoProdObj) { showToast('Producto no encontrado', 'err'); return; }
+
+  const provObj = (proveedores || []).find(p => p.id === nuevoProvId);
+  const provNombre = provObj ? (provObj.razon_social || provObj.nombre || '') : (nuevoProvId ? co.proveedor : null);
+
+  const btn = document.getElementById('edc-btn');
+  const txtOriginal = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+
+  try {
+    const cambioProducto = nuevoProdId !== co.producto_id;
+    const docNro = 'EDIT-' + String(co.id).slice(0, 8);
+
+    if (cambioProducto) {
+      // 1. Revertir el stock del producto viejo (salida)
+      const prodViejo = prods.find(p => p.id === co.producto_id);
+      const { data: kOut, error: eOut } = await SB.rpc('mover_stock_con_kardex', {
+        p_tienda_id: STORE.id, p_producto_id: co.producto_id, p_cantidad: -co.cantidad,
+        p_tipo_mov: 'EDICION_COMPRA', p_doc_tipo: 'EDICION_COMPRA', p_doc_id: co.id,
+        p_doc_nro: docNro, p_costo_unit: co.precio_unitario || 0,
+        p_observacion: 'Corrección de carga (cambio de producto) — ' + motivo
+      });
+      if (eOut || (kOut && kOut.exito === false)) {
+        throw new Error(_mensajeErrorStock(eOut, kOut, prodViejo, co.cantidad, co.producto_nombre));
+      }
+      if (prodViejo && kOut?.stock_nuevo != null) prodViejo.stock = kOut.stock_nuevo;
+
+      // 2. Ingresar el stock al producto nuevo (entrada)
+      const { data: kIn, error: eIn } = await SB.rpc('mover_stock_con_kardex', {
+        p_tienda_id: STORE.id, p_producto_id: nuevoProdId, p_cantidad: nuevaCantidad,
+        p_tipo_mov: 'EDICION_COMPRA', p_doc_tipo: 'EDICION_COMPRA', p_doc_id: co.id,
+        p_doc_nro: docNro, p_costo_unit: nuevoCosto || 0,
+        p_observacion: 'Corrección de carga (cambio de producto) — ' + motivo
+      });
+      if (eIn || (kIn && kIn.exito === false)) {
+        throw new Error((eIn && eIn.message) || (kIn && kIn.error) || 'No se pudo ingresar el stock del nuevo producto');
+      }
+      if (kIn?.stock_nuevo != null) nuevoProdObj.stock = kIn.stock_nuevo;
+
+    } else if (nuevaCantidad !== co.cantidad) {
+      // Mismo producto, solo cambia la cantidad → un único ajuste por la diferencia
+      const delta = nuevaCantidad - co.cantidad;
+      const { data: kResult, error: kErr } = await SB.rpc('mover_stock_con_kardex', {
+        p_tienda_id: STORE.id, p_producto_id: nuevoProdId, p_cantidad: delta,
+        p_tipo_mov: 'EDICION_COMPRA', p_doc_tipo: 'EDICION_COMPRA', p_doc_id: co.id,
+        p_doc_nro: docNro, p_costo_unit: nuevoCosto || 0,
+        p_observacion: 'Corrección de cantidad — ' + motivo
+      });
+      if (kErr || (kResult && kResult.exito === false)) {
+        throw new Error(_mensajeErrorStock(kErr, kResult, nuevoProdObj, Math.abs(delta), co.producto_nombre));
+      }
+      if (kResult?.stock_nuevo != null) nuevoProdObj.stock = kResult.stock_nuevo;
+    }
+
+    // Actualizar el costo del producto (mismo comportamiento que al cargar el remito)
+    if (nuevoCosto > 0) {
+      try {
+        await SB.from('productos').update({ costo: nuevoCosto }).eq('id', nuevoProdId);
+        nuevoProdObj.costo = nuevoCosto;
+      } catch (_) {}
+    }
+
+    const oldValue = {
+      producto_id: co.producto_id, producto_nombre: co.producto_nombre, cantidad: co.cantidad,
+      precio_unitario: co.precio_unitario, proveedor_id: co.proveedor_id, numero_factura: co.numero_factura,
+      fecha: co.fecha, forma_pago: co.forma_pago, estado_pedido: co.estado_pedido
+    };
+
+    const updates = {
+      producto_id: nuevoProdId,
+      producto_nombre: nuevoProdObj.nombre,
+      cantidad: nuevaCantidad,
+      precio_unitario: nuevoCosto,
+      numero_factura: nuevoNro,
+      proveedor: provNombre || null,
+      proveedor_id: nuevoProvId || null,
+      fecha: nuevaFecha,
+      forma_pago: nuevoPago,
+      estado_pedido: nuevoEstado,
+    };
+    await SB.from('compras').update(updates).eq('id', co.id);
+    Object.assign(co, updates);
+
+    await auditLog('EDICION_COMPRA', 'compras', co.id, { motivo }, oldValue, updates);
+
+    closeModal('ov-editar-compra');
+    renderCompraList();
+    if (typeof renderStock === 'function' && typeof stockFilter !== 'undefined') renderStock(stockFilter);
+    if (typeof renderProds === 'function') renderProds();
+    if (typeof checkAlertBar === 'function') checkAlertBar();
+    showToast('✅ Compra corregida — stock ajustado', 'ok');
+    _editarCompraId = null;
+
+  } catch (e) {
+    showToast('❌ ' + (e.message || 'Error al guardar la corrección'), 'err');
+    console.error('Error editando compra:', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = txtOriginal; }
+  }
+}
+
 function _descargarCSV(rows, filename) {
   const csv  = '\uFEFF' + rows.join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -6982,6 +7249,8 @@ async function renderKardex() {
     'AJUSTE_ENTRADA':      { icon: '➕', color: '#1a5c38', label: 'Ajuste entrada' },
     'AJUSTE_SALIDA':       { icon: '➖', color: '#c94040', label: 'Ajuste salida' },
     'AJUSTE':              { icon: '⚙️', color: '#6a1b9a', label: 'Ajuste' },
+    'EDICION_COMPRA':      { icon: '✏️', color: '#1565c0', label: 'Corrección de compra' },
+    'ANULACION_COMPRA':    { icon: '🗑️', color: '#c94040', label: 'Anulación de compra' },
     'RECEPCION':           { icon: '📥', color: '#1a5c38', label: 'Recepción' },
     'TRANSFERENCIA':       { icon: '🔄', color: '#6a1b9a', label: 'Transferencia' },
     'ROLLBACK':            { icon: '⏪', color: '#888',    label: 'Reversión' },
@@ -9750,7 +10019,7 @@ function renderStock(f){
         <div class="sc-left"><div style="font-size:18px">${getEm(p.categoria)}</div><div style="font-size:13px;font-weight:600">${esc(p.nombre)}</div></div>
         <div style="display:flex;align-items:center;gap:6px">
           <div class="sc-dot ${dc}"></div>
-          <button class="btn btn-sm btn-outline" onclick="editProduct('${p.id}')">✏️</button>
+          ${['dueño','dueno','administrativo','admin'].includes((USER_ROL||'').toLowerCase()) ? `<button class="btn btn-sm btn-outline" onclick="editProduct('${p.id}')">✏️</button>` : ''}
           ${['dueño','dueno','administrativo','admin'].includes((USER_ROL||'').toLowerCase()) ? `<button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteProduct('${p.id}','${esc(p.nombre)}')">🗑️</button>` : ''}
         </div>
       </div>
@@ -9774,32 +10043,28 @@ function renderStock(f){
 async function ajustarStock(id, delta){
   const p=prods.find(x=>x.id==id);if(!p)return;
   const nuevoStock=Math.max(0,p.stock+delta);
-  try{
-    // Stock no se edita directo — pasa por ajuste_manual_stock con razón
-// Si el usuario cambió el stock manualmente, llamar a ajuste_manual
-const stockEditado = parseInt(updates.stock);
-if (!isNaN(stockEditado) && stockEditado !== prodActual?.stock) {
   const razon = prompt('Razón del ajuste de stock (requerida para auditoría):');
-  if (!razon?.trim()) { showToast('❌ La razón del ajuste es obligatoria', 'err'); return; }
-  const { data: ajResult } = await SB.rpc('ajuste_manual_stock', {
-    p_tienda_id:   STORE.id,
-    p_producto_id: id,
-    p_stock_real:  stockEditado,
-    p_razon:       razon.trim(),
-    p_autorizado_por: USER?.email
-  });
-  if (!ajResult?.exito) {
-    showToast('❌ ' + (ajResult?.error || 'Error en ajuste'), 'err'); return;
-  }
-  delete updates.stock; // No incluir en el update directo
-}
-    p.stock=nuevoStock;
+  if(!razon || !razon.trim()){ showToast('❌ La razón del ajuste es obligatoria','err'); return; }
+  try{
+    // Stock no se edita directo — pasa por ajuste_manual_stock con razón, queda auditado
+    const { data: ajResult } = await SB.rpc('ajuste_manual_stock', {
+      p_tienda_id:   STORE.id,
+      p_producto_id: id,
+      p_stock_real:  nuevoStock,
+      p_razon:       razon.trim(),
+      p_autorizado_por: USER?.email
+    });
+    if (!ajResult?.exito) {
+      showToast('❌ ' + (ajResult?.error || 'Error en ajuste'), 'err'); return;
+    }
+    p.stock = ajResult.stock_nuevo ?? nuevoStock;
     renderStock(stockFilter);renderProds();checkAlertBar();
-    showToast(`Stock actualizado: ${nuevoStock} uds`,'ok');
-  }catch(e){showToast('❌ Error al ajustar stock','err');}
+    showToast(`Stock actualizado: ${p.stock} uds`,'ok');
+  }catch(e){showToast('❌ Error al ajustar stock','err');console.error(e);}
 }
 
 function editProduct(id){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden editar productos','err'); return; }
   const p=prods.find(x=>x.id==id);if(!p)return;
   document.getElementById('np-name').value=p.nombre||'';
   document.getElementById('np-price').value=p.precio||'';
@@ -9822,17 +10087,23 @@ function editProduct(id){
 }
 
 async function updateProduct(id){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden editar productos','err'); return; }
   const nombre=document.getElementById('np-name').value.trim();
   if(!nombre){showToast('Ingresá el nombre','err');return;}
-  const precioAnterior = prodActual?.precio || 0;
+  const prodRef = prods.find(x=>x.id==id);
+  const precioAnterior = prodRef?.precio || 0;
     const precioNuevo = parseFloat(document.getElementById('np-price').value)||0;
-    const updates={nombre,precio:precioNuevo,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
+    const barcode = document.getElementById('np-barcode')?.value.trim() || null;
+    const costo = parseFloat(document.getElementById('np-costo')?.value) || 0;
+    const vence = document.getElementById('np-vence')?.value || null;
+    const updates={nombre,precio:precioNuevo,barcode,costo,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
     // Si cambió el precio a mano, bloquearlo para que las listas nuevas no lo pisen
     if(precioNuevo>0 && Math.abs(precioNuevo-precioAnterior)>0.01){
       updates.precio_bloqueado = true;
     }
   try{
-    await SB.from('productos').update(updates).eq('id',id);
+    const { error } = await SB.from('productos').update(updates).eq('id',id);
+    if(error) throw error;
     const idx=prods.findIndex(x=>x.id==id);
     if(idx>=0)prods[idx]={...prods[idx],...updates};
     filtered=[...prods];
@@ -9850,7 +10121,11 @@ async function updateProduct(id){
       );
     }
     showToast('✅ Producto actualizado','ok');
-  }catch(e){showToast('❌ Error al actualizar','err');console.error(e);}
+  }catch(e){
+    const dup = /duplicate|unique|ya existe/i.test(e?.message||'');
+    showToast(dup ? '❌ Ese código de barra ya está en uso por otro producto' : ('❌ Error al actualizar: '+(e?.message||'')), 'err');
+    console.error(e);
+  }
 }
 
 async function deleteProduct(id,nombre){
@@ -10266,12 +10541,23 @@ function renderCompraList(){
       ? `<div style="margin-top:8px;padding:8px;background:#fafafa;border-radius:8px;border:1px solid #eee">
            ${g.items.map(c=>{
              const t=(c.precio_unitario||0)*(c.cantidad||0);
-             return `<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px dashed #eee">
+             const btnEditarLinea = (_esRolAdmin() && !c.factura_cargada)
+               ? `<button onclick="abrirEditarCompra('${c.id}');event.stopPropagation()" title="Editar esta línea" style="font-size:9px;background:#eef6ff;color:#1565c0;padding:2px 6px;border-radius:8px;font-weight:600;border:1px solid #cfe2f7;cursor:pointer;margin-left:6px">✏️</button>`
+               : '';
+             return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:3px 0;border-bottom:1px dashed #eee">
                <span>${esc(c.producto_nombre||'—')} <span style="color:#aaa">×${c.cantidad}</span></span>
-               <span style="font-family:'DM Mono',monospace">${t?'$'+t.toLocaleString('es-AR'):'—'}</span>
+               <span style="display:flex;align-items:center">
+                 <span style="font-family:'DM Mono',monospace">${t?'$'+t.toLocaleString('es-AR'):'—'}</span>
+                 ${btnEditarLinea}
+               </span>
              </div>`;
            }).join('')}
          </div>`
+      : '';
+
+    // Boton editar: solo antes de cargar factura (después hay que anular y recargar)
+    const btnEditar = (_esRolAdmin() && !co.factura_cargada && !g.esRemito)
+      ? `<button onclick="abrirEditarCompra('${co.id}');event.stopPropagation()" style="font-size:10px;background:#eef6ff;color:#1565c0;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #cfe2f7;cursor:pointer" title="Editar compra">✏️ Editar</button>`
       : '';
 
     // Boton anular: para remito anula todo el grupo; para compra individual, esa sola
@@ -10297,6 +10583,7 @@ function renderCompraList(){
         <div style="font-size:11px;color:#aaa">+${unidades} uds${g.esRemito?'':` · $${(co.precio_unitario||0).toLocaleString('es-AR')} c/u`}</div>
         <div style="display:flex;gap:6px;align-items:center">
           ${facBadge}
+          ${btnEditar}
           ${btnAnular}
         </div>
       </div>
