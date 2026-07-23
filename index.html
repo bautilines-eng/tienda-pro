@@ -2062,6 +2062,26 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
             <span style="font-size:13px;color:#666">% — Santiago del Estero (DGR)</span>
           </div>
         </div>
+        <div class="fgroup">
+          <div class="flabel" style="display:flex;justify-content:space-between">
+            N° Ingresos Brutos
+            <span style="font-weight:400;color:#888;font-size:10px">Suele coincidir con el CUIT en RI</span>
+          </div>
+          <input class="inp" id="cfg-ingresos-brutos" placeholder="30-71140779-7"
+            style="font-family:'DM Mono',monospace">
+        </div>
+        <div class="fgroup">
+          <div class="flabel">Domicilio comercial</div>
+          <input class="inp" id="cfg-domicilio" placeholder="Ej: Independencia 954, Santiago del Estero">
+        </div>
+        <div class="fgroup">
+          <div class="flabel">Inicio de Actividades</div>
+          <input class="inp" id="cfg-inicio-actividades" type="date">
+        </div>
+        <div style="font-size:10px;color:#888;margin:-6px 0 14px;line-height:1.5">
+          Estos 3 datos son obligatorios en el encabezado de cualquier comprobante fiscal (RG 1415).
+          Sin ellos el ticket impreso queda incompleto aunque tenga CAE válido.
+        </div>
         <button class="btn btn-full" onclick="guardarConfigFiscal()"
           style="background:#1a3a5c;color:#fff;margin-top:4px">
           💾 Guardar configuración fiscal
@@ -8941,12 +8961,60 @@ function updateCart(){
 // entre este chequeo y el pedido a ARCA.
 // ══════════════════════════════════════════════════════════════
 
-// Mismo cálculo que hace procesar_venta_atomica internamente
-// (ROUND(total/1.21,2) y total-neto) — tienen que cerrar exacto.
-function _calcularNetoIvaAfip(total){
-  const neto = Math.round((total/1.21) * 100) / 100;
-  const iva  = Math.round((total - neto) * 100) / 100;
-  return { neto, iva };
+// ── Códigos de alícuota IVA según tabla oficial ARCA (verificados contra
+// ejemplos reales — ver CONTEXTO_PROYECTO_AFIP.md) ──
+// 3=0% · 4=10.5% · 5=21% · 6=27% · 8=5% · 9=2.5%
+const ALICUOTA_AFIP_ID = { 0:3, 10.5:4, 21:5, 27:6, 5:8, 2.5:9 };
+
+// Agrupa los ítems de una venta por alícuota (productos.iva_alicuota, con
+// 21% de fallback si el producto no la tiene cargada) y calcula el neto/IVA
+// de cada grupo. Los precios de producto son IVA incluido, por eso cada
+// grupo se desarma con /(1+r/100).
+//
+// El descuento global del carrito se prorratea proporcionalmente sobre
+// cada grupo (mismo % para todos) — no hay forma de saber a qué productos
+// puntuales aplicaría un descuento parcial, así que se reparte parejo.
+//
+// Redondeo: cada grupo se redondea a 2 decimales normalmente, y el grupo
+// de MAYOR monto absorbe el centavo de diferencia (si lo hay) para que
+// ImpNeto + ImpIVA cierre EXACTO contra el total ya cobrado — es la misma
+// exigencia que valida ARCA y el CHECK de la tabla `facturas`.
+//
+// NOTA: los productos "es_combo" no tienen iva_alicuota propia (agrupan
+// varios productos bajo un precio único) — hoy caen al fallback 21% si
+// se vendieran. Confirmado con Bautista (22/07/2026): sin combos activos
+// por ahora, así que no es un caso real todavía. Si en el futuro se arma
+// un combo mezclando alícuotas, hay que resolver esto antes de venderlo
+// (desglosar el combo en sus líneas reales al facturar).
+function _agruparAlicuotas(items, total, desc){
+  const grupos = {};
+  for(const it of items){
+    const r = (it.iva_alicuota == null ? 21 : Number(it.iva_alicuota));
+    const bruto = (it.subtotal != null ? it.subtotal : (it.precio||0) * (it.cantidad||0));
+    grupos[r] = (grupos[r] || 0) + bruto;
+  }
+  const rates = Object.keys(grupos).map(Number).sort((a,b) => grupos[b] - grupos[a]); // mayor monto primero
+  const factor = 1 - (desc || 0) / 100;
+  const totalObjetivo = Math.round((total || 0) * 100) / 100;
+
+  const detalle = rates.map(r => {
+    const bruto = grupos[r] * factor;
+    const neto  = Math.round((bruto / (1 + r / 100)) * 100) / 100;
+    const iva   = Math.round((bruto - neto) * 100) / 100;
+    return { alicuota: r, id_afip: ALICUOTA_AFIP_ID[r] || 5, base_imp: neto, importe: iva };
+  });
+
+  // Ajuste de redondeo sobre el grupo más grande, para cerrar exacto.
+  if(detalle.length){
+    const sumaNeto = detalle.reduce((s,d) => s + d.base_imp, 0);
+    const sumaIva  = detalle.reduce((s,d) => s + d.importe, 0);
+    const diff = Math.round((totalObjetivo - sumaNeto - sumaIva) * 100) / 100;
+    if(diff !== 0) detalle[0].importe = Math.round((detalle[0].importe + diff) * 100) / 100;
+  }
+
+  const neto = Math.round(detalle.reduce((s,d) => s + d.base_imp, 0) * 100) / 100;
+  const iva  = Math.round(detalle.reduce((s,d) => s + d.importe, 0) * 100) / 100;
+  return { neto, iva, detalle };
 }
 
 // Factura A → CUIT del comprador, Responsable Inscripto.
@@ -8986,8 +9054,8 @@ async function _verificarStockDisponible(sel, qtys){
 // emitir nada. es_produccion:true fijo por ahora (único cliente real
 // del sistema); cuando haya más de un comercio en el SaaS, esto tiene
 // que salir de una config por tienda en vez de estar hardcodeado acá.
-async function _pedirCaeAfip({ tipoCbte, total, cuitDigits, requestId }){
-  const { neto, iva } = _calcularNetoIvaAfip(total);
+async function _pedirCaeAfip({ tipoCbte, total, cuitDigits, requestId, items, desc }){
+  const { neto, iva, detalle } = _agruparAlicuotas(items || [], total, desc || 0);
   const { docTipo, docNro, condicionIvaReceptorId } = _datosReceptorAfip(tipoCbte, cuitDigits);
   const cbteTipo = _codigoAfipCbte(tipoCbte);
 
@@ -9005,7 +9073,7 @@ async function _pedirCaeAfip({ tipoCbte, total, cuitDigits, requestId }){
       imp_neto: neto,
       imp_iva: iva,
       imp_trib: 0,
-      alicuotas: [{ id: 5, base_imp: neto, importe: iva }],
+      alicuotas: detalle.map(d => ({ id: d.id_afip, base_imp: d.base_imp, importe: d.importe })),
     },
   });
 
@@ -9028,7 +9096,7 @@ async function _pedirCaeAfip({ tipoCbte, total, cuitDigits, requestId }){
     throw new Error('AFIP: ' + (resultado.error || resultado.mensaje || 'ARCA rechazó el comprobante'));
   }
 
-  return { cae: resultado.cae, caeVto: resultado.cae_vto, cbteNumeroReal: resultado.cbte_numero };
+  return { cae: resultado.cae, caeVto: resultado.cae_vto, cbteNumeroReal: resultado.cbte_numero, neto, iva, detalle };
 }
 
 async function registerSale(){
@@ -9073,7 +9141,7 @@ async function registerSale(){
     const clienteEl=document.getElementById('v-cliente');
     const clienteNom=clienteEl.value?(clienteEl.options[clienteEl.selectedIndex]?.text||''):'';
     const nota=document.getElementById('v-nota').value;
-    const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria)}));
+    const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota)}));
 
     const tipoCbte    = document.querySelector('.cbte-btn.active')?.dataset.cbte || 'B';
     const cuitCte     = document.getElementById('cuit-cte-input')?.value.trim() || null;
@@ -9106,7 +9174,7 @@ async function registerSale(){
       await _verificarStockDisponible(sel, qtys);
 
       btn.textContent = 'Pidiendo CAE a ARCA...';
-      afipResultado = await _pedirCaeAfip({ tipoCbte, total, cuitDigits, requestId });
+      afipResultado = await _pedirCaeAfip({ tipoCbte, total, cuitDigits, requestId, items, desc });
     }
 
     btn.textContent = 'Guardando...';
@@ -9154,13 +9222,34 @@ async function registerSale(){
       total, subtotal: sub, descuento: desc,
       metodo_pago:     pagosSplit ? 'Mixto' : method,
       pagos:           pagosSplit,
-      nota, cliente: clienteNom,
+      nota,
+      // Mismo criterio que se usó para p_cliente/p_cuit_cte al llamar la RPC:
+      // en Factura A prevalece la razón social tipeada por sobre el cliente
+      // seleccionado. Antes esto se perdía acá y el ticket recién impreso
+      // (sin recargar el historial) mostraba mal o vacío el comprador.
+      cliente:         (tipoCbte === 'A' ? (razonSocial || clienteNom) : clienteNom),
+      cuit_comprador:  (tipoCbte === 'A' ? cuitDigits : (cuitCte || null)),
       items:           JSON.stringify(items),
       fecha:           new Date().toISOString().split('T')[0],
       nro_comprobante: result.nro_comprobante,
       tipo_cbte:       tipoCbte,
-      neto_gravado:    result.neto,
-      importe_iva:     result.iva,
+      // IMPORTANTE: acá se usa el neto/IVA que YA calculamos en el
+      // frontend con el desglose real por alícuota (afipResultado) — es
+      // literalmente lo que se le declaró a ARCA, así que el ticket
+      // recién impreso queda consistente con el CAE.
+      // OJO — deuda técnica conocida: `procesar_venta_atomica` (la RPC de
+      // Supabase) sigue calculando neto_gravado/importe_iva por su cuenta
+      // con 21% fijo (ROUND(total/1.21,2)), así que lo que queda GRABADO
+      // en la tabla `ventas` puede no coincidir con esto si la venta tuvo
+      // productos a otra alícuota. Un reimpreso desde el Historial DESPUÉS
+      // de recargar la página mostraría el valor (desactualizado) de la
+      // RPC, no este. Para cerrar el círculo del todo hay que actualizar
+      // esa función en Supabase para que reciba y guarde este mismo
+      // desglose en vez de recalcularlo — pendiente, pasame el SQL de la
+      // función cuando quieras resolverlo.
+      neto_gravado:    afipResultado ? afipResultado.neto : result.neto,
+      importe_iva:     afipResultado ? afipResultado.iva  : result.iva,
+      iva_detalle:     afipResultado ? afipResultado.detalle : null,
       anulada:         false,
       cae:             result.cae || null,
       cae_vto:         result.cae_vto || null,
@@ -9424,6 +9513,43 @@ function checkAlertaCAE(){
     </div>`;
 }
 
+// Traduce el código guardado en STORE.condicion_iva ('RI'/'CF'/'MON') al
+// texto legal completo que exige AFIP en el encabezado del comprobante.
+function _condicionIvaTexto(codigo){
+  const map = { RI:'IVA Responsable Inscripto', CF:'Consumidor Final', MON:'Responsable Monotributo' };
+  return map[codigo] || codigo || '';
+}
+
+// URL del QR del último ticket mostrado — se guarda acá porque printTicket()
+// abre una ventana nueva (documento distinto) y necesita poder redibujar el
+// QR ahí mismo en vez de confiar en que sobreviva al copiado de innerHTML
+// (el QR se dibuja en <canvas>, cuyo contenido NO viaja al copiar HTML).
+let _ticketQRUrl = null;
+
+// Leyenda "IVA incluido" para comprobantes no-A. Si la venta tiene más de
+// una alícuota mezclada, lo dice en vez de mentir con un solo %.
+function _leyendaIvaIncluido(s){
+  const det = s.iva_detalle;
+  if(det && det.length){
+    if(det.length === 1) return `IVA ${det[0].alicuota}% incluido`;
+    return `IVA incluido (${det.map(d=>d.alicuota+'%').join(' + ')})`;
+  }
+  return 'IVA 21% incluido';
+}
+
+// IVA total contenido en el ticket, para el pie "Régimen de Transparencia
+// Fiscal" (Ley 27.743) — suma el IVA de todas las alícuotas si hay
+// desglose real, o cae al cálculo estándar sobre el total como fallback.
+// Simplificación acordada con Bautista (22/07/2026): se muestra el IVA
+// real de la venta; "Otros Impuestos Nacionales Indirectos" queda en $0
+// porque el sistema no releva impuestos internos ni otros indirectos —
+// no es el coeficiente por rubro que publica AFIP, es el cálculo directo.
+function _ivaContenidoTicket(s){
+  if(s.iva_detalle && s.iva_detalle.length) return s.iva_detalle.reduce((sum,d)=> sum + (d.importe||0), 0);
+  if(s.importe_iva != null) return s.importe_iva;
+  return calcularIVA(s.total||0).iva;
+}
+
 function showTicket(s){
   const items=typeof s.items==='string'?JSON.parse(s.items):s.items||[];
   const rows=items.map(i=>`<div class="ticket-row"><span>${i.emoji||''} ${esc(i.nombre)} ×${i.cantidad}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
@@ -9453,27 +9579,58 @@ function showTicket(s){
            font-weight:700;margin-top:5px">N° ${esc(s.nro_comprobante)}</div>`:''}
     </div>`;
 
-  // Datos fiscales del emisor (solo en comprobantes fiscales)
+  // Datos fiscales del emisor (solo en comprobantes fiscales) — encabezado
+  // completo exigido por AFIP (RG 1415, art. 24): CUIT, Ingresos Brutos,
+  // Domicilio comercial, Inicio de Actividades y Condición frente al IVA.
+  // Los campos que todavía no estén cargados en "Configuración > Fiscal"
+  // simplemente no se muestran (no se inventa nada), pero no deberían
+  // faltar en un comprobante real — completalos en la config de la tienda.
   const emisor = (!esX && STORE?.cuit) ? `
       <div class="ticket-row"><span>CUIT</span><span>${esc(STORE.cuit)}</span></div>
-      ${STORE.condicion_iva?`<div class="ticket-row"><span>Cond. IVA</span><span>${esc(STORE.condicion_iva)}</span></div>`:''}` : '';
+      ${STORE.ingresos_brutos?`<div class="ticket-row"><span>Ing. Brutos</span><span>${esc(STORE.ingresos_brutos)}</span></div>`:''}
+      ${STORE.domicilio?`<div class="ticket-row"><span>Domicilio</span><span style="text-align:right">${esc(STORE.domicilio)}</span></div>`:''}
+      ${STORE.inicio_actividades?`<div class="ticket-row"><span>Inicio activ.</span><span>${new Date(STORE.inicio_actividades+'T00:00:00').toLocaleDateString('es-AR')}</span></div>`:''}
+      ${STORE.condicion_iva?`<div class="ticket-row"><span>Cond. IVA</span><span>${esc(_condicionIvaTexto(STORE.condicion_iva))}</span></div>`:''}` : '';
 
-  // Datos del comprador (obligatorios en Factura A)
+  // Datos del comprador. Factura A: razón social + CUIT + condición IVA
+  // (obligatorios). Factura B / Tique: si hay CUIT informado (venta a
+  // Cta. Cte. de un cliente con CUIT) se muestra; si no, Consumidor Final
+  // explícito — nunca se deja el campo vacío/ambiguo en un comprobante fiscal.
   const comprador = esA ? `
       <hr class="ticket-divider">
       <div style="font-size:10px;font-weight:700;color:#666;margin:4px 0">DATOS DEL COMPRADOR</div>
       ${s.cliente?`<div class="ticket-row"><span>Razón social</span><span>${esc(s.cliente)}</span></div>`:''}
       ${s.cuit_comprador?`<div class="ticket-row"><span>CUIT</span><span>${esc(s.cuit_comprador)}</span></div>`:''}
       <div class="ticket-row"><span>Cond. IVA</span><span>Responsable Inscripto</span></div>`
-    : (s.cliente?`<div class="ticket-row"><span>Cliente</span><span>${esc(s.cliente)}</span></div>`:'');
+    : (!esX ? `
+      <div class="ticket-row"><span>Cliente</span><span>${esc(s.cliente||'Consumidor Final')}</span></div>
+      ${s.cuit_comprador?`<div class="ticket-row"><span>CUIT</span><span>${esc(s.cuit_comprador)}</span></div>`:''}`
+    : (s.cliente?`<div class="ticket-row"><span>Cliente</span><span>${esc(s.cliente)}</span></div>`:''));
 
-  // Bloque de totales: Factura A discrimina IVA; el resto muestra IVA incluido
+  // Bloque de totales: Factura A discrimina IVA (una línea por alícuota si
+  // el carrito mezcló tasas); el resto muestra "IVA incluido" con el/los
+  // % reales de la venta.
   const totales = esA ? `
-      <div class="ticket-row"><span>Neto gravado</span><span>$${(neto||0).toLocaleString('es-AR')}</span></div>
-      <div class="ticket-row"><span>IVA 21%</span><span>$${(iva||0).toLocaleString('es-AR')}</span></div>
+      ${(s.iva_detalle && s.iva_detalle.length > 1)
+        ? s.iva_detalle.map(d => `
+            <div class="ticket-row"><span>Neto ${d.alicuota}%</span><span>$${d.base_imp.toLocaleString('es-AR')}</span></div>
+            <div class="ticket-row"><span>IVA ${d.alicuota}%</span><span>$${d.importe.toLocaleString('es-AR')}</span></div>`).join('')
+        : `<div class="ticket-row"><span>Neto gravado</span><span>$${(neto||0).toLocaleString('es-AR')}</span></div>
+           <div class="ticket-row"><span>IVA ${(s.iva_detalle && s.iva_detalle[0]?.alicuota) ?? 21}%</span><span>$${(iva||0).toLocaleString('es-AR')}</span></div>`}
       <div class="ticket-row total"><span>TOTAL</span><span>$${total.toLocaleString('es-AR')}</span></div>`
     : `<div class="ticket-row total"><span>TOTAL</span><span>$${total.toLocaleString('es-AR')}</span></div>
-       ${!esX?`<div style="font-size:10px;color:#888;text-align:right">IVA 21% incluido</div>`:''}`;
+       ${!esX?`<div style="font-size:10px;color:#888;text-align:right">${_leyendaIvaIncluido(s)}</div>`:''}`;
+
+  // ── Régimen de Transparencia Fiscal al Consumidor (Ley 27.743) ──
+  // Obligatorio en todo comprobante fiscal (A/B/T), no solo Consumidor
+  // Final — así sale en los tickets reales de referencia. Cálculo directo
+  // sobre el IVA de la venta (ver nota en _ivaContenidoTicket).
+  const regimenTransparencia = (!esX && _requiereCAE(s)) ? `
+      <hr class="ticket-divider">
+      <div style="font-size:9px;text-align:center;font-weight:700;letter-spacing:.3px;margin-bottom:3px">RÉGIMEN DE TRANSPARENCIA FISCAL</div>
+      <div class="ticket-row" style="font-size:9px"><span>IVA Contenido</span><span>$${_ivaContenidoTicket(s).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+      <div class="ticket-row" style="font-size:9px"><span>Otros Imp. Nac. Indirectos</span><span>$0,00</span></div>`
+    : '';
 
   // Pie legal segun tipo
   const pieLegal = esX
@@ -9527,7 +9684,7 @@ function showTicket(s){
       <div class="ticket-title">${STORE?.name||'Tienda Pro'}</div>
       ${cabecera}
       ${emisor}
-      <div class="ticket-row"><span>Fecha</span><span>${d.toLocaleDateString('es-AR')} ${d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span></div>
+      <div class="ticket-row"><span>Fecha</span><span>${d.toLocaleDateString('es-AR')} ${d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})}</span></div>
       ${comprador}
       <hr class="ticket-divider">
       ${rows}
@@ -9538,11 +9695,13 @@ function showTicket(s){
       ${metodoRow}
       ${s.nota?`<div class="ticket-row"><span>Nota</span><span>${esc(s.nota)}</span></div>`:''}
       ${pieLegal}
+      ${regimenTransparencia}
       ${bloqueCAE}
       <div class="ticket-footer">¡Gracias por su compra!</div>
     </div>`;
 
   // El QR se pinta después de insertar el HTML (necesita el div en el DOM)
+  _ticketQRUrl = urlQR;
   if (urlQR) _pintarQR('ticket-qr', urlQR);
 
   openModal('ov-ticket');
@@ -9622,9 +9781,45 @@ function generarPresupuesto(){
 
 function printTicket(){
   const w=window.open('','_blank');
-  w.document.write(`<html><head><title>Ticket</title><style>body{font-family:monospace;font-size:12px;width:300px;margin:0 auto;padding:10px}</style></head><body>
-${document.getElementById('ticket-content').innerHTML}</body></html>`);
-  w.print();w.close();
+  if(!w){ showToast('Permití las ventanas emergentes para imprimir el ticket','err'); return; }
+  // IMPORTANTE: esta ventana es un documento nuevo, sin el <style> de la
+  // app — por eso hay que traer acá las reglas reales de .ticket-row (que
+  // son las que separan "etiqueta" de "valor" con flex). Sin esto, todos
+  // los pares label/valor quedaban pegados en la impresión térmica
+  // (ej. "Cond. IVARI", "TOTAL$922"), aunque en el modal se veían bien.
+  const qrUrl = _ticketQRUrl ? JSON.stringify(_ticketQRUrl) : 'null';
+  w.document.write(`<html><head><title>Ticket</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:'Courier New',monospace;font-size:12px;width:300px;margin:0 auto;padding:8px 6px;color:#000}
+  .ticket-title{text-align:center;font-size:16px;font-weight:700;margin-bottom:2px}
+  .ticket-sub{text-align:center;font-size:9px;margin-bottom:8px;letter-spacing:1px;text-transform:uppercase}
+  .ticket-divider{border:none;border-top:1px dashed #000;margin:6px 0}
+  .ticket-row{display:flex;justify-content:space-between;gap:8px;margin:2px 0}
+  .ticket-row.total{font-size:13px;font-weight:700;border-top:1px solid #000;padding-top:6px;margin-top:4px}
+  .ticket-footer{text-align:center;font-size:9px;margin-top:8px;letter-spacing:.5px}
+  img{max-width:100%}
+</style></head><body>
+${document.getElementById('ticket-content').innerHTML}
+<script>
+  window.onload = function(){
+    // Redibuja el QR fresco acá (el <canvas> original no viaja al copiar
+    // innerHTML — solo su tag vacío — así que confiar en la copia dejaba
+    // el ticket impreso sin QR pese a tener CAE válido).
+    try{
+      var qrUrl = ${qrUrl};
+      var qrDiv = document.getElementById('ticket-qr');
+      if(qrDiv && qrUrl && window.QRCode){
+        qrDiv.innerHTML = '';
+        new QRCode(qrDiv, { text: qrUrl, width: 90, height: 90, correctLevel: QRCode.CorrectLevel.M });
+      }
+    }catch(e){ console.error('Error redibujando QR para impresión', e); }
+    setTimeout(function(){ window.print(); window.close(); }, 250);
+  };
+<\/script>
+</body></html>`);
+  w.document.close();
 }
 
 // ══ HISTORIAL ══
@@ -11322,6 +11517,9 @@ function guardarConfigFiscal() {
   const cuit        = document.getElementById('cfg-cuit')?.value.trim();
   const condicion   = document.getElementById('cfg-condicion-iva')?.value;
   const iibb        = parseFloat(document.getElementById('cfg-iibb')?.value) || 3;
+  const ingresosBrutos    = document.getElementById('cfg-ingresos-brutos')?.value.trim() || null;
+  const domicilio         = document.getElementById('cfg-domicilio')?.value.trim() || null;
+  const inicioActividades = document.getElementById('cfg-inicio-actividades')?.value || null;
 
   if (!ptoVenta) { showToast('⚠️ Ingresá el punto de venta', 'err'); return; }
 
@@ -11331,6 +11529,9 @@ function guardarConfigFiscal() {
     cuit: cuit || null,
     condicion_iva: condicion,
     alicuota_iibb: iibb,
+    ingresos_brutos: ingresosBrutos,
+    domicilio: domicilio,
+    inicio_actividades: inicioActividades,
   };
 
   SB.from('tiendas').update(updates).eq('id', STORE.id).then(({error}) => {
@@ -11339,6 +11540,9 @@ function guardarConfigFiscal() {
     STORE.cuit           = cuit;
     STORE.condicion_iva  = condicion;
     STORE.alicuota_iibb  = iibb;
+    STORE.ingresos_brutos    = ingresosBrutos;
+    STORE.domicilio          = domicilio;
+    STORE.inicio_actividades = inicioActividades;
     // Update CONFIG_FISCAL
     CONFIG_FISCAL.punto_venta    = String(parseInt(ptoVenta)).padStart(5,'0');
     CONFIG_FISCAL.alicuota_iibb  = iibb / 100;
@@ -11354,10 +11558,16 @@ function cargarConfigFiscal() {
   const cuit = document.getElementById('cfg-cuit');
   const cond = document.getElementById('cfg-condicion-iva');
   const iibb = document.getElementById('cfg-iibb');
+  const ingresosBrutos    = document.getElementById('cfg-ingresos-brutos');
+  const domicilio         = document.getElementById('cfg-domicilio');
+  const inicioActividades = document.getElementById('cfg-inicio-actividades');
   if (ptv && STORE.punto_venta) ptv.value = STORE.punto_venta;
   if (cuit && STORE.cuit) cuit.value = STORE.cuit;
   if (cond && STORE.condicion_iva) cond.value = STORE.condicion_iva;
   if (iibb) iibb.value = STORE.alicuota_iibb || 3;
+  if (ingresosBrutos && STORE.ingresos_brutos) ingresosBrutos.value = STORE.ingresos_brutos;
+  if (domicilio && STORE.domicilio) domicilio.value = STORE.domicilio;
+  if (inicioActividades && STORE.inicio_actividades) inicioActividades.value = STORE.inicio_actividades;
   // Update CONFIG_FISCAL with stored values
   if (STORE.punto_venta) CONFIG_FISCAL.punto_venta = String(STORE.punto_venta).padStart(5,'0');
   if (STORE.alicuota_iibb) CONFIG_FISCAL.alicuota_iibb = STORE.alicuota_iibb / 100;
