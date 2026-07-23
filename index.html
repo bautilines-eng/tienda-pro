@@ -2566,14 +2566,17 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
             <option value="Contado">Contado</option>
             <option value="Cuenta Corriente">Cuenta Corriente</option>
           </select></div>
-        <div style="width:84px"><div class="flabel">IVA %</div>
+        <div style="width:84px"><div class="flabel">IVA % <span style="font-weight:400;color:#999;font-size:9px">(default)</span></div>
           <select class="inp" id="rem-alic" style="cursor:pointer" onchange="recalcRemitoTotales()">
             <option value="21">21%</option>
             <option value="27">27%</option>
             <option value="10.5">10,5%</option>
+            <option value="5">5%</option>
+            <option value="2.5">2,5%</option>
             <option value="0">0%</option>
           </select></div>
       </div>
+      <div style="font-size:10px;color:#999;margin-top:4px">Se aplica a los productos nuevos que agregues — cada línea la podés cambiar por separado si el remito mezcla alícuotas.</div>
       <div class="frow" id="rem-vence-wrap" style="margin-top:10px;display:none">
         <div style="flex:1"><div class="flabel">Vencimiento (Cuenta Corriente)</div><input class="inp" id="rem-vence" type="date"></div>
       </div>
@@ -2971,15 +2974,19 @@ function asientoVenta(venta) {
       descripcion:'Venta sin comprobante'+(venta.cliente?' · '+esc(venta.cliente):''), origen:'venta', origen_id:venta.id,
       lineas:lx, total_debe:lx.filter(l=>l.debe).reduce((s,l)=>s+l.importe,0), total_haber:lx.filter(l=>!l.debe).reduce((s,l)=>s+l.importe,0) };
   }
-  const iva    = Math.round(total / 1.21 * 0.21 * 100) / 100;
-  const neto   = Math.round((total - iva) * 100) / 100;
+  // Usa el neto/IVA REAL guardado en la venta (multi-alícuota si el
+  // carrito mezcló tasas — ver _agruparAlicuotas en el frontend y la
+  // columna alicuotas_detalle). Solo cae al cálculo viejo a 21% fijo
+  // como respaldo para ventas históricas que no tengan el dato guardado.
+  const iva    = (venta.importe_iva  != null) ? venta.importe_iva  : Math.round(total / 1.21 * 0.21 * 100) / 100;
+  const neto   = (venta.neto_gravado != null) ? venta.neto_gravado : Math.round((total - iva) * 100) / 100;
   const ctaDebe = METODO_CUENTA[venta.metodo_pago] || PLAN_CUENTAS.find(x=>x.grupo==='Caja y Bancos')?.codigo || '1.1.01';
   const ctaNombreDebe = PLAN_CUENTAS.find(c => c.codigo === ctaDebe)?.nombre || venta.metodo_pago;
 
   const lineas = [
     ..._debitosVenta(venta).map(d=>({ debe:true, cuenta:d.cuenta, nombre:(PLAN_CUENTAS.find(c=>c.codigo===d.cuenta)?.nombre)||d.metodo, importe:d.importe, detalle:`Cobro ${d.metodo}` })),
     { debe: false, cuenta: CUENTAS_ESPECIALES['ventas']||'4.1.01', nombre: 'Ventas', importe: neto, detalle: 'Ventas netas s/IVA' },
-    { debe: false, cuenta: CUENTAS_ESPECIALES['iva_debito']||'2.1.02', nombre: 'IVA Débito Fiscal', importe: iva, detalle: 'IVA 21% débito fiscal' },
+    { debe: false, cuenta: CUENTAS_ESPECIALES['iva_debito']||'2.1.02', nombre: 'IVA Débito Fiscal', importe: iva, detalle: 'IVA débito fiscal' },
   ];
   // NOTA: TODO PYMES NO es agente de percepción → las ventas NO practican
   // percepción de IVA. La percepción que la empresa SUFRE (compras) va al
@@ -3390,10 +3397,12 @@ function renderMayor() {
       if(cuentaCod===ctaVSC) movs.push({fecha:v.fecha, desc:'Venta sin comprobante', debe:0, haber:v.total||0, origen:'Venta'});
       return;
     }
-    const iva = calcularIVA(v.total||0).iva;
-    const neto = (v.total||0) - iva;
+    // Mismo criterio que asientoVenta: usa el dato real guardado en la
+    // venta (multi-alícuota), 21% fijo solo como respaldo histórico.
+    const iva = (v.importe_iva != null) ? v.importe_iva : calcularIVA(v.total||0).iva;
+    const neto = (v.neto_gravado != null) ? v.neto_gravado : (v.total||0) - iva;
     if (cuentaCod==='41101007')   movs.push({fecha:v.fecha, desc:'Ventas netas', debe:0, haber:neto, origen:'Venta'});
-    if (cuentaCod==='21404')      movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal 21%', debe:0, haber:iva, origen:'Venta'});
+    if (cuentaCod==='21404')      movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal', debe:0, haber:iva, origen:'Venta'});
     // IIBB propio: se registra por Minuta de egreso. TODO PYMES no es agente
     // de percepción, así que las ventas no practican percepción.
   });
@@ -4541,7 +4550,11 @@ function onRemitoPago(){
 function agregarLineaRemito(pid){
   const p=(prods||[]).find(x=>x.id===pid); if(!p) return;
   if(remitoLineas.some(l=>l.prodId===pid)){ showToast('Ese producto ya está en el remito','err'); return; }
-  remitoLineas.push({uid:'L'+Date.now()+Math.floor(Math.random()*1000), prodId:pid, nombre:p.nombre, upb:p.unidades_por_bulto||1, cantidad:'1', modo:'bulto', costo:'', costoModo:'unidad'});
+  // Alícuota por defecto de la línea: si el producto ya tiene una cargada
+  // (de una compra anterior), se respeta esa — es más confiable que un
+  // valor genérico. Si es un producto nuevo, cae al selector de cabecera.
+  const alicDefault = (p.iva_alicuota!=null) ? Number(p.iva_alicuota) : (parseFloat(document.getElementById('rem-alic')?.value)||21);
+  remitoLineas.push({uid:'L'+Date.now()+Math.floor(Math.random()*1000), prodId:pid, nombre:p.nombre, upb:p.unidades_por_bulto||1, cantidad:'1', modo:'bulto', costo:'', costoModo:'unidad', alicuota:alicDefault});
   renderRemitoLineas();
 }
 function quitarLineaRemito(uid){
@@ -4588,28 +4601,43 @@ function renderRemitoLineas(){
           <input type="number" id="rem-costo-${l.uid}" min="0" placeholder="0" value="${escAttr(l.costo ?? '')}" class="inp" style="padding:9px 10px" oninput="recalcRemitoTotales()">
         </div>
       </div>
-      <div style="margin-top:8px">
-        <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">El costo que puse es...</div>
-        <select id="rem-costomodo-${l.uid}" class="inp" style="cursor:pointer;padding:8px 10px;font-size:12px" onchange="recalcRemitoTotales()">
-          <option value="unidad" ${(l.costoModo||'unidad')==='unidad'?'selected':''}>Por unidad (cada botella/lata)</option>
-          <option value="bulto" ${(l.costoModo||'unidad')==='bulto'?'selected':''}>Por bulto entero</option>
-        </select>
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:7px;margin-top:8px">
+        <div>
+          <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">El costo que puse es...</div>
+          <select id="rem-costomodo-${l.uid}" class="inp" style="cursor:pointer;padding:8px 10px;font-size:12px" onchange="recalcRemitoTotales()">
+            <option value="unidad" ${(l.costoModo||'unidad')==='unidad'?'selected':''}>Por unidad (cada botella/lata)</option>
+            <option value="bulto" ${(l.costoModo||'unidad')==='bulto'?'selected':''}>Por bulto entero</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">IVA de este producto</div>
+          <select id="rem-alic-${l.uid}" class="inp" style="cursor:pointer;padding:8px 10px;font-size:12px" onchange="recalcRemitoTotales()">
+            <option value="21" ${Number(l.alicuota??21)===21?'selected':''}>21%</option>
+            <option value="27" ${Number(l.alicuota)===27?'selected':''}>27%</option>
+            <option value="10.5" ${Number(l.alicuota)===10.5?'selected':''}>10,5%</option>
+            <option value="5" ${Number(l.alicuota)===5?'selected':''}>5%</option>
+            <option value="2.5" ${Number(l.alicuota)===2.5?'selected':''}>2,5%</option>
+            <option value="0" ${Number(l.alicuota)===0?'selected':''}>0%</option>
+          </select>
+        </div>
       </div>
       <div id="rem-sub-${l.uid}" style="font-size:11.5px;color:#1a5c38;margin-top:9px;padding-top:8px;border-top:1px dashed #eef3f0;font-weight:600;display:flex;justify-content:space-between;align-items:center"></div>
     </div>`).join('');
   recalcRemitoTotales();
 }
 function recalcRemitoTotales(){
-  const alic=parseFloat(document.getElementById('rem-alic')?.value)||21;
-  let netoTotal=0, unidadesTotal=0;
+  let netoTotal=0, unidadesTotal=0, ivaTotal=0;
+  const alicuotasUsadas = new Set();
   remitoLineas.forEach(l=>{
     const qtyRaw=document.getElementById('rem-qty-'+l.uid)?.value ?? '';
     const modoRaw=document.getElementById('rem-modo-'+l.uid)?.value || 'bulto';
     const costoRaw=document.getElementById('rem-costo-'+l.uid)?.value ?? '';
     const costoModoRaw=document.getElementById('rem-costomodo-'+l.uid)?.value || 'unidad';
+    const alicRaw=parseFloat(document.getElementById('rem-alic-'+l.uid)?.value);
     // Guardamos lo que el usuario tipeó en la línea misma, para que sobreviva
     // si se re-renderiza la lista (por ej. al agregar/quitar otro producto)
     l.cantidad=qtyRaw; l.modo=modoRaw; l.costo=costoRaw; l.costoModo=costoModoRaw;
+    l.alicuota = isNaN(alicRaw) ? (l.alicuota ?? 21) : alicRaw;
 
     const qty=parseFloat(qtyRaw)||0;
     const modo=modoRaw;
@@ -4620,18 +4648,24 @@ function recalcRemitoTotales(){
     const costoUnit = costoModo==='bulto' ? (l.upb>0 ? costo/l.upb : costo) : costo;
     // Neto de la línea = costo por unidad × unidades totales
     const neto = Math.round(costoUnit * unidades * 100)/100;
-    netoTotal+=neto; unidadesTotal+=unidades;
+    // IVA de la línea con SU PROPIA alícuota (no una sola para todo el remito)
+    const ivaLinea = Math.round(neto * l.alicuota / 100 * 100)/100;
+    netoTotal+=neto; unidadesTotal+=unidades; ivaTotal+=ivaLinea;
+    if(neto>0) alicuotasUsadas.add(l.alicuota);
     const sub=document.getElementById('rem-sub-'+l.uid);
     if(sub){
       const izq = modo==='bulto'
         ? `${qty} ${qty===1?'bulto':'bultos'} × ${l.upb} = <b>${unidades} u</b>`
         : `<b>${unidades} u</b>`;
       sub.innerHTML = `<span style="color:#5a7a68">📦 ${izq}</span>`
-        + (costo>0 ? `<span>$${neto.toLocaleString('es-AR')}</span>` : `<span style="color:#bbb;font-weight:500">sin costo</span>`);
+        + (costo>0 ? `<span>$${neto.toLocaleString('es-AR')} · IVA ${l.alicuota}%</span>` : `<span style="color:#bbb;font-weight:500">sin costo</span>`);
     }
   });
-  const iva=Math.round(netoTotal*alic/100*100)/100;
+  const iva=Math.round(ivaTotal*100)/100;
   const total=Math.round((netoTotal+iva)*100)/100;
+  // Etiqueta del IVA total: si todas las líneas comparten la misma
+  // alícuota se muestra ese %; si el remito mezcla tasas, se aclara.
+  const labelIva = alicuotasUsadas.size===1 ? `IVA ${[...alicuotasUsadas][0]}%` : 'IVA (mixto)';
   const tot=document.getElementById('rem-totales');
   if(!tot) return;
   if(!remitoLineas.length){ tot.innerHTML=''; return; }
@@ -4641,7 +4675,7 @@ function recalcRemitoTotales(){
         <div style="display:flex;justify-content:space-between;font-size:12.5px;opacity:.85;margin-bottom:5px">
           <span>Neto</span><span style="font-family:'DM Mono',monospace">$${netoTotal.toLocaleString('es-AR')}</span></div>
         <div style="display:flex;justify-content:space-between;font-size:12.5px;opacity:.85;margin-bottom:8px">
-          <span>IVA ${alic}%</span><span style="font-family:'DM Mono',monospace">$${iva.toLocaleString('es-AR')}</span></div>
+          <span>${labelIva}</span><span style="font-family:'DM Mono',monospace">$${iva.toLocaleString('es-AR')}</span></div>
         <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:8px;border-top:1px solid rgba(255,255,255,.2)">
           <span style="font-size:13px;font-weight:700">Total</span>
           <span style="font-size:19px;font-weight:800;font-family:'DM Mono',monospace">$${total.toLocaleString('es-AR')}</span></div>
@@ -4664,7 +4698,6 @@ async function confirmarRemito(){
   const fecha=document.getElementById('rem-fecha')?.value || new Date().toISOString().split('T')[0];
   const pago=document.getElementById('rem-pago')?.value||'Contado';
   const vence=document.getElementById('rem-vence')?.value||null;
-  const alic=parseFloat(document.getElementById('rem-alic')?.value)||21;
   if(!provId){ showToast('Elegí el proveedor','err'); return; }
   if(!remitoLineas.length){ showToast('Agregá al menos un producto','err'); return; }
 
@@ -4674,6 +4707,7 @@ async function confirmarRemito(){
     const modo=document.getElementById('rem-modo-'+l.uid)?.value||'bulto';
     const costo=parseFloat(document.getElementById('rem-costo-'+l.uid)?.value)||0;
     const costoModo=document.getElementById('rem-costomodo-'+l.uid)?.value||'unidad';
+    const alicLinea=parseFloat(document.getElementById('rem-alic-'+l.uid)?.value)||21;
     if(qty<=0){ showToast('Revisá las cantidades (deben ser mayores a 0)','err'); return; }
     const unidades = modo==='bulto'? qty*l.upb : qty;
     // Costo por unidad (lo que se guarda). Si lo cargó por bulto, se divide por upb.
@@ -4682,7 +4716,7 @@ async function confirmarRemito(){
       : null;
     // Neto de la línea = costo por unidad × unidades totales
     const neto = costoUnit!=null ? Math.round(costoUnit*unidades*100)/100 : 0;
-    lineas.push({...l, qty, modo, costo, unidades, costoUnit, neto});
+    lineas.push({...l, qty, modo, costo, costoModo, alicuota:alicLinea, unidades, costoUnit, neto});
   }
 
   const btn=document.getElementById('rem-btn'); const txt=btn?btn.textContent:'';
@@ -4697,7 +4731,8 @@ async function confirmarRemito(){
         cantidad: ln.unidades, precio_unitario: ln.costoUnit||0,
         numero_factura: nro||null, proveedor: prov||null, proveedor_id: provId,
         forma_pago: pago, vence_pago: vence, estado_pedido:'completo',
-        factura_cargada: false, fecha, remito_id: remitoId   // la factura se carga aparte
+        factura_cargada: false, fecha, remito_id: remitoId,   // la factura se carga aparte
+        iva_alicuota: ln.alicuota
       });
       compras.unshift(compra);
       if(!primeraCompraId) primeraCompraId=compra.id;
@@ -4709,7 +4744,10 @@ async function confirmarRemito(){
       });
       const pref=prods.find(p=>p.id===ln.prodId);
       if(ln.costoUnit!=null){
-        await SB.from('productos').update({costo:ln.costoUnit, iva_alicuota:alic}).eq('id',ln.prodId);
+        // Alícuota REAL de esta línea (no la de cabecera) — cada producto
+        // guarda la suya, así la venta la lee correcta más adelante.
+        await SB.from('productos').update({costo:ln.costoUnit, iva_alicuota:ln.alicuota}).eq('id',ln.prodId);
+        if(pref) pref.iva_alicuota = ln.alicuota;
       }
       try{ const {data:fresh}=await SB.from('productos').select('precio,costo,stock').eq('id',ln.prodId).single();
            if(fresh&&pref){ pref.costo=fresh.costo; pref.precio=fresh.precio; pref.stock=fresh.stock; } }catch(_){}
@@ -5334,8 +5372,9 @@ function renderBalance() {
       if(totales[ctaVSC]) totales[ctaVSC].haber += (v.total||0);
       return;
     }
-    const iva = calcularIVA(v.total||0).iva;
-    const neto = (v.total||0) - iva;
+    // Mismo criterio que asientoVenta/renderMayor: dato real de la venta.
+    const iva = (v.importe_iva != null) ? v.importe_iva : calcularIVA(v.total||0).iva;
+    const neto = (v.neto_gravado != null) ? v.neto_gravado : (v.total||0) - iva;
     if (totales['41101007'])totales['41101007'].haber += neto;
     if (totales['21404'])   totales['21404'].haber += iva;
     // IIBB propio: por Minuta de egreso. Sin percepción en ventas (no es agente).
@@ -9054,8 +9093,8 @@ async function _verificarStockDisponible(sel, qtys){
 // emitir nada. es_produccion:true fijo por ahora (único cliente real
 // del sistema); cuando haya más de un comercio en el SaaS, esto tiene
 // que salir de una config por tienda en vez de estar hardcodeado acá.
-async function _pedirCaeAfip({ tipoCbte, total, cuitDigits, requestId, items, desc }){
-  const { neto, iva, detalle } = _agruparAlicuotas(items || [], total, desc || 0);
+async function _pedirCaeAfip({ tipoCbte, cuitDigits, requestId, ivaCalc }){
+  const { neto, iva, detalle } = ivaCalc;
   const { docTipo, docNro, condicionIvaReceptorId } = _datosReceptorAfip(tipoCbte, cuitDigits);
   const cbteTipo = _codigoAfipCbte(tipoCbte);
 
@@ -9162,6 +9201,16 @@ async function registerSale(){
     }
 
     // ══════════════════════════════════════════════════════════════
+    // Desglose real de neto/IVA por alícuota (ver _agruparAlicuotas).
+    // Se calcula para CUALQUIER comprobante fiscal — no solo A/B — porque
+    // Tique B es el default de todos los días y hoy no pedía CAE
+    // automático, pero igual necesita el neto/IVA correcto guardado en
+    // `ventas` para que la contabilidad (asientoVenta/Mayor/Balance) no
+    // quede desconectada del resto.
+    // ══════════════════════════════════════════════════════════════
+    const ivaCalc = (tipoCbte === 'X') ? null : _agruparAlicuotas(items, total, desc);
+
+    // ══════════════════════════════════════════════════════════════
     // FACTURACIÓN ELECTRÓNICA AUTOMÁTICA (Fase 2 — Factura A/B)
     // Se pide el CAE ANTES de tocar la base. Si ARCA rechaza o falla,
     // no se llama a la RPC — no se creó nada, reintento limpio.
@@ -9174,7 +9223,7 @@ async function registerSale(){
       await _verificarStockDisponible(sel, qtys);
 
       btn.textContent = 'Pidiendo CAE a ARCA...';
-      afipResultado = await _pedirCaeAfip({ tipoCbte, total, cuitDigits, requestId, items, desc });
+      afipResultado = await _pedirCaeAfip({ tipoCbte, cuitDigits, requestId, ivaCalc });
     }
 
     btn.textContent = 'Guardando...';
@@ -9202,6 +9251,12 @@ async function registerSale(){
       p_afip_cae:             afipResultado?.cae || null,
       p_afip_cae_vto:         afipResultado?.caeVto || null,
       p_afip_nro_comprobante: nroComprobanteAfip,
+      // Desglose real por alícuota (null para tipo X) — la RPC lo usa en
+      // vez de recalcular con 21% fijo. Requiere la migración
+      // migration_rpc_multi_alicuota.sql corrida del lado de Supabase.
+      p_neto_gravado: ivaCalc?.neto ?? null,
+      p_importe_iva:  ivaCalc?.iva  ?? null,
+      p_alicuotas:    ivaCalc?.detalle ?? null,
     });
 
     if (error) throw error;
@@ -9233,23 +9288,22 @@ async function registerSale(){
       fecha:           new Date().toISOString().split('T')[0],
       nro_comprobante: result.nro_comprobante,
       tipo_cbte:       tipoCbte,
-      // IMPORTANTE: acá se usa el neto/IVA que YA calculamos en el
-      // frontend con el desglose real por alícuota (afipResultado) — es
-      // literalmente lo que se le declaró a ARCA, así que el ticket
-      // recién impreso queda consistente con el CAE.
+      // IMPORTANTE: acá se usa el neto/IVA de `ivaCalc` — el desglose real
+      // por alícuota calculado en el frontend, disponible para CUALQUIER
+      // tipo de comprobante (Tique B incluido). Es lo mismo que se le
+      // declaró a ARCA cuando hubo CAE, así que el ticket recién impreso
+      // queda consistente con lo declarado.
       // OJO — deuda técnica conocida: `procesar_venta_atomica` (la RPC de
-      // Supabase) sigue calculando neto_gravado/importe_iva por su cuenta
-      // con 21% fijo (ROUND(total/1.21,2)), así que lo que queda GRABADO
-      // en la tabla `ventas` puede no coincidir con esto si la venta tuvo
-      // productos a otra alícuota. Un reimpreso desde el Historial DESPUÉS
-      // de recargar la página mostraría el valor (desactualizado) de la
-      // RPC, no este. Para cerrar el círculo del todo hay que actualizar
-      // esa función en Supabase para que reciba y guarde este mismo
-      // desglose en vez de recalcularlo — pendiente, pasame el SQL de la
-      // función cuando quieras resolverlo.
-      neto_gravado:    afipResultado ? afipResultado.neto : result.neto,
-      importe_iva:     afipResultado ? afipResultado.iva  : result.iva,
-      iva_detalle:     afipResultado ? afipResultado.detalle : null,
+      // Supabase) todavía puede no aceptar/guardar este desglose si no se
+      // actualizó del lado de Supabase — confirmar que la migración de
+      // p_neto_gravado/p_importe_iva/p_alicuotas ya se corrió. Si no se
+      // corrió, la RPC sigue calculando por su cuenta con 21% fijo y lo
+      // que queda GRABADO en `ventas` puede no coincidir con esto; un
+      // reimpreso desde el Historial después de recargar mostraría el
+      // valor viejo de la RPC, no este.
+      neto_gravado:    ivaCalc ? ivaCalc.neto : result.neto,
+      importe_iva:     ivaCalc ? ivaCalc.iva  : result.iva,
+      iva_detalle:     ivaCalc ? ivaCalc.detalle : null,
       anulada:         false,
       cae:             result.cae || null,
       cae_vto:         result.cae_vto || null,
