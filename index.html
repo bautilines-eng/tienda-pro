@@ -504,6 +504,13 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </select>
       <div style="font-size:11px;color:var(--pine);margin-top:6px">Si elegís proveedor, el precio se calcula solo con su margen cuando cargues la factura.</div>
     </div>
+    <div class="fgroup">
+      <div class="flabel" style="display:flex;align-items:center;gap:6px">
+        Código del proveedor
+        <span style="font-size:10px;color:#aaa;font-weight:400">(opcional — el código con el que ese proveedor identifica el producto, no el de barras)</span>
+      </div>
+      <input class="inp" id="np-codprov" placeholder="Ej: 4521" style="font-family:'DM Mono',monospace">
+    </div>
 <div id="np-pricing-block">
     <div class="frow" style="margin-bottom:10px">
       <div>
@@ -4498,7 +4505,7 @@ function exportarStockContadora(){
     return pa.localeCompare(pb) || (a.nombre||'').localeCompare(b.nombre||'');
   });
   if(!lista.length){ showToast('No hay productos para exportar','err'); return; }
-  const header=['Producto','Código','Categoría','Proveedor','Unid. x bulto','Stock (unidades)','Bultos','Costo unit. neto','Costo x bulto','Precio venta unit.','IVA %','Valorización stock'];
+  const header=['Producto','Código de barras','Código proveedor','Categoría','Proveedor','Unid. x bulto','Stock (unidades)','Bultos','Costo unit. neto','Costo x bulto','Precio venta unit.','IVA %','Valorización stock'];
   const aoa=[header];
   let totalVal=0, totalStock=0;
   lista.forEach(p=>{
@@ -4509,7 +4516,7 @@ function exportarStockContadora(){
     const val=stock*costo;
     totalVal+=val; totalStock+=stock;
     aoa.push([
-      p.nombre||'', p.barcode||'', p.categoria||'', provMap[p.proveedor_id]||'',
+      p.nombre||'', p.barcode||'', p.codigo_proveedor||'', p.categoria||'', provMap[p.proveedor_id]||'',
       upb, stock, Math.round(bultos*100)/100,
       Math.round(costo*100)/100, Math.round(costo*upb*100)/100,
       +p.precio||0, (p.iva_alicuota==null?21:+p.iva_alicuota),
@@ -4517,9 +4524,9 @@ function exportarStockContadora(){
     ]);
   });
   aoa.push([]);
-  aoa.push(['TOTALES','','','','',totalStock,'','','','','',Math.round(totalVal*100)/100]);
+  aoa.push(['TOTALES','','','','','',totalStock,'','','','','',Math.round(totalVal*100)/100]);
   const ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:34},{wch:16},{wch:14},{wch:18},{wch:12},{wch:15},{wch:9},{wch:14},{wch:14},{wch:15},{wch:7},{wch:17}];
+  ws['!cols']=[{wch:34},{wch:16},{wch:15},{wch:14},{wch:18},{wch:12},{wch:15},{wch:9},{wch:14},{wch:14},{wch:15},{wch:7},{wch:17}];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Stock');
   XLSX.writeFile(wb, 'stock_'+new Date().toISOString().split('T')[0]+'.xlsx');
@@ -8873,7 +8880,7 @@ function renderCats(){
 function setCat(c,el){activeCat=c;document.querySelectorAll('.cat').forEach(x=>x.classList.remove('on'));el.classList.add('on');filterP();}
 function filterP(){
   const q=document.getElementById('srch').value.toLowerCase();
-  filtered=prods.filter(p=>(activeCat==='all'||p.categoria===activeCat)&&(p.nombre?.toLowerCase().includes(q)||p.categoria?.toLowerCase().includes(q)));
+  filtered=prods.filter(p=>(activeCat==='all'||p.categoria===activeCat)&&(p.nombre?.toLowerCase().includes(q)||p.categoria?.toLowerCase().includes(q)||p.barcode?.toLowerCase().includes(q)||p.codigo_proveedor?.toLowerCase().includes(q)));
   document.getElementById('pcount').textContent=filtered.length;
   renderProds();
 }
@@ -8896,6 +8903,7 @@ function renderProds(){
           <span class="pprice">$${(p.precio||0).toLocaleString('es-AR')}</span>
           <span class="pstk ${sc}">${st}</span>
           ${p.barcode?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:#aaa;letter-spacing:.5px">${esc(p.barcode)}</span>`:''}
+          ${p.codigo_proveedor?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:#8ab4a0;letter-spacing:.5px">#${esc(p.codigo_proveedor)}</span>`:''}
         </div>
       </div>
       <div class="qc">
@@ -10186,7 +10194,7 @@ function renderRecuento(){
   const el = document.getElementById('rec-list');
   if(!el) return;
   let list = [...prods].sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
-  if(recuentoSearch) list = list.filter(p=>(p.nombre||'').toLowerCase().includes(recuentoSearch)||(p.barcode||'').toLowerCase().includes(recuentoSearch));
+  if(recuentoSearch) list = list.filter(p=>(p.nombre||'').toLowerCase().includes(recuentoSearch)||(p.barcode||'').toLowerCase().includes(recuentoSearch)||(p.codigo_proveedor||'').toLowerCase().includes(recuentoSearch));
   _recuentoResumen();
   if(!list.length){ el.innerHTML='<div class="empty" style="padding:16px;text-align:center;color:#aaa">Sin productos</div>'; return; }
   el.innerHTML = list.map(p=>{
@@ -10259,7 +10267,7 @@ function renderStock(f){
   if(f==='out')list=list.filter(p=>p.stock===0);
   else if(f==='low')list=list.filter(p=>p.stock>0&&p.stock<(p.stock_minimo||10));
   else if(f==='ok')list=list.filter(p=>p.stock>=(p.stock_minimo||10));
-  if(stockSearch)list=list.filter(p=>(p.nombre||'').toLowerCase().includes(stockSearch)||(p.barcode||'').toLowerCase().includes(stockSearch));
+  if(stockSearch)list=list.filter(p=>(p.nombre||'').toLowerCase().includes(stockSearch)||(p.barcode||'').toLowerCase().includes(stockSearch)||(p.codigo_proveedor||'').toLowerCase().includes(stockSearch));
   document.getElementById('s-count').textContent=list.length;
   const maxS=Math.max(...prods.map(p=>p.stock),1);
   const el=document.getElementById('slist');
@@ -10281,7 +10289,7 @@ function renderStock(f){
         </div>
       </div>
       <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${p.stock} uds</div></div>
-      <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${esc(p.barcode?'🔖 '+p.barcode:'')}</span><span>${p.costo>0?'Costo: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
+      <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${esc(p.barcode?'🔖 '+p.barcode:'')}</span><span>${esc(p.codigo_proveedor?'#'+p.codigo_proveedor:'')}</span><span>${p.costo>0?'Costo: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
       ${p.costo>0?`<div style="display:flex;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
         <span style="color:#1a5c38;font-weight:600">Margen: $${((p.precio||0)-(p.costo||0)).toLocaleString('es-AR')}</span>
         <span style="color:#999">·</span>
@@ -10326,6 +10334,7 @@ function editProduct(id){
   document.getElementById('np-name').value=p.nombre||'';
   document.getElementById('np-price').value=p.precio||'';
   document.getElementById('np-barcode').value=p.barcode||'';
+  { const _cp=document.getElementById('np-codprov'); if(_cp) _cp.value=p.codigo_proveedor||''; }
   document.getElementById('np-costo').value=p.costo||'';
   document.getElementById('np-vence').value=p.vence||'';
   document.getElementById('np-stock').value=p.stock||'';
@@ -10351,9 +10360,10 @@ async function updateProduct(id){
   const precioAnterior = prodRef?.precio || 0;
     const precioNuevo = parseFloat(document.getElementById('np-price').value)||0;
     const barcode = document.getElementById('np-barcode')?.value.trim() || null;
+    const codigoProveedor = document.getElementById('np-codprov')?.value.trim() || null;
     const costo = parseFloat(document.getElementById('np-costo')?.value) || 0;
     const vence = document.getElementById('np-vence')?.value || null;
-    const updates={nombre,precio:precioNuevo,barcode,costo,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
+    const updates={nombre,precio:precioNuevo,barcode,codigo_proveedor:codigoProveedor,costo,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
     // Si cambió el precio a mano, bloquearlo para que las listas nuevas no lo pisen
     if(precioNuevo>0 && Math.abs(precioNuevo-precioAnterior)>0.01){
       updates.precio_bloqueado = true;
@@ -10410,6 +10420,7 @@ async function saveProduct(){
     const costo = parseFloat(document.getElementById('np-costo').value)||0;
     const precio = parseFloat(document.getElementById('np-price').value)||0;
     const barcode = document.getElementById('np-barcode').value.trim() || null;
+    const codigoProveedor = document.getElementById('np-codprov')?.value.trim() || null;
     const vence = document.getElementById('np-vence').value || null;
     const proveedor_id = document.getElementById('np-proveedor')?.value || null;
     const p=await sbInsert('productos',{
@@ -10417,6 +10428,7 @@ async function saveProduct(){
       precio,
       costo,
       barcode,
+      codigo_proveedor: codigoProveedor,
       vence,
       stock:parseInt(document.getElementById('np-stock').value)||0,
       categoria:document.getElementById('np-cat').value||'General',
@@ -10432,11 +10444,11 @@ async function saveProduct(){
     closeModal('ov-add-prod');
     renderCats();renderProds();renderStock(stockFilter);populateSelects();
     showToast('✅ Producto agregado','ok');
-    ['np-name','np-price','np-stock','np-cat','np-min'].forEach(id=>document.getElementById(id).value='');
+    ['np-name','np-price','np-stock','np-cat','np-min','np-barcode','np-codprov'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   }catch(e){showToast('❌ Error al guardar producto','err');console.error(e);}
 }
 function abrirAltaProducto(){
-  ['np-name','np-barcode','np-cat','np-vence','np-price','np-costo','np-stock','np-min'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  ['np-name','np-barcode','np-codprov','np-cat','np-vence','np-price','np-costo','np-stock','np-min'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   const npProv=document.getElementById('np-proveedor');
   if(npProv) npProv.innerHTML='<option value="">— Sin proveedor —</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
   { const _b=document.getElementById('np-bulto'); if(_b) _b.value=''; }
@@ -10667,7 +10679,7 @@ function filtrarComboProd(targetId, q){
   // si borran el texto, también se limpia la selección
   if(!q){ const h=document.getElementById(targetId); if(h) h.value=''; list.style.display='none'; list.innerHTML=''; return; }
   const matches = (prods||[]).filter(p =>
-    (p.nombre||'').toLowerCase().includes(q) || (p.barcode||'').toLowerCase().includes(q)
+    (p.nombre||'').toLowerCase().includes(q) || (p.barcode||'').toLowerCase().includes(q) || (p.codigo_proveedor||'').toLowerCase().includes(q)
   ).slice(0, 40);
   if(!matches.length){
     list.innerHTML = '<div class="combo-empty">Sin resultados</div>';
@@ -10675,7 +10687,7 @@ function filtrarComboProd(targetId, q){
     list.innerHTML = matches.map(p =>
       `<div class="combo-item" onmousedown="seleccionarComboProd('${targetId}','${p.id}')">`
       + `<span>${getEm(p.categoria)} ${esc(p.nombre)}</span>`
-      + `<span class="combo-code">${esc(p.barcode||'')}</span></div>`
+      + `<span class="combo-code">${esc(p.barcode||p.codigo_proveedor||'')}</span></div>`
     ).join('');
   }
   list.style.display = 'block';
@@ -11110,7 +11122,7 @@ async function guardarCombo() {
     });
     combos.unshift(combo);
     // Add to products list as virtual product
-    prods.unshift({...combo, id: combo.id, es_combo: true, stock: 999, categoria: 'Combo', barcode: null});
+    prods.unshift({...combo, id: combo.id, es_combo: true, stock: 999, categoria: 'Combo', barcode: null, codigo_proveedor: null});
     closeModal('ov-add-combo');
     comboItems = [];
     document.getElementById('combo-nombre').value = '';
