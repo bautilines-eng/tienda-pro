@@ -5042,19 +5042,30 @@ async function confirmarAnularCompra() {
     }
 
     // 5. Eliminar gasto asociado (si era contado)
-    // El gasto del remito se crea con descripción que incluye el nro de factura
+    // Referencia DIRECTA por factura_id — antes buscaba por coincidencia
+    // de monto+fecha+categoría, que podía fallar (dos facturas con el
+    // mismo total el mismo día, un ajuste de centavos que corrió el
+    // monto, etc.) y dejar el gasto huérfano sin borrar.
     if (facturasAsociadas.length > 0) {
       for (const fac of facturasAsociadas) {
         if (fac.forma_pago !== 'Cuenta Corriente') {
-          // Buscar gasto por monto + fecha + categoría Proveedores + descripción similar
-          const gastoAsociado = gastos.find(g =>
-            g.categoria === 'Proveedores' &&
-            Math.abs((g.monto || 0) - (fac.total || 0)) < 0.01 &&
-            g.fecha === fac.fecha
-          );
+          let gastoAsociado = gastos.find(g => g.factura_id === fac.id);
+          // Respaldo para gastos viejos guardados antes de que existiera
+          // factura_id (sin este campo, no hay forma confiable de saber
+          // cuál es "el" gasto — se avisa en vez de adivinar).
+          if (!gastoAsociado) {
+            gastoAsociado = gastos.find(g =>
+              g.factura_id == null &&
+              g.categoria === 'Proveedores' &&
+              Math.abs((g.monto || 0) - (fac.total || 0)) < 0.01 &&
+              g.fecha === fac.fecha
+            );
+          }
           if (gastoAsociado) {
             await SB.from('gastos').update({ is_deleted: true, deleted_at: ahora }).eq('id', gastoAsociado.id);
             gastos = gastos.filter(g => g.id !== gastoAsociado.id);
+          } else {
+            showToast('⚠️ No se encontró el gasto de "' + (fac.numero||'') + '" para borrarlo — revisalo a mano en Gastos', 'err');
           }
         }
       }
@@ -6928,14 +6939,20 @@ async function guardarFactura() {
       renderDeudas();
       showToast(`📒 Factura guardada — Deuda $${total.toLocaleString('es-AR')} creada en Proveedores`, 'ok');
     } else {
-      // Registrar como gasto pagado
-      await sbInsert('gastos', {
+      // Registrar como gasto pagado. factura_id es la referencia DIRECTA
+      // que usa confirmarAnularCompra() para encontrar y borrar este
+      // gasto si la factura se anula — antes se buscaba por coincidencia
+      // de monto+fecha+categoría, que podía no encontrar el gasto real
+      // y dejarlo huérfano (exactamente el bug reportado).
+      const gasto = await sbInsert('gastos', {
         tienda_id:   STORE.id,
         monto:       total,
         categoria:   'Proveedores',
         descripcion: `Factura ${tipo} ${numero} · ${esc(proveedor || '')}`,
         fecha:       fecha,
+        factura_id:  factura?.id || null,
       });
+      if (gasto) { gastos.unshift(gasto); }
       showToast(`✅ Factura ${numero} guardada correctamente`, 'ok');
     }
 
@@ -11484,6 +11501,7 @@ async function guardarGasto() {
 }
 
 async function eliminarGasto(id) {
+  if (!_esRolAdmin()) { showToast('Solo dueños o administrativos pueden eliminar gastos', 'err'); return; }
   if (!confirm('¿Eliminar este gasto?')) return;
   try {
     await SB.from('gastos').update({is_deleted:true,deleted_at:new Date().toISOString()}).eq('id', id);
