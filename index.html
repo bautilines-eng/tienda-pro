@@ -529,6 +529,14 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <span>Margen estimado</span>
       <span style="font-family:'DM Mono',monospace;font-weight:700" id="np-margen-preview">—</span>
     </div>
+    <div class="fgroup">
+      <div class="flabel" style="display:flex;align-items:center;gap:6px">
+        Impuesto interno ($ por unidad)
+        <span style="font-size:10px;color:#aaa;font-weight:400">(opcional — solo bebidas alcohólicas/gaseosas gravadas. Ley 24.674)</span>
+      </div>
+      <input class="inp" id="np-imp-interno" type="number" min="0" step="0.01" placeholder="0" style="font-family:'DM Mono',monospace">
+      <div style="font-size:11px;color:#999;margin-top:5px">Ya está incluido en el costo — esto solo lo discrimina en el ticket de venta (Régimen Transparencia Fiscal). Se completa solo al cargar un remito de este producto, pero también lo podés editar directo acá.</div>
+    </div>
     <div class="frow" style="margin-bottom:10px">
       <div><div class="flabel">Cantidad de bultos</div><input class="inp" id="np-cant-bultos" type="number" min="0" placeholder="0" oninput="calcStockDesdeBultos()"></div>
       <div>
@@ -4561,7 +4569,7 @@ function agregarLineaRemito(pid){
   // (de una compra anterior), se respeta esa — es más confiable que un
   // valor genérico. Si es un producto nuevo, cae al selector de cabecera.
   const alicDefault = (p.iva_alicuota!=null) ? Number(p.iva_alicuota) : (parseFloat(document.getElementById('rem-alic')?.value)||21);
-  remitoLineas.push({uid:'L'+Date.now()+Math.floor(Math.random()*1000), prodId:pid, nombre:p.nombre, upb:p.unidades_por_bulto||1, cantidad:'1', modo:'bulto', costo:'', costoModo:'unidad', alicuota:alicDefault});
+  remitoLineas.push({uid:'L'+Date.now()+Math.floor(Math.random()*1000), prodId:pid, nombre:p.nombre, upb:p.unidades_por_bulto||1, cantidad:'1', modo:'bulto', costo:'', costoModo:'unidad', alicuota:alicDefault, impInterno:''});
   renderRemitoLineas();
 }
 function quitarLineaRemito(uid){
@@ -4628,12 +4636,18 @@ function renderRemitoLineas(){
           </select>
         </div>
       </div>
+      <div style="margin-top:8px">
+        <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">
+          Impuesto interno <span style="text-transform:none;color:#c0c0c0">(opc. — total de esta línea, como figura "Internos" en la factura del proveedor)</span>
+        </div>
+        <input type="number" id="rem-imp-interno-${l.uid}" min="0" placeholder="0" value="${escAttr(l.impInterno ?? '')}" class="inp" style="padding:9px 10px" oninput="recalcRemitoTotales()">
+      </div>
       <div id="rem-sub-${l.uid}" style="font-size:11.5px;color:#1a5c38;margin-top:9px;padding-top:8px;border-top:1px dashed #eef3f0;font-weight:600;display:flex;justify-content:space-between;align-items:center"></div>
     </div>`).join('');
   recalcRemitoTotales();
 }
 function recalcRemitoTotales(){
-  let netoTotal=0, unidadesTotal=0, ivaTotal=0;
+  let netoTotal=0, unidadesTotal=0, ivaTotal=0, impInternoTotalRemito=0;
   const alicuotasUsadas = new Set();
   remitoLineas.forEach(l=>{
     const qtyRaw=document.getElementById('rem-qty-'+l.uid)?.value ?? '';
@@ -4641,9 +4655,10 @@ function recalcRemitoTotales(){
     const costoRaw=document.getElementById('rem-costo-'+l.uid)?.value ?? '';
     const costoModoRaw=document.getElementById('rem-costomodo-'+l.uid)?.value || 'unidad';
     const alicRaw=parseFloat(document.getElementById('rem-alic-'+l.uid)?.value);
+    const impInternoRaw=document.getElementById('rem-imp-interno-'+l.uid)?.value ?? '';
     // Guardamos lo que el usuario tipeó en la línea misma, para que sobreviva
     // si se re-renderiza la lista (por ej. al agregar/quitar otro producto)
-    l.cantidad=qtyRaw; l.modo=modoRaw; l.costo=costoRaw; l.costoModo=costoModoRaw;
+    l.cantidad=qtyRaw; l.modo=modoRaw; l.costo=costoRaw; l.costoModo=costoModoRaw; l.impInterno=impInternoRaw;
     l.alicuota = isNaN(alicRaw) ? (l.alicuota ?? 21) : alicRaw;
 
     const qty=parseFloat(qtyRaw)||0;
@@ -4657,15 +4672,25 @@ function recalcRemitoTotales(){
     const neto = Math.round(costoUnit * unidades * 100)/100;
     // IVA de la línea con SU PROPIA alícuota (no una sola para todo el remito)
     const ivaLinea = Math.round(neto * l.alicuota / 100 * 100)/100;
-    netoTotal+=neto; unidadesTotal+=unidades; ivaTotal+=ivaLinea;
+    // Impuesto interno: es INFORMATIVO — ya está incluido dentro del costo
+    // que cargaste (así viene en la factura del proveedor), NO se suma
+    // aparte al total. Solo se guarda para discriminarlo después en el
+    // ticket de venta (Régimen Transparencia Fiscal).
+    const impInternoTotalLinea = parseFloat(impInternoRaw)||0;
+    const impInternoUnitario = (impInternoTotalLinea>0 && unidades>0) ? Math.round(impInternoTotalLinea/unidades*100)/100 : 0;
+    l.impInternoUnitario = impInternoUnitario;
+    netoTotal+=neto; unidadesTotal+=unidades; ivaTotal+=ivaLinea; impInternoTotalRemito+=impInternoTotalLinea;
     if(neto>0) alicuotasUsadas.add(l.alicuota);
     const sub=document.getElementById('rem-sub-'+l.uid);
     if(sub){
       const izq = modo==='bulto'
         ? `${qty} ${qty===1?'bulto':'bultos'} × ${l.upb} = <b>${unidades} u</b>`
         : `<b>${unidades} u</b>`;
+      const partesDer = [];
+      if(costo>0) partesDer.push(`$${neto.toLocaleString('es-AR')} · IVA ${l.alicuota}%`);
+      if(impInternoTotalLinea>0) partesDer.push(`Interno $${impInternoUnitario.toLocaleString('es-AR')}/u`);
       sub.innerHTML = `<span style="color:#5a7a68">📦 ${izq}</span>`
-        + (costo>0 ? `<span>$${neto.toLocaleString('es-AR')} · IVA ${l.alicuota}%</span>` : `<span style="color:#bbb;font-weight:500">sin costo</span>`);
+        + (partesDer.length ? `<span>${partesDer.join(' · ')}</span>` : `<span style="color:#bbb;font-weight:500">sin costo</span>`);
     }
   });
   const iva=Math.round(ivaTotal*100)/100;
@@ -4687,6 +4712,7 @@ function recalcRemitoTotales(){
           <span style="font-size:13px;font-weight:700">Total</span>
           <span style="font-size:19px;font-weight:800;font-family:'DM Mono',monospace">$${total.toLocaleString('es-AR')}</span></div>
         <div style="font-size:10.5px;opacity:.7;margin-top:6px">${unidadesTotal} unidades ingresarán al stock</div>
+        ${impInternoTotalRemito>0?`<div style="font-size:10.5px;opacity:.7;margin-top:3px">Incluye $${impInternoTotalRemito.toLocaleString('es-AR')} de impuestos internos (ya está adentro del costo, no se suma aparte)</div>`:''}
       </div>`;
   } else {
     tot.innerHTML = `
@@ -4715,6 +4741,7 @@ async function confirmarRemito(){
     const costo=parseFloat(document.getElementById('rem-costo-'+l.uid)?.value)||0;
     const costoModo=document.getElementById('rem-costomodo-'+l.uid)?.value||'unidad';
     const alicLinea=parseFloat(document.getElementById('rem-alic-'+l.uid)?.value)||21;
+    const impInternoTotalLinea=parseFloat(document.getElementById('rem-imp-interno-'+l.uid)?.value)||0;
     if(qty<=0){ showToast('Revisá las cantidades (deben ser mayores a 0)','err'); return; }
     const unidades = modo==='bulto'? qty*l.upb : qty;
     // Costo por unidad (lo que se guarda). Si lo cargó por bulto, se divide por upb.
@@ -4723,7 +4750,10 @@ async function confirmarRemito(){
       : null;
     // Neto de la línea = costo por unidad × unidades totales
     const neto = costoUnit!=null ? Math.round(costoUnit*unidades*100)/100 : 0;
-    lineas.push({...l, qty, modo, costo, costoModo, alicuota:alicLinea, unidades, costoUnit, neto});
+    // Impuesto interno por unidad — informativo (ya incluido en el costo),
+    // se guarda aparte solo para poder discriminarlo en el ticket de venta.
+    const impInternoUnitario = (impInternoTotalLinea>0 && unidades>0) ? Math.round(impInternoTotalLinea/unidades*100)/100 : 0;
+    lineas.push({...l, qty, modo, costo, costoModo, alicuota:alicLinea, impInternoUnitario, unidades, costoUnit, neto});
   }
 
   const btn=document.getElementById('rem-btn'); const txt=btn?btn.textContent:'';
@@ -4739,7 +4769,7 @@ async function confirmarRemito(){
         numero_factura: nro||null, proveedor: prov||null, proveedor_id: provId,
         forma_pago: pago, vence_pago: vence, estado_pedido:'completo',
         factura_cargada: false, fecha, remito_id: remitoId,   // la factura se carga aparte
-        iva_alicuota: ln.alicuota
+        iva_alicuota: ln.alicuota, impuesto_interno_unitario: ln.impInternoUnitario
       });
       compras.unshift(compra);
       if(!primeraCompraId) primeraCompraId=compra.id;
@@ -4751,10 +4781,11 @@ async function confirmarRemito(){
       });
       const pref=prods.find(p=>p.id===ln.prodId);
       if(ln.costoUnit!=null){
-        // Alícuota REAL de esta línea (no la de cabecera) — cada producto
-        // guarda la suya, así la venta la lee correcta más adelante.
-        await SB.from('productos').update({costo:ln.costoUnit, iva_alicuota:ln.alicuota}).eq('id',ln.prodId);
-        if(pref) pref.iva_alicuota = ln.alicuota;
+        // Alícuota e impuesto interno REALES de esta línea (no un valor
+        // de cabecera) — cada producto guarda los suyos, así la venta los
+        // lee correctos más adelante.
+        await SB.from('productos').update({costo:ln.costoUnit, iva_alicuota:ln.alicuota, impuesto_interno_unitario:ln.impInternoUnitario}).eq('id',ln.prodId);
+        if(pref){ pref.iva_alicuota = ln.alicuota; pref.impuesto_interno_unitario = ln.impInternoUnitario; }
       }
       try{ const {data:fresh}=await SB.from('productos').select('precio,costo,stock').eq('id',ln.prodId).single();
            if(fresh&&pref){ pref.costo=fresh.costo; pref.precio=fresh.precio; pref.stock=fresh.stock; } }catch(_){}
@@ -9188,7 +9219,7 @@ async function registerSale(){
     const clienteEl=document.getElementById('v-cliente');
     const clienteNom=clienteEl.value?(clienteEl.options[clienteEl.selectedIndex]?.text||''):'';
     const nota=document.getElementById('v-nota').value;
-    const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota)}));
+    const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota),impuesto_interno_unitario:(p.impuesto_interno_unitario||0)}));
 
     const tipoCbte    = document.querySelector('.cbte-btn.active')?.dataset.cbte || 'B';
     const cuitCte     = document.getElementById('cuit-cte-input')?.value.trim() || null;
@@ -9217,6 +9248,14 @@ async function registerSale(){
     // quede desconectada del resto.
     // ══════════════════════════════════════════════════════════════
     const ivaCalc = (tipoCbte === 'X') ? null : _agruparAlicuotas(items, total, desc);
+
+    // Impuesto interno de la venta: suma el $/u de cada producto (cargado
+    // en el remito, ya viene del costo del proveedor) × cantidad vendida.
+    // Es puramente informativo/de divulgación (Régimen Transparencia
+    // Fiscal) — no se re-calcula ni se vuelve a cobrar, solo se muestra.
+    const impuestoInternoVenta = Math.round(
+      items.reduce((s,i)=> s + (i.impuesto_interno_unitario||0) * (i.cantidad||0), 0) * 100
+    ) / 100;
 
     // ══════════════════════════════════════════════════════════════
     // FACTURACIÓN ELECTRÓNICA AUTOMÁTICA (Fase 2 — Factura A/B)
@@ -9265,6 +9304,7 @@ async function registerSale(){
       p_neto_gravado: ivaCalc?.neto ?? null,
       p_importe_iva:  ivaCalc?.iva  ?? null,
       p_alicuotas:    ivaCalc?.detalle ?? null,
+      p_impuesto_interno: impuestoInternoVenta || null,
     });
 
     if (error) throw error;
@@ -9312,6 +9352,7 @@ async function registerSale(){
       neto_gravado:    ivaCalc ? ivaCalc.neto : result.neto,
       importe_iva:     ivaCalc ? ivaCalc.iva  : result.iva,
       iva_detalle:     ivaCalc ? ivaCalc.detalle : null,
+      impuesto_interno: impuestoInternoVenta || 0,
       anulada:         false,
       cae:             result.cae || null,
       cae_vto:         result.cae_vto || null,
@@ -9683,15 +9724,18 @@ function showTicket(s){
     : `<div class="ticket-row total"><span>TOTAL</span><span>$${total.toLocaleString('es-AR')}</span></div>
        ${!esX?`<div style="font-size:10px;color:#888;text-align:right">${_leyendaIvaIncluido(s)}</div>`:''}`;
 
-  // ── Régimen de Transparencia Fiscal al Consumidor (Ley 27.743) ──
-  // Obligatorio en todo comprobante fiscal (A/B/T), no solo Consumidor
-  // Final — así sale en los tickets reales de referencia. Cálculo directo
-  // sobre el IVA de la venta (ver nota en _ivaContenidoTicket).
+  // ── Régimen de Transparencia Fiscal al Consumidor (RG 5614/24, art. 99
+  // Ley 27.743) ── Obligatorio en todo comprobante fiscal (A/B/T), no solo
+  // Consumidor Final — así sale en los tickets reales de referencia.
+  // "Otros Impuestos Nacionales Indirectos" = Impuestos Internos (Ley
+  // 24.674) de los productos vendidos que los tengan (ej. bebidas
+  // alcohólicas) — viene del remito (Internos de la factura del
+  // proveedor), no es un cálculo inventado.
   const regimenTransparencia = (!esX && _requiereCAE(s)) ? `
       <hr class="ticket-divider">
       <div style="font-size:9px;text-align:center;font-weight:700;letter-spacing:.3px;margin-bottom:3px">RÉGIMEN DE TRANSPARENCIA FISCAL</div>
       <div class="ticket-row" style="font-size:9px"><span>IVA Contenido</span><span>$${_ivaContenidoTicket(s).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
-      <div class="ticket-row" style="font-size:9px"><span>Otros Imp. Nac. Indirectos</span><span>$0,00</span></div>`
+      <div class="ticket-row" style="font-size:9px"><span>Otros Imp. Nac. Indirectos</span><span>$${(s.impuesto_interno||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>`
     : '';
 
   // Pie legal segun tipo
@@ -10335,6 +10379,7 @@ function editProduct(id){
   document.getElementById('np-price').value=p.precio||'';
   document.getElementById('np-barcode').value=p.barcode||'';
   { const _cp=document.getElementById('np-codprov'); if(_cp) _cp.value=p.codigo_proveedor||''; }
+  { const _ii=document.getElementById('np-imp-interno'); if(_ii) _ii.value=p.impuesto_interno_unitario||''; }
   document.getElementById('np-costo').value=p.costo||'';
   document.getElementById('np-vence').value=p.vence||'';
   document.getElementById('np-stock').value=p.stock||'';
@@ -10362,8 +10407,9 @@ async function updateProduct(id){
     const barcode = document.getElementById('np-barcode')?.value.trim() || null;
     const codigoProveedor = document.getElementById('np-codprov')?.value.trim() || null;
     const costo = parseFloat(document.getElementById('np-costo')?.value) || 0;
+    const impuestoInterno = parseFloat(document.getElementById('np-imp-interno')?.value) || 0;
     const vence = document.getElementById('np-vence')?.value || null;
-    const updates={nombre,precio:precioNuevo,barcode,codigo_proveedor:codigoProveedor,costo,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
+    const updates={nombre,precio:precioNuevo,barcode,codigo_proveedor:codigoProveedor,costo,impuesto_interno_unitario:impuestoInterno,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
     // Si cambió el precio a mano, bloquearlo para que las listas nuevas no lo pisen
     if(precioNuevo>0 && Math.abs(precioNuevo-precioAnterior)>0.01){
       updates.precio_bloqueado = true;
@@ -10421,6 +10467,7 @@ async function saveProduct(){
     const precio = parseFloat(document.getElementById('np-price').value)||0;
     const barcode = document.getElementById('np-barcode').value.trim() || null;
     const codigoProveedor = document.getElementById('np-codprov')?.value.trim() || null;
+    const impuestoInterno = parseFloat(document.getElementById('np-imp-interno')?.value) || 0;
     const vence = document.getElementById('np-vence').value || null;
     const proveedor_id = document.getElementById('np-proveedor')?.value || null;
     const p=await sbInsert('productos',{
@@ -10429,6 +10476,7 @@ async function saveProduct(){
       costo,
       barcode,
       codigo_proveedor: codigoProveedor,
+      impuesto_interno_unitario: impuestoInterno,
       vence,
       stock:parseInt(document.getElementById('np-stock').value)||0,
       categoria:document.getElementById('np-cat').value||'General',
@@ -10444,11 +10492,11 @@ async function saveProduct(){
     closeModal('ov-add-prod');
     renderCats();renderProds();renderStock(stockFilter);populateSelects();
     showToast('✅ Producto agregado','ok');
-    ['np-name','np-price','np-stock','np-cat','np-min','np-barcode','np-codprov'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+    ['np-name','np-price','np-stock','np-cat','np-min','np-barcode','np-codprov','np-imp-interno'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   }catch(e){showToast('❌ Error al guardar producto','err');console.error(e);}
 }
 function abrirAltaProducto(){
-  ['np-name','np-barcode','np-codprov','np-cat','np-vence','np-price','np-costo','np-stock','np-min'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  ['np-name','np-barcode','np-codprov','np-imp-interno','np-cat','np-vence','np-price','np-costo','np-stock','np-min'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   const npProv=document.getElementById('np-proveedor');
   if(npProv) npProv.innerHTML='<option value="">— Sin proveedor —</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
   { const _b=document.getElementById('np-bulto'); if(_b) _b.value=''; }
