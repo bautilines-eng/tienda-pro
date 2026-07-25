@@ -9002,8 +9002,15 @@ async function eliminarUsuario(id, nombre){
 
 async function loadGastos(){
   try {
+    // IMPORTANTE: sin este filtro, un gasto "eliminado" (is_deleted=true)
+    // volvía a aparecer en cuanto se recargaba la página — eliminarGasto()
+    // solo lo sacaba de la lista en memoria de esa sesión, pero la
+    // consulta traía TODO de nuevo. Uso .or() en vez de .eq('is_deleted',
+    // false) para no ocultar por accidente gastos viejos que puedan
+    // tener is_deleted en NULL (de antes de que existiera esta columna).
     const {data,error} = await SB.from('gastos').select('*')
       .eq('tienda_id',STORE.id)
+      .or('is_deleted.is.null,is_deleted.eq.false')
       .order('fecha',{ascending:false})
       .order('created_at',{ascending:false})
       .limit(200);
@@ -11504,11 +11511,29 @@ async function eliminarGasto(id) {
   if (!_esRolAdmin()) { showToast('Solo dueños o administrativos pueden eliminar gastos', 'err'); return; }
   if (!confirm('¿Eliminar este gasto?')) return;
   try {
-    await SB.from('gastos').update({is_deleted:true,deleted_at:new Date().toISOString()}).eq('id', id);
+    // OJO: pedimos .select() para saber si el UPDATE realmente afectó
+    // una fila. Sin esto, si una política RLS bloquea el borrado,
+    // Supabase no tira error — simplemente no actualiza nada — y el
+    // código anterior lo sacaba de la lista igual (parecía funcionar)
+    // aunque en la base seguía intacto, por eso volvía a aparecer al
+    // recargar.
+    const { data, error } = await SB.from('gastos')
+      .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+      .eq('id', id)
+      .select();
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      showToast('❌ No se pudo borrar (permiso denegado por la base) — avisale a Bautista con este mensaje', 'err');
+      console.error('eliminarGasto: UPDATE no afectó ninguna fila. Posible bloqueo por RLS. id=', id);
+      return;
+    }
     gastos = gastos.filter(g => g.id !== id);
     renderGastos();
     showToast('✅ Gasto eliminado', 'ok');
-  } catch(e) { showToast('❌ Error', 'err'); }
+  } catch(e) {
+    showToast('❌ Error al eliminar: ' + (e?.message || 'desconocido'), 'err');
+    console.error('eliminarGasto error:', e);
+  }
 }
 
 function renderGastos() {
