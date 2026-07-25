@@ -1355,6 +1355,15 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div style="background:#f8f8f8;border-radius:12px;padding:14px;margin-bottom:12px">
         <div style="font-size:11px;font-weight:700;color:#1a3a5c;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Importes fiscales</div>
 
+        <!-- Desglose real por alícuota — solo visible si el remito mezcla tasas.
+             Reemplaza visualmente a la fila de abajo (que igual queda con los
+             totales sumados, de solo lectura, para que todo cierre). -->
+        <div id="fac-multi-alicuota-box" style="display:none;margin-bottom:10px;padding:10px 12px;background:#fff7ed;border:1.5px solid #fdba74;border-radius:9px">
+          <div style="font-size:11px;font-weight:700;color:#9a3412;margin-bottom:6px">⚠️ Este remito mezcla alícuotas de IVA</div>
+          <div id="fac-multi-alicuota-rows" style="font-size:12px;color:#7c2d12;font-family:'DM Mono',monospace"></div>
+          <div style="font-size:10.5px;color:#9a3412;margin-top:6px;font-family:inherit">Neto e IVA de abajo ya vienen sumados correctamente — no hace falta elegir una sola alícuota.</div>
+        </div>
+
         <div class="frow" style="margin-bottom:8px">
           <div style="flex:1">
             <div class="flabel">Neto gravado</div>
@@ -3083,9 +3092,10 @@ function asientoGasto(gasto) {
 }
 
 function asientoCompra(compra) {
-  const total = (compra.precio_unitario || 0) * (compra.cantidad || 0);
-  const iva   = Math.round(total / 1.21 * 0.21 * 100) / 100;
-  const neto  = Math.round((total - iva) * 100) / 100;
+  // Mismo criterio que renderMayor/renderBalance: alícuota real de la
+  // compra (21/27/10,5), no 21% fijo — reusa el helper _ivaCompra ya
+  // usado en esos dos, para que las 3 vistas queden consistentes.
+  const { neto, iva, total, ali } = _ivaCompra(compra);
 
   return {
     nro: getNroAsiento(),
@@ -3097,7 +3107,7 @@ function asientoCompra(compra) {
     origen_id: compra.id,
     lineas: [
       { debe: true,  cuenta: CUENTAS_ESPECIALES['mercaderias']||'1.2.01', nombre: 'Mercaderías', importe: neto, detalle: compra.producto_nombre },
-      { debe: true,  cuenta: CUENTAS_ESPECIALES['iva_credito']||'1.1.06', nombre: 'IVA Crédito Fiscal', importe: iva, detalle: 'IVA CF 21%' },
+      { debe: true,  cuenta: CUENTAS_ESPECIALES['iva_credito']||'1.1.06', nombre: 'IVA Crédito Fiscal', importe: iva, detalle: 'IVA CF ' + ali + '%' },
       { debe: false, cuenta: CUENTAS_ESPECIALES['proveedores']||'2.1.01', nombre: 'Proveedores', importe: total, detalle: compra.proveedor || 'Proveedor' },
     ],
     total_debe: total, total_haber: total,
@@ -3192,7 +3202,9 @@ function generarAsientoDia() {
   const totalVentas  = ventasHoy.reduce((s,v)  => s + (v.total||0), 0);
   const totalGastos  = gastosHoy.reduce((s,g)  => s + (g.monto||0), 0);
   const totalCompras = comprasHoy.reduce((s,c) => s + (c.precio_unitario||0)*(c.cantidad||0), 0);
-  const ivaDebito    = Math.round(totalVentas / 1.21 * 0.21 * 100) / 100;
+  // IVA débito: suma el IVA real de cada venta (multi-alícuota si aplica),
+  // 21% fijo solo como respaldo si alguna venta vieja no lo tiene guardado.
+  const ivaDebito    = ventasHoy.reduce((s,v) => s + (v.importe_iva != null ? v.importe_iva : Math.round((v.total||0) / 1.21 * 0.21 * 100) / 100), 0);
   // IVA crédito: suma el IVA real de cada compra según su alícuota (21/27/10,5)
   const ivaCredito   = comprasHoy.reduce((s,c) => s + _ivaCompra(c).iva, 0);
   const netaVentas   = totalVentas - ivaDebito;
@@ -6377,7 +6389,7 @@ function addOrdenItem() {
   const prod = prods.find(p => p.id === sel.value);
   if (!prod) return;
   if (ordenItems.find(i => i.id === prod.id)) { showToast('Ya está en la orden', 'err'); return; }
-  ordenItems.push({ id: prod.id, nombre: prod.nombre, cantidad: qty, precio_unitario: precio });
+  ordenItems.push({ id: prod.id, nombre: prod.nombre, cantidad: qty, precio_unitario: precio, iva_alicuota: (prod.iva_alicuota==null?21:+prod.iva_alicuota) });
   sel.value = '';
   document.getElementById('orden-qty').value = '';
   document.getElementById('orden-precio-u').value = '';
@@ -6430,6 +6442,7 @@ function generarOrdenCompraProveedor(proveedor) {
           nombre: co.producto_nombre,
           cantidad: co.cantidad,
           precio_unitario: co.precio_unitario || 0,
+          iva_alicuota: (co.iva_alicuota==null?21:+co.iva_alicuota),
         });
       }
     });
@@ -6447,9 +6460,12 @@ function generarOrdenPDF() {
   const nroOrden  = 'OC-' + new Date().getFullYear() + '-' + String(Date.now()).slice(-5);
   const fechaHoy  = new Date().toLocaleDateString('es-AR', {day:'2-digit',month:'long',year:'numeric'});
   const fechaEntrega = fecha ? new Date(fecha+'T12:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric'}) : 'A confirmar';
-  const total     = ordenItems.reduce((s,i) => s + i.precio_unitario * i.cantidad, 0);
-  const iva       = Math.round(total / 1.21 * 0.21 * 100) / 100;
-  const neto      = total - iva;
+  // precio_unitario es NETO (mismo criterio que el remito y _ivaCompra) —
+  // el IVA se suma por la alícuota real de cada producto, no se extrae
+  // de un total con 21% fijo.
+  const neto      = ordenItems.reduce((s,i) => s + i.precio_unitario * i.cantidad, 0);
+  const iva       = Math.round(ordenItems.reduce((s,i) => s + i.precio_unitario * i.cantidad * ((i.iva_alicuota==null?21:i.iva_alicuota) / 100), 0) * 100) / 100;
+  const total     = Math.round((neto + iva) * 100) / 100;
 
   const html = `<!DOCTYPE html>
 <html lang="es">
@@ -6593,6 +6609,7 @@ ${obs?`<div class="obs-box">📝 <b>Observaciones:</b> ${esc(obs)}</div>`:''}
 let facturas = [];
 let facCompraId = null;
 let facPagoActual = 'Contado';
+let facMultiAlicuota = false;   // true cuando el remito de esta factura mezcla alícuotas de IVA
 
 // ── Cargar facturas ──
 async function loadFacturas() {
@@ -6636,14 +6653,60 @@ function abrirModalFactura(compraId) {
     if (el) el.value = '';
   });
 
-  // Pre-calcular neto: suma (costo unitario × cantidad) de las compras.
-  // precio_unitario ya es el costo NETO por unidad → el resultado ya es el neto.
-  const netoRemito = comprasRemito.reduce((s,c) => s + (c.precio_unitario || 0) * (c.cantidad || 0), 0);
+  // ══════════════════════════════════════════════════════════════
+  // Desglose real por alícuota (mismo criterio que _ivaCompra usa en
+  // renderMayor/renderBalance) — agrupa las compras del remito por su
+  // iva_alicuota REAL, en vez de asumir una sola para todo el remito.
+  // ══════════════════════════════════════════════════════════════
+  const grupos = {};
+  let impInternoTotal = 0;
+  comprasRemito.forEach(c => {
+    const { neto, iva, ali } = _ivaCompra(c);
+    if (!grupos[ali]) grupos[ali] = { neto: 0, iva: 0 };
+    grupos[ali].neto += neto;
+    grupos[ali].iva  += iva;
+    impInternoTotal += (c.impuesto_interno_unitario || 0) * (c.cantidad || 0);
+  });
+  const alicuotas = Object.keys(grupos).map(Number).sort((a,b) => b - a);
+  const netoTotal = alicuotas.reduce((s,a) => s + grupos[a].neto, 0);
+  const ivaTotal  = alicuotas.reduce((s,a) => s + grupos[a].iva, 0);
+  facMultiAlicuota = alicuotas.length > 1;
+
+  const boxEl  = document.getElementById('fac-multi-alicuota-box');
+  const rowsEl = document.getElementById('fac-multi-alicuota-rows');
   const netoEl = document.getElementById('fac-neto');
-  if (netoEl && netoRemito > 0) {
-    netoEl.value = Math.round(netoRemito * 100) / 100;
-    calcularTotalesFac();
+  const ivaEl  = document.getElementById('fac-iva');
+  const alicEl = document.getElementById('fac-alic-iva');
+
+  if (facMultiAlicuota) {
+    // Mezcla de alícuotas: mostrar el desglose, sumar los totales reales
+    // y dejar neto/IVA de solo lectura (no tiene sentido "elegir" una
+    // alícuota cuando el remito trae varias).
+    if (boxEl) boxEl.style.display = 'block';
+    if (rowsEl) {
+      rowsEl.innerHTML = alicuotas.map(a =>
+        `<div style="display:flex;justify-content:space-between;padding:2px 0">
+          <span>Neto ${a}%: $${grupos[a].neto.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>
+          <span>IVA: $${grupos[a].iva.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>
+        </div>`).join('');
+    }
+    if (netoEl) { netoEl.value = Math.round(netoTotal*100)/100; netoEl.readOnly = true; netoEl.style.background = '#f0f0f0'; }
+    if (ivaEl)  { ivaEl.value  = Math.round(ivaTotal*100)/100; }
+    if (alicEl) { alicEl.disabled = true; alicEl.style.opacity = '.5'; }
+  } else {
+    // Una sola alícuota (caso normal): comportamiento de siempre, todo editable.
+    if (boxEl) boxEl.style.display = 'none';
+    if (netoEl) { netoEl.readOnly = false; netoEl.style.background = ''; }
+    if (alicEl) { alicEl.disabled = false; alicEl.style.opacity = '1'; }
+    if (alicuotas.length === 1 && alicEl) alicEl.value = String(alicuotas[0]);
+    if (netoEl && netoTotal > 0) netoEl.value = Math.round(netoTotal * 100) / 100;
   }
+
+  // Impuesto interno: suma real de lo cargado en el remito (si lo hubo)
+  const impIntEl = document.getElementById('fac-imp-int');
+  if (impIntEl && impInternoTotal > 0) impIntEl.value = Math.round(impInternoTotal * 100) / 100;
+
+  if (netoTotal > 0) calcularTotalesFac();
 
   // Reset forma de pago
   facPagoActual = compra.forma_pago || 'Contado';
@@ -6685,12 +6748,19 @@ function calcularTotalesFac() {
   const impInt  = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
   const noGrav  = parseFloat(document.getElementById('fac-no-grav')?.value) || 0;
 
-  const iva = Math.round(neto * (alicPct / 100) * 100) / 100;
-  const total = neto + iva + percIva + percIIBB + impInt + noGrav;
-
+  // En modo multi-alícuota, el IVA ya viene sumado real por abrirModalFactura
+  // (una tasa por producto) — recalcularlo acá con una sola tasa lo pisaría
+  // mal. Solo se recalcula en el caso normal de una sola alícuota.
   const ivaEl = document.getElementById('fac-iva');
-  if (ivaEl) ivaEl.value = iva.toFixed(2);
+  let iva;
+  if (facMultiAlicuota) {
+    iva = parseFloat(ivaEl?.value) || 0;
+  } else {
+    iva = Math.round(neto * (alicPct / 100) * 100) / 100;
+    if (ivaEl) ivaEl.value = iva.toFixed(2);
+  }
 
+  const total = neto + iva + percIva + percIIBB + impInt + noGrav;
   const totalEl = document.getElementById('fac-total-display');
   if (totalEl) totalEl.textContent = '$' + total.toLocaleString('es-AR', {minimumFractionDigits:2});
 }
@@ -6702,20 +6772,39 @@ function ajustarNetoAlTotal(){
   const totalDeseado = parseFloat(document.getElementById('fac-total-exacto')?.value) || 0;
   if(totalDeseado <= 0){ showToast('Ingresá el total exacto del comprobante','err'); return; }
 
-  const alicPct = parseFloat(document.getElementById('fac-alic-iva')?.value) || 21;
   const percIva = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
   const percIIBB= parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
   const impInt  = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
   const noGrav  = parseFloat(document.getElementById('fac-no-grav')?.value) || 0;
+  const otros = percIva + percIIBB + impInt + noGrav;
+  const netoEl = document.getElementById('fac-neto');
+  const ivaEl  = document.getElementById('fac-iva');
 
+  if (facMultiAlicuota) {
+    // Con varias alícuotas mezcladas no hay una sola fórmula neto→IVA:
+    // se escalan neto e IVA juntos, en la misma proporción, para cerrar
+    // contra el total real del comprobante (ajuste de centavos por
+    // descuentos del proveedor, no una alícuota distinta).
+    const netoActual = parseFloat(netoEl?.value) || 0;
+    const ivaActual  = parseFloat(ivaEl?.value) || 0;
+    const baseActual = netoActual + ivaActual;
+    if (baseActual <= 0) { showToast('Cargá primero el neto/IVA del remito', 'err'); return; }
+    const factor = (totalDeseado - otros) / baseActual;
+    if (factor <= 0) { showToast('El total es menor que los otros conceptos', 'err'); return; }
+    if (netoEl) netoEl.value = Math.round(netoActual * factor * 100) / 100;
+    if (ivaEl)  ivaEl.value  = Math.round(ivaActual  * factor * 100) / 100;
+    calcularTotalesFac();
+    showToast('✅ Neto e IVA ajustados proporcionalmente para cerrar el total', 'ok');
+    return;
+  }
+
+  const alicPct = parseFloat(document.getElementById('fac-alic-iva')?.value) || 21;
   // total = neto + neto*alic + percIva + percIIBB + impInt + noGrav
   // → neto = (total − percIva − percIIBB − impInt − noGrav) / (1 + alic/100)
-  const otros = percIva + percIIBB + impInt + noGrav;
   const netoAjustado = Math.round((totalDeseado - otros) / (1 + alicPct/100) * 100) / 100;
 
   if(netoAjustado <= 0){ showToast('El total es menor que los otros conceptos','err'); return; }
 
-  const netoEl = document.getElementById('fac-neto');
   if(netoEl){ netoEl.value = netoAjustado; calcularTotalesFac(); }
   showToast('✅ Neto ajustado para que el total cierre exacto','ok');
 }
@@ -6730,9 +6819,15 @@ async function guardarFactura() {
   const fecha    = document.getElementById('fac-fecha')?.value;
   const vence    = document.getElementById('fac-vencimiento')?.value || null;
   const tipo     = document.getElementById('fac-tipo')?.value;
-  const alic     = parseFloat(document.getElementById('fac-alic-iva')?.value) || 21;
   const neto     = parseFloat(document.getElementById('fac-neto')?.value) || 0;
   const iva      = parseFloat(document.getElementById('fac-iva')?.value) || 0;
+  // Con una sola alícuota, se usa el valor del selector (el que eligió el
+  // usuario). Con mezcla, el selector queda deshabilitado — se guarda la
+  // tasa EFECTIVA (iva/neto) como dato informativo; el desglose real por
+  // producto sigue intacto en cada compra (no se pisa, ver más abajo).
+  const alic     = facMultiAlicuota
+    ? (neto > 0 ? Math.round((iva / neto) * 100 * 100) / 100 : 21)
+    : (parseFloat(document.getElementById('fac-alic-iva')?.value) || 21);
   const percIva  = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
   const percIIBB = parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
   const impInt   = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
@@ -6783,13 +6878,21 @@ async function guardarFactura() {
       c.factura_cargada = true;
     }
 
-    // Actualizar la alícuota de IVA en todas las compras de la factura.
-    // En un remito, cada producto ya trae su costo cargado → NO se pisa.
-    // En una compra suelta sin costo previo, se reparte el neto ÷ cantidad.
-    if (esRemitoFactura) {
+    // Actualizar la alícuota de IVA en las compras de la factura.
+    // 4 casos posibles, sin ambigüedad:
+    //  1) Remito con UNA sola alícuota → se reafirma el valor elegido
+    //     (por si el usuario lo corrigió a mano).
+    //  2) Remito CON MEZCLA de alícuotas → cada compra ya trae la suya
+    //     real cargada desde el remito; no se toca nada.
+    //  3) Compra suelta SIN costo previo → se reparte el neto ÷ cantidad
+    //     y se fija costo + alícuota.
+    //  4) Compra suelta CON costo previo → se actualiza solo la alícuota.
+    if (esRemitoFactura && !facMultiAlicuota) {
       for (const c of delRemito) {
         try { await sbUpdate('compras', c.id, { iva_alicuota: alic }); c.iva_alicuota = alic; } catch(_){}
       }
+    } else if (esRemitoFactura && facMultiAlicuota) {
+      // Caso 2: no se toca — el desglose por producto ya es correcto.
     } else if (compra && compra.producto_id && compra.cantidad > 0 && neto > 0 && !(compra.precio_unitario > 0)) {
       const costoUnit = Math.round((neto / compra.cantidad) * 100) / 100;
       try {
@@ -11257,13 +11360,25 @@ function _alicuotaCompra(co){
   return 21;
 }
 
-// Devuelve {neto, iva, total, ali} de una compra usando su alícuota real
+// Devuelve {neto, iva, total, ali} de una compra usando su alícuota real.
+//
+// IMPORTANTE (corregido 25/07/2026, verificado contra factura real de
+// Distribuidora San Esteban): compras.precio_unitario es el costo NETO
+// por unidad — así lo carga el remito (recalcRemitoTotales trata "costo"
+// como neto y suma el IVA aparte) y así vienen las facturas reales de
+// tus proveedores (Neto 21%/10,5% se declaran por separado, el IVA se
+// SUMA sobre eso, no se extrae de un bruto). Antes esta función dividía
+// precio_unitario×cantidad por (1+alícuota/100) como si ya tuviera el
+// IVA adentro — eso sub-estimaba tanto el neto como el IVA Crédito
+// Fiscal en Mayor/Balance para TODAS las compras, no solo las
+// multi-alícuota. Si repasás reportes históricos con la contadora, el
+// total (Mercaderías + IVA = a pagar) ahora da más alto que antes,
+// porque antes el IVA salía "de adentro" del costo en vez de sumarse.
 function _ivaCompra(co){
-  const total = (co.precio_unitario||0)*(co.cantidad||0);
+  const neto = redondear((co.precio_unitario||0)*(co.cantidad||0), 2);
   const ali = _alicuotaCompra(co);
-  const factor = 1 + ali/100;
-  const neto = redondear(total / factor, 2);
-  const iva = redondear(total - neto, 2);
+  const iva = redondear(neto * ali / 100, 2);
+  const total = redondear(neto + iva, 2);
   return { neto, iva, total, ali };
 }
 
