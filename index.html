@@ -2576,6 +2576,14 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
     </div>
 
+    <!-- Traspaso interno: mercadería propia (mismo CUIT), no de un proveedor externo -->
+    <label id="rem-ti-wrap" style="display:flex;align-items:flex-start;gap:9px;background:#f5f3ff;border:1.5px solid #ddd6fe;border-radius:12px;padding:11px 12px;margin:14px 0 0;cursor:pointer">
+      <input type="checkbox" id="rem-traspaso-interno" onchange="onTraspasoInternoToggle()" style="width:18px;height:18px;margin-top:1px;cursor:pointer;accent-color:#6d28d9;flex-shrink:0">
+      <span style="font-size:12px;color:#5b21b6;line-height:1.4">
+        <b>🔁 Traspaso interno</b> — mercadería propia que trasladás desde tu otra operación (mismo CUIT), no de un proveedor externo. No genera deuda ni queda pendiente de factura.
+      </span>
+    </label>
+
     <!-- Datos del comprobante -->
     <div style="background:#fafafa;border:1px solid #eee;border-radius:14px;padding:14px;margin:14px 0">
       <div class="frow">
@@ -3146,7 +3154,7 @@ function generarAsientosPeriodo(mesAno) {
                            .sort((a,b) => a.fecha.localeCompare(b.fecha));
   const gastosFilt  = gastos.filter(g => g.fecha >= desde && g.fecha <= hasta)
                             .sort((a,b) => a.fecha.localeCompare(b.fecha));
-  const comprasFilt = compras.filter(c => !c.anulada && c.fecha >= desde && c.fecha <= hasta)
+  const comprasFilt = compras.filter(c => !c.anulada && !c.es_traspaso_interno && c.fecha >= desde && c.fecha <= hasta)
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
   const minutasFilt = (minutas||[]).filter(m => !m.is_deleted && !m.anulada && m.fecha >= desde && m.fecha <= hasta)
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
@@ -3192,7 +3200,7 @@ function generarAsientoDia() {
   const hoy = new Date().toISOString().split('T')[0];
   const ventasHoy  = sales.filter(s => s.fecha === hoy);
   const gastosHoy  = gastos.filter(g => g.fecha === hoy);
-  const comprasHoy = compras.filter(c => !c.anulada && c.fecha === hoy);
+  const comprasHoy = compras.filter(c => !c.anulada && !c.es_traspaso_interno && c.fecha === hoy);
 
   if (!ventasHoy.length && !gastosHoy.length && !comprasHoy.length) {
     showToast('No hay movimientos hoy', 'err');
@@ -3451,8 +3459,8 @@ function renderMayor() {
     });
   });
 
-  // Compras (excluye anuladas)
-  compras.filter(c => !c.anulada && filtro(c.fecha)).forEach(co => {
+  // Compras (excluye anuladas y traspasos internos — no son compras reales a terceros)
+  compras.filter(c => !c.anulada && !c.es_traspaso_interno && filtro(c.fecha)).forEach(co => {
     const {neto, iva, total, ali} = _ivaCompra(co);   // alícuota real (21/27/10,5)
     if (cuentaCod==='11501008') movs.push({fecha:co.fecha, desc:'Compra '+co.producto_nombre, debe:neto, haber:0, origen:'Compra'});
     if (cuentaCod==='11403005') movs.push({fecha:co.fecha, desc:'CF IVA '+ali+'% — '+co.proveedor, debe:iva, haber:0, origen:'Compra'});
@@ -4558,12 +4566,17 @@ let remitoLineas = [];
 function abrirModalRemito(){
   remitoLineas = [];
   const sel=document.getElementById('rem-prov');
-  if(sel) sel.innerHTML='<option value="">Elegí...</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
+  if(sel){
+    sel.innerHTML='<option value="">Elegí...</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
+    sel.disabled=false;
+  }
   const f=document.getElementById('rem-fecha'); if(f) f.value=new Date().toISOString().split('T')[0];
   ['rem-nro','rem-vence'].forEach(id=>{const e=document.getElementById(id); if(e) e.value='';});
+  const nroInp=document.getElementById('rem-nro'); if(nroInp) nroInp.placeholder='0004-00003853';
   const alic=document.getElementById('rem-alic'); if(alic) alic.value=21;
-  const pago=document.getElementById('rem-pago'); if(pago) pago.value='Contado';
+  const pago=document.getElementById('rem-pago'); if(pago){ pago.value='Contado'; pago.disabled=false; }
   const s=document.getElementById('rem-add-search'); if(s) s.value='';
+  const ti=document.getElementById('rem-traspaso-interno'); if(ti) ti.checked=false;
   onRemitoPago();
   renderRemitoLineas();
   openModal('ov-remito');
@@ -4572,6 +4585,32 @@ function onRemitoPago(){
   const pago=document.getElementById('rem-pago')?.value;
   const w=document.getElementById('rem-vence-wrap');
   if(w) w.style.display = (pago==='Cuenta Corriente')?'flex':'none';
+}
+// Traspaso interno: mercadería propia (mismo CUIT) trasladada desde la
+// otra operación del dueño — NO es una compra a un tercero. Auto-selecciona
+// el proveedor interno sembrado por la migración y bloquea Cuenta Corriente
+// (no corresponde deuda, porque no hay dos sujetos fiscales distintos).
+function onTraspasoInternoToggle(){
+  const on = document.getElementById('rem-traspaso-interno')?.checked;
+  const provSel = document.getElementById('rem-prov');
+  const pagoSel = document.getElementById('rem-pago');
+  const nroInp  = document.getElementById('rem-nro');
+  if(on){
+    const provInterno = (proveedores||[]).find(p=>p.es_traspaso_interno);
+    if(!provInterno){
+      showToast('No se encontró el proveedor de traspaso interno — corré la migración o avisale a Bautista','err');
+      document.getElementById('rem-traspaso-interno').checked = false;
+      return;
+    }
+    if(provSel){ provSel.value = provInterno.id; provSel.disabled = true; }
+    if(pagoSel){ pagoSel.value = 'Contado'; pagoSel.disabled = true; }
+    if(nroInp) nroInp.placeholder = 'Nº remito interno (opcional)';
+  } else {
+    if(provSel){ provSel.disabled = false; provSel.value = ''; }
+    if(pagoSel){ pagoSel.disabled = false; }
+    if(nroInp) nroInp.placeholder = '0004-00003853';
+  }
+  onRemitoPago();
 }
 
 function agregarLineaRemito(pid){
@@ -4736,6 +4775,7 @@ function recalcRemitoTotales(){
 }
 
 async function confirmarRemito(){
+  const esTraspasoInterno=document.getElementById('rem-traspaso-interno')?.checked||false;
   const provId=document.getElementById('rem-prov')?.value||'';
   const provObj=(proveedores||[]).find(x=>x.id===provId);
   const prov=provObj?(provObj.razon_social||provObj.nombre||''):'';
@@ -4781,7 +4821,8 @@ async function confirmarRemito(){
         numero_factura: nro||null, proveedor: prov||null, proveedor_id: provId,
         forma_pago: pago, vence_pago: vence, estado_pedido:'completo',
         factura_cargada: false, fecha, remito_id: remitoId,   // la factura se carga aparte
-        iva_alicuota: ln.alicuota, impuesto_interno_unitario: ln.impInternoUnitario
+        iva_alicuota: ln.alicuota, impuesto_interno_unitario: ln.impInternoUnitario,
+        es_traspaso_interno: esTraspasoInterno
       });
       compras.unshift(compra);
       if(!primeraCompraId) primeraCompraId=compra.id;
@@ -4789,7 +4830,7 @@ async function confirmarRemito(){
         p_tienda_id:STORE.id, p_producto_id:ln.prodId, p_cantidad:ln.unidades,
         p_tipo_mov:'COMPRA', p_doc_tipo:'COMPRA', p_doc_id:compra.id,
         p_doc_nro:nro||('REMITO-'+fecha), p_costo_unit:ln.costoUnit||0,
-        p_observacion:'Remito'+(prov?' — '+prov:'')
+        p_observacion: esTraspasoInterno ? 'Traspaso interno — mercadería propia (mismo CUIT)' : ('Remito'+(prov?' — '+prov:''))
       });
       const pref=prods.find(p=>p.id===ln.prodId);
       if(ln.costoUnit!=null){
@@ -4812,7 +4853,9 @@ async function confirmarRemito(){
     if(typeof checkAlertBar==='function') checkAlertBar();
     if(typeof renderProds==='function') renderProds();
     if(typeof checkAlertaFacturasPendientes==='function') checkAlertaFacturasPendientes();
-    showToast(`✅ Remito cargado: ${lineas.length} productos al stock. Ahora cargá la factura desde la lista de compras.`,'ok');
+    showToast(esTraspasoInterno
+      ? `✅ Traspaso interno cargado: ${lineas.length} productos al stock (mismo CUIT, sin factura).`
+      : `✅ Remito cargado: ${lineas.length} productos al stock. Ahora cargá la factura desde la lista de compras.`, 'ok');
   }catch(e){ showToast('❌ Error al cargar el remito','err'); console.error(e); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=txt; } }
 }
@@ -4896,7 +4939,9 @@ function abrirAnularCompra(compraId) {
       <div style="font-weight:700;margin-bottom:4px">Se revertirá:</div>
       <div>📦 Stock: −${co.cantidad} unidades de ${esc(co.producto_nombre || '')}</div>
       ${facAsociada || (esRemito && facAsociada) ? '<div>📄 Factura: se marcará como anulada</div>' : ''}
-      ${(deudaAsociada || deudaRemito) ? '<div>💳 Deuda con proveedor: se cancelará</div>' : '<div>💰 Gasto contado: se eliminará</div>'}
+      ${co.es_traspaso_interno
+        ? '<div>🔁 Traspaso interno: no genera deuda ni gasto (mismo CUIT) — solo se revierte el stock</div>'
+        : (deudaAsociada || deudaRemito) ? '<div>💳 Deuda con proveedor: se cancelará</div>' : '<div>💰 Gasto contado: se eliminará</div>'}
       <div>📊 Contabilidad: se excluirá del Mayor y Balance</div>
     </div>`;
 
@@ -5458,8 +5503,8 @@ function renderBalance() {
     });
   });
 
-  // Compras (excluye anuladas) — IVA con alícuota real (21/27/10,5)
-  compras.filter(c => !c.anulada && filtro(c.fecha)).forEach(co => {
+  // Compras (excluye anuladas y traspasos internos) — IVA con alícuota real (21/27/10,5)
+  compras.filter(c => !c.anulada && !c.es_traspaso_interno && filtro(c.fecha)).forEach(co => {
     const {neto, iva, total} = _ivaCompra(co);
     if (totales['11501008'])totales['11501008'].debe += neto;
     if (totales['11403005'])totales['11403005'].debe += iva;   // todo el CF junto (decisión contadora)
@@ -5638,7 +5683,9 @@ function generarIVA(tipo) {
 
   } else if (tipo === 'compras_cbte') {
     filename = `LIBRO_IVA_DIGITAL_COMPRAS_CBTE_${periodo.replace('-','')}.txt`;
-    const comps = compras.filter(c => !c.anulada && c.fecha >= desde && c.fecha <= hasta)
+    // Excluye traspasos internos: no son facturas reales de proveedor,
+    // no corresponde declararlos con IVA crédito fiscal ante ARCA.
+    const comps = compras.filter(c => !c.anulada && !c.es_traspaso_interno && c.fecha >= desde && c.fecha <= hasta)
                          .sort((a,b) => a.fecha.localeCompare(b.fecha));
     lineas = comps.map((co, i) => {
       const total  = (co.precio_unitario||0)*(co.cantidad||0);
@@ -5667,7 +5714,8 @@ function generarIVA(tipo) {
 
   } else if (tipo === 'compras_alic') {
     filename = `LIBRO_IVA_DIGITAL_COMPRAS_ALICUOTAS_${periodo.replace('-','')}.txt`;
-    const comps = compras.filter(c => !c.anulada && c.fecha >= desde && c.fecha <= hasta)
+    // Excluye traspasos internos — mismo criterio que compras_cbte arriba.
+    const comps = compras.filter(c => !c.anulada && !c.es_traspaso_interno && c.fecha >= desde && c.fecha <= hasta)
                          .sort((a,b) => a.fecha.localeCompare(b.fecha));
     lineas = comps.map((co, i) => {
       const total  = (co.precio_unitario||0)*(co.cantidad||0);
@@ -6973,7 +7021,7 @@ async function guardarFactura() {
 
 // ── Alerta de facturas pendientes ──
 function checkAlertaFacturasPendientes() {
-  const pendientes = compras.filter(c => !c.factura_cargada && !c.anulada);
+  const pendientes = compras.filter(c => !c.factura_cargada && !c.anulada && !c.es_traspaso_interno);
   const alertBar = document.getElementById('alerta-facturas');
   if (!alertBar) return;
   if (pendientes.length > 0) {
@@ -11052,16 +11100,19 @@ function renderCompraList(){
     const totalGrp = g.items.reduce((s,c)=> s + (c.precio_unitario||0)*(c.cantidad||0), 0);
     const unidades = g.items.reduce((s,c)=> s + (c.cantidad||0), 0);
     const tieneFac = co.factura_cargada;
+    const esTraspaso = !!co.es_traspaso_interno;
     const pagoColor = co.forma_pago==='Cuenta Corriente'?'#1565c0':co.forma_pago==='Transferencia'?'#1a5c38':'#555';
     const estadoColor = co.estado_pedido==='faltante'?'#e65100':co.estado_pedido==='roto'?'#c94040':'#1a5c38';
 
-    const facBadge = tieneFac
-      ? `<span style="font-size:10px;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:10px;font-weight:600">✅ Factura cargada</span>`
-      : `<button onclick="abrirModalFactura('${co.id}');event.stopPropagation()" style="font-size:10px;background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:10px;font-weight:600;border:none;cursor:pointer">⚠️ Cargar factura</button>`;
+    const facBadge = esTraspaso
+      ? `<span style="font-size:10px;background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:10px;font-weight:600">🔁 Traspaso interno</span>`
+      : tieneFac
+        ? `<span style="font-size:10px;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:10px;font-weight:600">✅ Factura cargada</span>`
+        : `<button onclick="abrirModalFactura('${co.id}');event.stopPropagation()" style="font-size:10px;background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:10px;font-weight:600;border:none;cursor:pointer">⚠️ Cargar factura</button>`;
 
     // Titulo: si es remito, mostrar el remito como unidad; si no, el producto
     const titulo = g.esRemito
-      ? `<span style="font-weight:700">📦 Remito · ${g.items.length} productos</span>`
+      ? `<span style="font-weight:700">${esTraspaso?'🔁':'📦'} ${esTraspaso?'Traspaso interno':'Remito'} · ${g.items.length} productos</span>`
       : `<span style="font-weight:600">${esc(co.producto_nombre||'—')}</span>`;
 
     // Detalle de articulos (solo para remitos): lista interna
@@ -11093,7 +11144,7 @@ function renderCompraList(){
       ? `<button onclick="abrirAnularCompra('${co.id}');event.stopPropagation()" style="font-size:10px;background:#fef2f2;color:#c94040;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #fecaca;cursor:pointer" title="${g.esRemito?'Anular remito':'Anular compra'}">🗑️</button>`
       : '';
 
-    return `<div class="ccard" style="border-left:3px solid ${tieneFac?'#16a34a':'#dc2626'}">
+    return `<div class="ccard" style="border-left:3px solid ${esTraspaso?'#6d28d9':(tieneFac?'#16a34a':'#dc2626')}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div class="cc-prod">${titulo}</div>
         ${totalGrp?`<div class="cc-total" style="font-family:'DM Mono',monospace;font-weight:700">$${totalGrp.toLocaleString('es-AR')}</div>`:''}
@@ -12043,8 +12094,9 @@ function renderFinanzas(){
     });
   });
 
-  // Compras filtradas (egresos de reposición de stock)
-  const comprasFilt = (finPeriodo==='todo' ? compras : compras.filter(c=>c.fecha>=cutoff)).filter(c=>!c.anulada);
+  // Compras filtradas (egresos de reposición de stock) — excluye traspasos
+  // internos: no hubo plata real que salió de la empresa por esa mercadería.
+  const comprasFilt = (finPeriodo==='todo' ? compras : compras.filter(c=>c.fecha>=cutoff)).filter(c=>!c.anulada && !c.es_traspaso_interno);
   const totalCompras = comprasFilt.reduce((s,c)=>s+(c.precio_unitario||0)*(c.cantidad||0),0);
   const countCompras = comprasFilt.length;
 
