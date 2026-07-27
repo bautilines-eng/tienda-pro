@@ -653,7 +653,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
     </div>
     <div style="padding:10px 20px 0;display:flex;gap:10px">
-      <div style="flex:1"><div class="flabel" style="margin-bottom:5px">Descuento %</div><input class="inp" id="v-desc" type="number" min="0" max="100" placeholder="0" oninput="updateCart()"></div>
+      <div id="v-desc-wrap" style="flex:1"><div class="flabel" style="margin-bottom:5px">Descuento %</div><input class="inp" id="v-desc" type="number" min="0" max="100" placeholder="0" oninput="updateCart()"></div>
       <div style="flex:1"><div class="flabel" style="margin-bottom:5px">Nota</div><input class="inp" id="v-nota" type="text" placeholder="Opcional"></div>
     </div>
     <div class="search-wrap">
@@ -8359,6 +8359,17 @@ function aplicarPermisosUI(){
   window.STOCK_SOLO_DISPONIBLES = esVendedor;
   // Administrativo: NO puede efectuar ventas
   window.NO_PUEDE_VENDER = esAdministrativo;
+  // Vendedor: NO puede aplicar descuentos en las ventas
+  window.NO_PUEDE_DESCONTAR = esVendedor;
+  const descWrap = document.getElementById('v-desc-wrap');
+  if (descWrap) {
+    descWrap.style.display = esVendedor ? 'none' : '';
+    if (esVendedor) {
+      const descInp = document.getElementById('v-desc');
+      if (descInp) { descInp.value = ''; }
+      if (typeof updateCart === 'function') updateCart();
+    }
+  }
   const cbtn=document.getElementById('c-btn');
   if(cbtn){
     if(esAdministrativo){ cbtn.setAttribute('disabled','true'); cbtn.style.opacity='.5'; cbtn.style.cursor='not-allowed'; cbtn.title='Tu rol (Administrativo) no puede registrar ventas'; }
@@ -9375,7 +9386,11 @@ async function registerSale(){
 
   try{
     const sub=sel.reduce((s,p)=>s+p.precio*(qtys[p.id]||0),0);
-    const desc=parseFloat(document.getElementById('v-desc').value)||0;
+    // El Vendedor no puede aplicar descuentos — se fuerza a 0 acá aunque el
+    // campo esté oculto, para no depender solo del DOM (mismo criterio que
+    // el guard de "Administrativo no puede vender" de arriba).
+    const esVendedorActual = window.NO_PUEDE_DESCONTAR || ['vendedor','empleado'].includes((USER_ROL||'').toLowerCase());
+    const desc = esVendedorActual ? 0 : (parseFloat(document.getElementById('v-desc').value)||0);
     const total=Math.round(sub*(1-desc/100));
 
     // ── Pago dividido (dos métodos) ──
@@ -10000,7 +10015,8 @@ function toggleOpcionesAvanzadas(){
 async function solicitarConsumoPersonal(){
   const sel = prods.filter(p => (qtys[p.id]||0) > 0);
   if(!sel.length){ showToast('Agregá productos al carrito para el consumo','err'); return; }
-  const desc = parseFloat(document.getElementById('v-desc')?.value)||0;
+  const desc = (window.NO_PUEDE_DESCONTAR || ['vendedor','empleado'].includes((USER_ROL||'').toLowerCase()))
+    ? 0 : (parseFloat(document.getElementById('v-desc')?.value)||0);
   const sub = sel.reduce((s,p)=>s+(p.precio||0)*(qtys[p.id]||0),0);
   const total = Math.round(sub*(1-desc/100));
   const items = sel.map(p=>({producto_id:p.id, nombre:p.nombre, cantidad:qtys[p.id]||0, precio:p.precio||0, costo:p.costo||0}));
@@ -10020,7 +10036,8 @@ async function solicitarConsumoPersonal(){
 function generarPresupuesto(){
   const sel = prods.filter(p => (qtys[p.id]||0) > 0);
   if(!sel.length){ showToast('Agregá productos al carrito para el presupuesto','err'); return; }
-  const desc = parseFloat(document.getElementById('v-desc')?.value) || 0;
+  const desc = (window.NO_PUEDE_DESCONTAR || ['vendedor','empleado'].includes((USER_ROL||'').toLowerCase()))
+    ? 0 : (parseFloat(document.getElementById('v-desc')?.value) || 0);
   const sub = sel.reduce((s,p)=> s + (p.precio||0)*(qtys[p.id]||0), 0);
   const total = sub*(1-desc/100);
   const hoy = new Date();
