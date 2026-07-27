@@ -642,9 +642,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div style="padding:12px 20px 0">
       <div class="flabel" style="margin-bottom:5px">Comprobante</div>
       <div style="display:flex;gap:8px">
-        <button class="cbte-btn active" data-cbte="T" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #1a5c38;border-radius:9px;background:#eaf5ee;color:#1a5c38;font-size:12px;font-weight:600;cursor:pointer">Tique B</button>
+        <button class="cbte-btn" data-cbte="T" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">Tique B</button>
         <button class="cbte-btn" data-cbte="X" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer" title="Baja stock, sin IVA ni comprobante fiscal">Sin comprob.</button>
-        <button class="cbte-btn" data-cbte="B" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">Factura B</button>
+        <button class="cbte-btn active" data-cbte="B" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #1a5c38;border-radius:9px;background:#eaf5ee;color:#1a5c38;font-size:12px;font-weight:600;cursor:pointer">Factura B</button>
         <button class="cbte-btn" data-cbte="A" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">Factura A</button>
       </div>
       <div id="cuit-cte-row" style="display:none;margin-top:10px">
@@ -9417,7 +9417,7 @@ async function registerSale(){
     // ══════════════════════════════════════════════════════════════
     // Desglose real de neto/IVA por alícuota (ver _agruparAlicuotas).
     // Se calcula para CUALQUIER comprobante fiscal — no solo A/B — porque
-    // Tique B es el default de todos los días y hoy no pedía CAE
+    // Tique B sigue disponible como opción manual y no pide CAE
     // automático, pero igual necesita el neto/IVA correcto guardado en
     // `ventas` para que la contabilidad (asientoVenta/Mayor/Balance) no
     // quede desconectada del resto.
@@ -9558,8 +9558,8 @@ async function registerSale(){
     if(cuitInput) cuitInput.value='';
     const razonInput = document.getElementById('razon-social-input');
     if(razonInput) razonInput.value='';
-    // Reset del comprobante a Tique B (evita arrastrar Factura A + CUIT del comprador anterior)
-    const btnCbteDefault = document.querySelector('.cbte-btn[data-cbte="T"]');
+    // Reset del comprobante a Factura B (evita arrastrar Factura A + CUIT del comprador anterior)
+    const btnCbteDefault = document.querySelector('.cbte-btn[data-cbte="B"]');
     if(btnCbteDefault) selectCbteTipo(btnCbteDefault);
     document.getElementById('cart').classList.remove('show');
     renderProds();renderHist();renderCaja();renderStock(stockFilter);checkAlertBar();
