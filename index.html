@@ -6670,6 +6670,16 @@ let facCompraId = null;
 let facPagoActual = 'Contado';
 let facMultiAlicuota = false;   // true cuando el remito de esta factura mezcla alícuotas de IVA
 
+// Lee la alícuota elegida en #fac-alic-iva de forma segura.
+// OJO: "parseFloat(valor) || 21" está mal para este campo porque 0 es un
+// valor válido (0% exento, ej. Factura C de monotributista) y en JS
+// "0 || 21" da 21 — el 0% quedaba silenciosamente reemplazado por 21%.
+// Solo cae a 21 si el valor realmente no se pudo parsear (NaN).
+function _alicFacSeleccionada(){
+  const v = parseFloat(document.getElementById('fac-alic-iva')?.value);
+  return isNaN(v) ? 21 : v;
+}
+
 // ── Cargar facturas ──
 async function loadFacturas() {
   try {
@@ -6801,7 +6811,7 @@ function selectFacPago(btn) {
 // ── Calcular totales automáticamente ──
 function calcularTotalesFac() {
   const neto    = parseFloat(document.getElementById('fac-neto')?.value) || 0;
-  const alicPct = parseFloat(document.getElementById('fac-alic-iva')?.value) || 21;
+  const alicPct = _alicFacSeleccionada();
   const percIva = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
   const percIIBB= parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
   const impInt  = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
@@ -6857,7 +6867,7 @@ function ajustarNetoAlTotal(){
     return;
   }
 
-  const alicPct = parseFloat(document.getElementById('fac-alic-iva')?.value) || 21;
+  const alicPct = _alicFacSeleccionada();
   // total = neto + neto*alic + percIva + percIIBB + impInt + noGrav
   // → neto = (total − percIva − percIIBB − impInt − noGrav) / (1 + alic/100)
   const netoAjustado = Math.round((totalDeseado - otros) / (1 + alicPct/100) * 100) / 100;
@@ -6886,7 +6896,7 @@ async function guardarFactura() {
   // producto sigue intacto en cada compra (no se pisa, ver más abajo).
   const alic     = facMultiAlicuota
     ? (neto > 0 ? Math.round((iva / neto) * 100 * 100) / 100 : 21)
-    : (parseFloat(document.getElementById('fac-alic-iva')?.value) || 21);
+    : _alicFacSeleccionada();
   const percIva  = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
   const percIIBB = parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
   const impInt   = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
