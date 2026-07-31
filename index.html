@@ -529,6 +529,14 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <span>Margen estimado</span>
       <span style="font-family:'DM Mono',monospace;font-weight:700" id="np-margen-preview">—</span>
     </div>
+    <div class="fgroup">
+      <div class="flabel" style="display:flex;align-items:center;gap:6px">
+        Impuesto interno ($ por unidad)
+        <span style="font-size:10px;color:#aaa;font-weight:400">(opcional — solo bebidas alcohólicas/gaseosas gravadas. Ley 24.674)</span>
+      </div>
+      <input class="inp" id="np-imp-interno" type="number" min="0" step="0.01" placeholder="0" style="font-family:'DM Mono',monospace">
+      <div style="font-size:11px;color:#999;margin-top:5px">Ya está incluido en el costo — esto solo lo discrimina en el ticket de venta (Régimen Transparencia Fiscal). Se completa solo al cargar un remito de este producto, pero también lo podés editar directo acá.</div>
+    </div>
     <div class="frow" style="margin-bottom:10px">
       <div><div class="flabel">Cantidad de bultos</div><input class="inp" id="np-cant-bultos" type="number" min="0" placeholder="0" oninput="calcStockDesdeBultos()"></div>
       <div>
@@ -634,9 +642,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div style="padding:12px 20px 0">
       <div class="flabel" style="margin-bottom:5px">Comprobante</div>
       <div style="display:flex;gap:8px">
-        <button class="cbte-btn active" data-cbte="T" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #1a5c38;border-radius:9px;background:#eaf5ee;color:#1a5c38;font-size:12px;font-weight:600;cursor:pointer">Tique B</button>
+        <button class="cbte-btn" data-cbte="T" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">Tique B</button>
         <button class="cbte-btn" data-cbte="X" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer" title="Baja stock, sin IVA ni comprobante fiscal">Sin comprob.</button>
-        <button class="cbte-btn" data-cbte="B" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">Factura B</button>
+        <button class="cbte-btn active" data-cbte="B" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #1a5c38;border-radius:9px;background:#eaf5ee;color:#1a5c38;font-size:12px;font-weight:600;cursor:pointer">Factura B</button>
         <button class="cbte-btn" data-cbte="A" onclick="selectCbteTipo(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">Factura A</button>
       </div>
       <div id="cuit-cte-row" style="display:none;margin-top:10px">
@@ -645,7 +653,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
     </div>
     <div style="padding:10px 20px 0;display:flex;gap:10px">
-      <div style="flex:1"><div class="flabel" style="margin-bottom:5px">Descuento %</div><input class="inp" id="v-desc" type="number" min="0" max="100" placeholder="0" oninput="updateCart()"></div>
+      <div id="v-desc-wrap" style="flex:1"><div class="flabel" style="margin-bottom:5px">Descuento %</div><input class="inp" id="v-desc" type="number" min="0" max="100" placeholder="0" oninput="updateCart()"></div>
       <div style="flex:1"><div class="flabel" style="margin-bottom:5px">Nota</div><input class="inp" id="v-nota" type="text" placeholder="Opcional"></div>
     </div>
     <div class="search-wrap">
@@ -1346,6 +1354,15 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <!-- Importes -->
       <div style="background:#f8f8f8;border-radius:12px;padding:14px;margin-bottom:12px">
         <div style="font-size:11px;font-weight:700;color:#1a3a5c;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Importes fiscales</div>
+
+        <!-- Desglose real por alícuota — solo visible si el remito mezcla tasas.
+             Reemplaza visualmente a la fila de abajo (que igual queda con los
+             totales sumados, de solo lectura, para que todo cierre). -->
+        <div id="fac-multi-alicuota-box" style="display:none;margin-bottom:10px;padding:10px 12px;background:#fff7ed;border:1.5px solid #fdba74;border-radius:9px">
+          <div style="font-size:11px;font-weight:700;color:#9a3412;margin-bottom:6px">⚠️ Este remito mezcla alícuotas de IVA</div>
+          <div id="fac-multi-alicuota-rows" style="font-size:12px;color:#7c2d12;font-family:'DM Mono',monospace"></div>
+          <div style="font-size:10.5px;color:#9a3412;margin-top:6px;font-family:inherit">Neto e IVA de abajo ya vienen sumados correctamente — no hace falta elegir una sola alícuota.</div>
+        </div>
 
         <div class="frow" style="margin-bottom:8px">
           <div style="flex:1">
@@ -2559,6 +2576,14 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
     </div>
 
+    <!-- Traspaso interno: mercadería propia (mismo CUIT), no de un proveedor externo -->
+    <label id="rem-ti-wrap" style="display:flex;align-items:flex-start;gap:9px;background:#f5f3ff;border:1.5px solid #ddd6fe;border-radius:12px;padding:11px 12px;margin:14px 0 0;cursor:pointer">
+      <input type="checkbox" id="rem-traspaso-interno" onchange="onTraspasoInternoToggle()" style="width:18px;height:18px;margin-top:1px;cursor:pointer;accent-color:#6d28d9;flex-shrink:0">
+      <span style="font-size:12px;color:#5b21b6;line-height:1.4">
+        <b>🔁 Traspaso interno</b> — mercadería propia que trasladás desde tu otra operación (mismo CUIT), no de un proveedor externo. No genera deuda ni queda pendiente de factura.
+      </span>
+    </label>
+
     <!-- Datos del comprobante -->
     <div style="background:#fafafa;border:1px solid #eee;border-radius:14px;padding:14px;margin:14px 0">
       <div class="frow">
@@ -3075,9 +3100,10 @@ function asientoGasto(gasto) {
 }
 
 function asientoCompra(compra) {
-  const total = (compra.precio_unitario || 0) * (compra.cantidad || 0);
-  const iva   = Math.round(total / 1.21 * 0.21 * 100) / 100;
-  const neto  = Math.round((total - iva) * 100) / 100;
+  // Mismo criterio que renderMayor/renderBalance: alícuota real de la
+  // compra (21/27/10,5), no 21% fijo — reusa el helper _ivaCompra ya
+  // usado en esos dos, para que las 3 vistas queden consistentes.
+  const { neto, iva, total, ali } = _ivaCompra(compra);
 
   return {
     nro: getNroAsiento(),
@@ -3089,7 +3115,7 @@ function asientoCompra(compra) {
     origen_id: compra.id,
     lineas: [
       { debe: true,  cuenta: CUENTAS_ESPECIALES['mercaderias']||'1.2.01', nombre: 'Mercaderías', importe: neto, detalle: compra.producto_nombre },
-      { debe: true,  cuenta: CUENTAS_ESPECIALES['iva_credito']||'1.1.06', nombre: 'IVA Crédito Fiscal', importe: iva, detalle: 'IVA CF 21%' },
+      { debe: true,  cuenta: CUENTAS_ESPECIALES['iva_credito']||'1.1.06', nombre: 'IVA Crédito Fiscal', importe: iva, detalle: 'IVA CF ' + ali + '%' },
       { debe: false, cuenta: CUENTAS_ESPECIALES['proveedores']||'2.1.01', nombre: 'Proveedores', importe: total, detalle: compra.proveedor || 'Proveedor' },
     ],
     total_debe: total, total_haber: total,
@@ -3128,7 +3154,7 @@ function generarAsientosPeriodo(mesAno) {
                            .sort((a,b) => a.fecha.localeCompare(b.fecha));
   const gastosFilt  = gastos.filter(g => g.fecha >= desde && g.fecha <= hasta)
                             .sort((a,b) => a.fecha.localeCompare(b.fecha));
-  const comprasFilt = compras.filter(c => !c.anulada && c.fecha >= desde && c.fecha <= hasta)
+  const comprasFilt = compras.filter(c => !c.anulada && !c.es_traspaso_interno && c.fecha >= desde && c.fecha <= hasta)
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
   const minutasFilt = (minutas||[]).filter(m => !m.is_deleted && !m.anulada && m.fecha >= desde && m.fecha <= hasta)
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
@@ -3174,7 +3200,7 @@ function generarAsientoDia() {
   const hoy = new Date().toISOString().split('T')[0];
   const ventasHoy  = sales.filter(s => s.fecha === hoy);
   const gastosHoy  = gastos.filter(g => g.fecha === hoy);
-  const comprasHoy = compras.filter(c => !c.anulada && c.fecha === hoy);
+  const comprasHoy = compras.filter(c => !c.anulada && !c.es_traspaso_interno && c.fecha === hoy);
 
   if (!ventasHoy.length && !gastosHoy.length && !comprasHoy.length) {
     showToast('No hay movimientos hoy', 'err');
@@ -3184,7 +3210,9 @@ function generarAsientoDia() {
   const totalVentas  = ventasHoy.reduce((s,v)  => s + (v.total||0), 0);
   const totalGastos  = gastosHoy.reduce((s,g)  => s + (g.monto||0), 0);
   const totalCompras = comprasHoy.reduce((s,c) => s + (c.precio_unitario||0)*(c.cantidad||0), 0);
-  const ivaDebito    = Math.round(totalVentas / 1.21 * 0.21 * 100) / 100;
+  // IVA débito: suma el IVA real de cada venta (multi-alícuota si aplica),
+  // 21% fijo solo como respaldo si alguna venta vieja no lo tiene guardado.
+  const ivaDebito    = ventasHoy.reduce((s,v) => s + (v.importe_iva != null ? v.importe_iva : Math.round((v.total||0) / 1.21 * 0.21 * 100) / 100), 0);
   // IVA crédito: suma el IVA real de cada compra según su alícuota (21/27/10,5)
   const ivaCredito   = comprasHoy.reduce((s,c) => s + _ivaCompra(c).iva, 0);
   const netaVentas   = totalVentas - ivaDebito;
@@ -3431,8 +3459,8 @@ function renderMayor() {
     });
   });
 
-  // Compras (excluye anuladas)
-  compras.filter(c => !c.anulada && filtro(c.fecha)).forEach(co => {
+  // Compras (excluye anuladas y traspasos internos — no son compras reales a terceros)
+  compras.filter(c => !c.anulada && !c.es_traspaso_interno && filtro(c.fecha)).forEach(co => {
     const {neto, iva, total, ali} = _ivaCompra(co);   // alícuota real (21/27/10,5)
     if (cuentaCod==='11501008') movs.push({fecha:co.fecha, desc:'Compra '+co.producto_nombre, debe:neto, haber:0, origen:'Compra'});
     if (cuentaCod==='11403005') movs.push({fecha:co.fecha, desc:'CF IVA '+ali+'% — '+co.proveedor, debe:iva, haber:0, origen:'Compra'});
@@ -4538,12 +4566,17 @@ let remitoLineas = [];
 function abrirModalRemito(){
   remitoLineas = [];
   const sel=document.getElementById('rem-prov');
-  if(sel) sel.innerHTML='<option value="">Elegí...</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
+  if(sel){
+    sel.innerHTML='<option value="">Elegí...</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
+    sel.disabled=false;
+  }
   const f=document.getElementById('rem-fecha'); if(f) f.value=new Date().toISOString().split('T')[0];
   ['rem-nro','rem-vence'].forEach(id=>{const e=document.getElementById(id); if(e) e.value='';});
+  const nroInp=document.getElementById('rem-nro'); if(nroInp) nroInp.placeholder='0004-00003853';
   const alic=document.getElementById('rem-alic'); if(alic) alic.value=21;
-  const pago=document.getElementById('rem-pago'); if(pago) pago.value='Contado';
+  const pago=document.getElementById('rem-pago'); if(pago){ pago.value='Contado'; pago.disabled=false; }
   const s=document.getElementById('rem-add-search'); if(s) s.value='';
+  const ti=document.getElementById('rem-traspaso-interno'); if(ti) ti.checked=false;
   onRemitoPago();
   renderRemitoLineas();
   openModal('ov-remito');
@@ -4553,6 +4586,32 @@ function onRemitoPago(){
   const w=document.getElementById('rem-vence-wrap');
   if(w) w.style.display = (pago==='Cuenta Corriente')?'flex':'none';
 }
+// Traspaso interno: mercadería propia (mismo CUIT) trasladada desde la
+// otra operación del dueño — NO es una compra a un tercero. Auto-selecciona
+// el proveedor interno sembrado por la migración y bloquea Cuenta Corriente
+// (no corresponde deuda, porque no hay dos sujetos fiscales distintos).
+function onTraspasoInternoToggle(){
+  const on = document.getElementById('rem-traspaso-interno')?.checked;
+  const provSel = document.getElementById('rem-prov');
+  const pagoSel = document.getElementById('rem-pago');
+  const nroInp  = document.getElementById('rem-nro');
+  if(on){
+    const provInterno = (proveedores||[]).find(p=>p.es_traspaso_interno);
+    if(!provInterno){
+      showToast('No se encontró el proveedor de traspaso interno — corré la migración o avisale a Bautista','err');
+      document.getElementById('rem-traspaso-interno').checked = false;
+      return;
+    }
+    if(provSel){ provSel.value = provInterno.id; provSel.disabled = true; }
+    if(pagoSel){ pagoSel.value = 'Contado'; pagoSel.disabled = true; }
+    if(nroInp) nroInp.placeholder = 'Nº remito interno (opcional)';
+  } else {
+    if(provSel){ provSel.disabled = false; provSel.value = ''; }
+    if(pagoSel){ pagoSel.disabled = false; }
+    if(nroInp) nroInp.placeholder = '0004-00003853';
+  }
+  onRemitoPago();
+}
 
 function agregarLineaRemito(pid){
   const p=(prods||[]).find(x=>x.id===pid); if(!p) return;
@@ -4561,7 +4620,7 @@ function agregarLineaRemito(pid){
   // (de una compra anterior), se respeta esa — es más confiable que un
   // valor genérico. Si es un producto nuevo, cae al selector de cabecera.
   const alicDefault = (p.iva_alicuota!=null) ? Number(p.iva_alicuota) : (parseFloat(document.getElementById('rem-alic')?.value)||21);
-  remitoLineas.push({uid:'L'+Date.now()+Math.floor(Math.random()*1000), prodId:pid, nombre:p.nombre, upb:p.unidades_por_bulto||1, cantidad:'1', modo:'bulto', costo:'', costoModo:'unidad', alicuota:alicDefault});
+  remitoLineas.push({uid:'L'+Date.now()+Math.floor(Math.random()*1000), prodId:pid, nombre:p.nombre, upb:p.unidades_por_bulto||1, cantidad:'1', modo:'bulto', costo:'', costoModo:'unidad', alicuota:alicDefault, impInterno:''});
   renderRemitoLineas();
 }
 function quitarLineaRemito(uid){
@@ -4628,12 +4687,18 @@ function renderRemitoLineas(){
           </select>
         </div>
       </div>
+      <div style="margin-top:8px">
+        <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">
+          Impuesto interno <span style="text-transform:none;color:#c0c0c0">(opc. — total de esta línea, como figura "Internos" en la factura del proveedor)</span>
+        </div>
+        <input type="number" id="rem-imp-interno-${l.uid}" min="0" placeholder="0" value="${escAttr(l.impInterno ?? '')}" class="inp" style="padding:9px 10px" oninput="recalcRemitoTotales()">
+      </div>
       <div id="rem-sub-${l.uid}" style="font-size:11.5px;color:#1a5c38;margin-top:9px;padding-top:8px;border-top:1px dashed #eef3f0;font-weight:600;display:flex;justify-content:space-between;align-items:center"></div>
     </div>`).join('');
   recalcRemitoTotales();
 }
 function recalcRemitoTotales(){
-  let netoTotal=0, unidadesTotal=0, ivaTotal=0;
+  let netoTotal=0, unidadesTotal=0, ivaTotal=0, impInternoTotalRemito=0;
   const alicuotasUsadas = new Set();
   remitoLineas.forEach(l=>{
     const qtyRaw=document.getElementById('rem-qty-'+l.uid)?.value ?? '';
@@ -4641,9 +4706,10 @@ function recalcRemitoTotales(){
     const costoRaw=document.getElementById('rem-costo-'+l.uid)?.value ?? '';
     const costoModoRaw=document.getElementById('rem-costomodo-'+l.uid)?.value || 'unidad';
     const alicRaw=parseFloat(document.getElementById('rem-alic-'+l.uid)?.value);
+    const impInternoRaw=document.getElementById('rem-imp-interno-'+l.uid)?.value ?? '';
     // Guardamos lo que el usuario tipeó en la línea misma, para que sobreviva
     // si se re-renderiza la lista (por ej. al agregar/quitar otro producto)
-    l.cantidad=qtyRaw; l.modo=modoRaw; l.costo=costoRaw; l.costoModo=costoModoRaw;
+    l.cantidad=qtyRaw; l.modo=modoRaw; l.costo=costoRaw; l.costoModo=costoModoRaw; l.impInterno=impInternoRaw;
     l.alicuota = isNaN(alicRaw) ? (l.alicuota ?? 21) : alicRaw;
 
     const qty=parseFloat(qtyRaw)||0;
@@ -4657,15 +4723,25 @@ function recalcRemitoTotales(){
     const neto = Math.round(costoUnit * unidades * 100)/100;
     // IVA de la línea con SU PROPIA alícuota (no una sola para todo el remito)
     const ivaLinea = Math.round(neto * l.alicuota / 100 * 100)/100;
-    netoTotal+=neto; unidadesTotal+=unidades; ivaTotal+=ivaLinea;
+    // Impuesto interno: es INFORMATIVO — ya está incluido dentro del costo
+    // que cargaste (así viene en la factura del proveedor), NO se suma
+    // aparte al total. Solo se guarda para discriminarlo después en el
+    // ticket de venta (Régimen Transparencia Fiscal).
+    const impInternoTotalLinea = parseFloat(impInternoRaw)||0;
+    const impInternoUnitario = (impInternoTotalLinea>0 && unidades>0) ? Math.round(impInternoTotalLinea/unidades*100)/100 : 0;
+    l.impInternoUnitario = impInternoUnitario;
+    netoTotal+=neto; unidadesTotal+=unidades; ivaTotal+=ivaLinea; impInternoTotalRemito+=impInternoTotalLinea;
     if(neto>0) alicuotasUsadas.add(l.alicuota);
     const sub=document.getElementById('rem-sub-'+l.uid);
     if(sub){
       const izq = modo==='bulto'
         ? `${qty} ${qty===1?'bulto':'bultos'} × ${l.upb} = <b>${unidades} u</b>`
         : `<b>${unidades} u</b>`;
+      const partesDer = [];
+      if(costo>0) partesDer.push(`$${neto.toLocaleString('es-AR')} · IVA ${l.alicuota}%`);
+      if(impInternoTotalLinea>0) partesDer.push(`Interno $${impInternoUnitario.toLocaleString('es-AR')}/u`);
       sub.innerHTML = `<span style="color:#5a7a68">📦 ${izq}</span>`
-        + (costo>0 ? `<span>$${neto.toLocaleString('es-AR')} · IVA ${l.alicuota}%</span>` : `<span style="color:#bbb;font-weight:500">sin costo</span>`);
+        + (partesDer.length ? `<span>${partesDer.join(' · ')}</span>` : `<span style="color:#bbb;font-weight:500">sin costo</span>`);
     }
   });
   const iva=Math.round(ivaTotal*100)/100;
@@ -4687,6 +4763,7 @@ function recalcRemitoTotales(){
           <span style="font-size:13px;font-weight:700">Total</span>
           <span style="font-size:19px;font-weight:800;font-family:'DM Mono',monospace">$${total.toLocaleString('es-AR')}</span></div>
         <div style="font-size:10.5px;opacity:.7;margin-top:6px">${unidadesTotal} unidades ingresarán al stock</div>
+        ${impInternoTotalRemito>0?`<div style="font-size:10.5px;opacity:.7;margin-top:3px">Incluye $${impInternoTotalRemito.toLocaleString('es-AR')} de impuestos internos (ya está adentro del costo, no se suma aparte)</div>`:''}
       </div>`;
   } else {
     tot.innerHTML = `
@@ -4698,6 +4775,7 @@ function recalcRemitoTotales(){
 }
 
 async function confirmarRemito(){
+  const esTraspasoInterno=document.getElementById('rem-traspaso-interno')?.checked||false;
   const provId=document.getElementById('rem-prov')?.value||'';
   const provObj=(proveedores||[]).find(x=>x.id===provId);
   const prov=provObj?(provObj.razon_social||provObj.nombre||''):'';
@@ -4715,6 +4793,7 @@ async function confirmarRemito(){
     const costo=parseFloat(document.getElementById('rem-costo-'+l.uid)?.value)||0;
     const costoModo=document.getElementById('rem-costomodo-'+l.uid)?.value||'unidad';
     const alicLinea=parseFloat(document.getElementById('rem-alic-'+l.uid)?.value)||21;
+    const impInternoTotalLinea=parseFloat(document.getElementById('rem-imp-interno-'+l.uid)?.value)||0;
     if(qty<=0){ showToast('Revisá las cantidades (deben ser mayores a 0)','err'); return; }
     const unidades = modo==='bulto'? qty*l.upb : qty;
     // Costo por unidad (lo que se guarda). Si lo cargó por bulto, se divide por upb.
@@ -4723,7 +4802,10 @@ async function confirmarRemito(){
       : null;
     // Neto de la línea = costo por unidad × unidades totales
     const neto = costoUnit!=null ? Math.round(costoUnit*unidades*100)/100 : 0;
-    lineas.push({...l, qty, modo, costo, costoModo, alicuota:alicLinea, unidades, costoUnit, neto});
+    // Impuesto interno por unidad — informativo (ya incluido en el costo),
+    // se guarda aparte solo para poder discriminarlo en el ticket de venta.
+    const impInternoUnitario = (impInternoTotalLinea>0 && unidades>0) ? Math.round(impInternoTotalLinea/unidades*100)/100 : 0;
+    lineas.push({...l, qty, modo, costo, costoModo, alicuota:alicLinea, impInternoUnitario, unidades, costoUnit, neto});
   }
 
   const btn=document.getElementById('rem-btn'); const txt=btn?btn.textContent:'';
@@ -4739,7 +4821,8 @@ async function confirmarRemito(){
         numero_factura: nro||null, proveedor: prov||null, proveedor_id: provId,
         forma_pago: pago, vence_pago: vence, estado_pedido:'completo',
         factura_cargada: false, fecha, remito_id: remitoId,   // la factura se carga aparte
-        iva_alicuota: ln.alicuota
+        iva_alicuota: ln.alicuota, impuesto_interno_unitario: ln.impInternoUnitario,
+        es_traspaso_interno: esTraspasoInterno
       });
       compras.unshift(compra);
       if(!primeraCompraId) primeraCompraId=compra.id;
@@ -4747,14 +4830,15 @@ async function confirmarRemito(){
         p_tienda_id:STORE.id, p_producto_id:ln.prodId, p_cantidad:ln.unidades,
         p_tipo_mov:'COMPRA', p_doc_tipo:'COMPRA', p_doc_id:compra.id,
         p_doc_nro:nro||('REMITO-'+fecha), p_costo_unit:ln.costoUnit||0,
-        p_observacion:'Remito'+(prov?' — '+prov:'')
+        p_observacion: esTraspasoInterno ? 'Traspaso interno — mercadería propia (mismo CUIT)' : ('Remito'+(prov?' — '+prov:''))
       });
       const pref=prods.find(p=>p.id===ln.prodId);
       if(ln.costoUnit!=null){
-        // Alícuota REAL de esta línea (no la de cabecera) — cada producto
-        // guarda la suya, así la venta la lee correcta más adelante.
-        await SB.from('productos').update({costo:ln.costoUnit, iva_alicuota:ln.alicuota}).eq('id',ln.prodId);
-        if(pref) pref.iva_alicuota = ln.alicuota;
+        // Alícuota e impuesto interno REALES de esta línea (no un valor
+        // de cabecera) — cada producto guarda los suyos, así la venta los
+        // lee correctos más adelante.
+        await SB.from('productos').update({costo:ln.costoUnit, iva_alicuota:ln.alicuota, impuesto_interno_unitario:ln.impInternoUnitario}).eq('id',ln.prodId);
+        if(pref){ pref.iva_alicuota = ln.alicuota; pref.impuesto_interno_unitario = ln.impInternoUnitario; }
       }
       try{ const {data:fresh}=await SB.from('productos').select('precio,costo,stock').eq('id',ln.prodId).single();
            if(fresh&&pref){ pref.costo=fresh.costo; pref.precio=fresh.precio; pref.stock=fresh.stock; } }catch(_){}
@@ -4769,7 +4853,9 @@ async function confirmarRemito(){
     if(typeof checkAlertBar==='function') checkAlertBar();
     if(typeof renderProds==='function') renderProds();
     if(typeof checkAlertaFacturasPendientes==='function') checkAlertaFacturasPendientes();
-    showToast(`✅ Remito cargado: ${lineas.length} productos al stock. Ahora cargá la factura desde la lista de compras.`,'ok');
+    showToast(esTraspasoInterno
+      ? `✅ Traspaso interno cargado: ${lineas.length} productos al stock (mismo CUIT, sin factura).`
+      : `✅ Remito cargado: ${lineas.length} productos al stock. Ahora cargá la factura desde la lista de compras.`, 'ok');
   }catch(e){ showToast('❌ Error al cargar el remito','err'); console.error(e); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=txt; } }
 }
@@ -4853,7 +4939,9 @@ function abrirAnularCompra(compraId) {
       <div style="font-weight:700;margin-bottom:4px">Se revertirá:</div>
       <div>📦 Stock: −${co.cantidad} unidades de ${esc(co.producto_nombre || '')}</div>
       ${facAsociada || (esRemito && facAsociada) ? '<div>📄 Factura: se marcará como anulada</div>' : ''}
-      ${(deudaAsociada || deudaRemito) ? '<div>💳 Deuda con proveedor: se cancelará</div>' : '<div>💰 Gasto contado: se eliminará</div>'}
+      ${co.es_traspaso_interno
+        ? '<div>🔁 Traspaso interno: no genera deuda ni gasto (mismo CUIT) — solo se revierte el stock</div>'
+        : (deudaAsociada || deudaRemito) ? '<div>💳 Deuda con proveedor: se cancelará</div>' : '<div>💰 Gasto contado: se eliminará</div>'}
       <div>📊 Contabilidad: se excluirá del Mayor y Balance</div>
     </div>`;
 
@@ -4999,19 +5087,30 @@ async function confirmarAnularCompra() {
     }
 
     // 5. Eliminar gasto asociado (si era contado)
-    // El gasto del remito se crea con descripción que incluye el nro de factura
+    // Referencia DIRECTA por factura_id — antes buscaba por coincidencia
+    // de monto+fecha+categoría, que podía fallar (dos facturas con el
+    // mismo total el mismo día, un ajuste de centavos que corrió el
+    // monto, etc.) y dejar el gasto huérfano sin borrar.
     if (facturasAsociadas.length > 0) {
       for (const fac of facturasAsociadas) {
         if (fac.forma_pago !== 'Cuenta Corriente') {
-          // Buscar gasto por monto + fecha + categoría Proveedores + descripción similar
-          const gastoAsociado = gastos.find(g =>
-            g.categoria === 'Proveedores' &&
-            Math.abs((g.monto || 0) - (fac.total || 0)) < 0.01 &&
-            g.fecha === fac.fecha
-          );
+          let gastoAsociado = gastos.find(g => g.factura_id === fac.id);
+          // Respaldo para gastos viejos guardados antes de que existiera
+          // factura_id (sin este campo, no hay forma confiable de saber
+          // cuál es "el" gasto — se avisa en vez de adivinar).
+          if (!gastoAsociado) {
+            gastoAsociado = gastos.find(g =>
+              g.factura_id == null &&
+              g.categoria === 'Proveedores' &&
+              Math.abs((g.monto || 0) - (fac.total || 0)) < 0.01 &&
+              g.fecha === fac.fecha
+            );
+          }
           if (gastoAsociado) {
             await SB.from('gastos').update({ is_deleted: true, deleted_at: ahora }).eq('id', gastoAsociado.id);
             gastos = gastos.filter(g => g.id !== gastoAsociado.id);
+          } else {
+            showToast('⚠️ No se encontró el gasto de "' + (fac.numero||'') + '" para borrarlo — revisalo a mano en Gastos', 'err');
           }
         }
       }
@@ -5404,8 +5503,8 @@ function renderBalance() {
     });
   });
 
-  // Compras (excluye anuladas) — IVA con alícuota real (21/27/10,5)
-  compras.filter(c => !c.anulada && filtro(c.fecha)).forEach(co => {
+  // Compras (excluye anuladas y traspasos internos) — IVA con alícuota real (21/27/10,5)
+  compras.filter(c => !c.anulada && !c.es_traspaso_interno && filtro(c.fecha)).forEach(co => {
     const {neto, iva, total} = _ivaCompra(co);
     if (totales['11501008'])totales['11501008'].debe += neto;
     if (totales['11403005'])totales['11403005'].debe += iva;   // todo el CF junto (decisión contadora)
@@ -5584,7 +5683,9 @@ function generarIVA(tipo) {
 
   } else if (tipo === 'compras_cbte') {
     filename = `LIBRO_IVA_DIGITAL_COMPRAS_CBTE_${periodo.replace('-','')}.txt`;
-    const comps = compras.filter(c => !c.anulada && c.fecha >= desde && c.fecha <= hasta)
+    // Excluye traspasos internos: no son facturas reales de proveedor,
+    // no corresponde declararlos con IVA crédito fiscal ante ARCA.
+    const comps = compras.filter(c => !c.anulada && !c.es_traspaso_interno && c.fecha >= desde && c.fecha <= hasta)
                          .sort((a,b) => a.fecha.localeCompare(b.fecha));
     lineas = comps.map((co, i) => {
       const total  = (co.precio_unitario||0)*(co.cantidad||0);
@@ -5613,7 +5714,8 @@ function generarIVA(tipo) {
 
   } else if (tipo === 'compras_alic') {
     filename = `LIBRO_IVA_DIGITAL_COMPRAS_ALICUOTAS_${periodo.replace('-','')}.txt`;
-    const comps = compras.filter(c => !c.anulada && c.fecha >= desde && c.fecha <= hasta)
+    // Excluye traspasos internos — mismo criterio que compras_cbte arriba.
+    const comps = compras.filter(c => !c.anulada && !c.es_traspaso_interno && c.fecha >= desde && c.fecha <= hasta)
                          .sort((a,b) => a.fecha.localeCompare(b.fecha));
     lineas = comps.map((co, i) => {
       const total  = (co.precio_unitario||0)*(co.cantidad||0);
@@ -6346,7 +6448,7 @@ function addOrdenItem() {
   const prod = prods.find(p => p.id === sel.value);
   if (!prod) return;
   if (ordenItems.find(i => i.id === prod.id)) { showToast('Ya está en la orden', 'err'); return; }
-  ordenItems.push({ id: prod.id, nombre: prod.nombre, cantidad: qty, precio_unitario: precio });
+  ordenItems.push({ id: prod.id, nombre: prod.nombre, cantidad: qty, precio_unitario: precio, iva_alicuota: (prod.iva_alicuota==null?21:+prod.iva_alicuota) });
   sel.value = '';
   document.getElementById('orden-qty').value = '';
   document.getElementById('orden-precio-u').value = '';
@@ -6399,6 +6501,7 @@ function generarOrdenCompraProveedor(proveedor) {
           nombre: co.producto_nombre,
           cantidad: co.cantidad,
           precio_unitario: co.precio_unitario || 0,
+          iva_alicuota: (co.iva_alicuota==null?21:+co.iva_alicuota),
         });
       }
     });
@@ -6416,9 +6519,12 @@ function generarOrdenPDF() {
   const nroOrden  = 'OC-' + new Date().getFullYear() + '-' + String(Date.now()).slice(-5);
   const fechaHoy  = new Date().toLocaleDateString('es-AR', {day:'2-digit',month:'long',year:'numeric'});
   const fechaEntrega = fecha ? new Date(fecha+'T12:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric'}) : 'A confirmar';
-  const total     = ordenItems.reduce((s,i) => s + i.precio_unitario * i.cantidad, 0);
-  const iva       = Math.round(total / 1.21 * 0.21 * 100) / 100;
-  const neto      = total - iva;
+  // precio_unitario es NETO (mismo criterio que el remito y _ivaCompra) —
+  // el IVA se suma por la alícuota real de cada producto, no se extrae
+  // de un total con 21% fijo.
+  const neto      = ordenItems.reduce((s,i) => s + i.precio_unitario * i.cantidad, 0);
+  const iva       = Math.round(ordenItems.reduce((s,i) => s + i.precio_unitario * i.cantidad * ((i.iva_alicuota==null?21:i.iva_alicuota) / 100), 0) * 100) / 100;
+  const total     = Math.round((neto + iva) * 100) / 100;
 
   const html = `<!DOCTYPE html>
 <html lang="es">
@@ -6562,6 +6668,17 @@ ${obs?`<div class="obs-box">📝 <b>Observaciones:</b> ${esc(obs)}</div>`:''}
 let facturas = [];
 let facCompraId = null;
 let facPagoActual = 'Contado';
+let facMultiAlicuota = false;   // true cuando el remito de esta factura mezcla alícuotas de IVA
+
+// Lee la alícuota elegida en #fac-alic-iva de forma segura.
+// OJO: "parseFloat(valor) || 21" está mal para este campo porque 0 es un
+// valor válido (0% exento, ej. Factura C de monotributista) y en JS
+// "0 || 21" da 21 — el 0% quedaba silenciosamente reemplazado por 21%.
+// Solo cae a 21 si el valor realmente no se pudo parsear (NaN).
+function _alicFacSeleccionada(){
+  const v = parseFloat(document.getElementById('fac-alic-iva')?.value);
+  return isNaN(v) ? 21 : v;
+}
 
 // ── Cargar facturas ──
 async function loadFacturas() {
@@ -6605,14 +6722,60 @@ function abrirModalFactura(compraId) {
     if (el) el.value = '';
   });
 
-  // Pre-calcular neto: suma (costo unitario × cantidad) de las compras.
-  // precio_unitario ya es el costo NETO por unidad → el resultado ya es el neto.
-  const netoRemito = comprasRemito.reduce((s,c) => s + (c.precio_unitario || 0) * (c.cantidad || 0), 0);
+  // ══════════════════════════════════════════════════════════════
+  // Desglose real por alícuota (mismo criterio que _ivaCompra usa en
+  // renderMayor/renderBalance) — agrupa las compras del remito por su
+  // iva_alicuota REAL, en vez de asumir una sola para todo el remito.
+  // ══════════════════════════════════════════════════════════════
+  const grupos = {};
+  let impInternoTotal = 0;
+  comprasRemito.forEach(c => {
+    const { neto, iva, ali } = _ivaCompra(c);
+    if (!grupos[ali]) grupos[ali] = { neto: 0, iva: 0 };
+    grupos[ali].neto += neto;
+    grupos[ali].iva  += iva;
+    impInternoTotal += (c.impuesto_interno_unitario || 0) * (c.cantidad || 0);
+  });
+  const alicuotas = Object.keys(grupos).map(Number).sort((a,b) => b - a);
+  const netoTotal = alicuotas.reduce((s,a) => s + grupos[a].neto, 0);
+  const ivaTotal  = alicuotas.reduce((s,a) => s + grupos[a].iva, 0);
+  facMultiAlicuota = alicuotas.length > 1;
+
+  const boxEl  = document.getElementById('fac-multi-alicuota-box');
+  const rowsEl = document.getElementById('fac-multi-alicuota-rows');
   const netoEl = document.getElementById('fac-neto');
-  if (netoEl && netoRemito > 0) {
-    netoEl.value = Math.round(netoRemito * 100) / 100;
-    calcularTotalesFac();
+  const ivaEl  = document.getElementById('fac-iva');
+  const alicEl = document.getElementById('fac-alic-iva');
+
+  if (facMultiAlicuota) {
+    // Mezcla de alícuotas: mostrar el desglose, sumar los totales reales
+    // y dejar neto/IVA de solo lectura (no tiene sentido "elegir" una
+    // alícuota cuando el remito trae varias).
+    if (boxEl) boxEl.style.display = 'block';
+    if (rowsEl) {
+      rowsEl.innerHTML = alicuotas.map(a =>
+        `<div style="display:flex;justify-content:space-between;padding:2px 0">
+          <span>Neto ${a}%: $${grupos[a].neto.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>
+          <span>IVA: $${grupos[a].iva.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>
+        </div>`).join('');
+    }
+    if (netoEl) { netoEl.value = Math.round(netoTotal*100)/100; netoEl.readOnly = true; netoEl.style.background = '#f0f0f0'; }
+    if (ivaEl)  { ivaEl.value  = Math.round(ivaTotal*100)/100; }
+    if (alicEl) { alicEl.disabled = true; alicEl.style.opacity = '.5'; }
+  } else {
+    // Una sola alícuota (caso normal): comportamiento de siempre, todo editable.
+    if (boxEl) boxEl.style.display = 'none';
+    if (netoEl) { netoEl.readOnly = false; netoEl.style.background = ''; }
+    if (alicEl) { alicEl.disabled = false; alicEl.style.opacity = '1'; }
+    if (alicuotas.length === 1 && alicEl) alicEl.value = String(alicuotas[0]);
+    if (netoEl && netoTotal > 0) netoEl.value = Math.round(netoTotal * 100) / 100;
   }
+
+  // Impuesto interno: suma real de lo cargado en el remito (si lo hubo)
+  const impIntEl = document.getElementById('fac-imp-int');
+  if (impIntEl && impInternoTotal > 0) impIntEl.value = Math.round(impInternoTotal * 100) / 100;
+
+  if (netoTotal > 0) calcularTotalesFac();
 
   // Reset forma de pago
   facPagoActual = compra.forma_pago || 'Contado';
@@ -6648,18 +6811,25 @@ function selectFacPago(btn) {
 // ── Calcular totales automáticamente ──
 function calcularTotalesFac() {
   const neto    = parseFloat(document.getElementById('fac-neto')?.value) || 0;
-  const alicPct = parseFloat(document.getElementById('fac-alic-iva')?.value) || 21;
+  const alicPct = _alicFacSeleccionada();
   const percIva = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
   const percIIBB= parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
   const impInt  = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
   const noGrav  = parseFloat(document.getElementById('fac-no-grav')?.value) || 0;
 
-  const iva = Math.round(neto * (alicPct / 100) * 100) / 100;
-  const total = neto + iva + percIva + percIIBB + impInt + noGrav;
-
+  // En modo multi-alícuota, el IVA ya viene sumado real por abrirModalFactura
+  // (una tasa por producto) — recalcularlo acá con una sola tasa lo pisaría
+  // mal. Solo se recalcula en el caso normal de una sola alícuota.
   const ivaEl = document.getElementById('fac-iva');
-  if (ivaEl) ivaEl.value = iva.toFixed(2);
+  let iva;
+  if (facMultiAlicuota) {
+    iva = parseFloat(ivaEl?.value) || 0;
+  } else {
+    iva = Math.round(neto * (alicPct / 100) * 100) / 100;
+    if (ivaEl) ivaEl.value = iva.toFixed(2);
+  }
 
+  const total = neto + iva + percIva + percIIBB + impInt + noGrav;
   const totalEl = document.getElementById('fac-total-display');
   if (totalEl) totalEl.textContent = '$' + total.toLocaleString('es-AR', {minimumFractionDigits:2});
 }
@@ -6671,20 +6841,39 @@ function ajustarNetoAlTotal(){
   const totalDeseado = parseFloat(document.getElementById('fac-total-exacto')?.value) || 0;
   if(totalDeseado <= 0){ showToast('Ingresá el total exacto del comprobante','err'); return; }
 
-  const alicPct = parseFloat(document.getElementById('fac-alic-iva')?.value) || 21;
   const percIva = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
   const percIIBB= parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
   const impInt  = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
   const noGrav  = parseFloat(document.getElementById('fac-no-grav')?.value) || 0;
+  const otros = percIva + percIIBB + impInt + noGrav;
+  const netoEl = document.getElementById('fac-neto');
+  const ivaEl  = document.getElementById('fac-iva');
 
+  if (facMultiAlicuota) {
+    // Con varias alícuotas mezcladas no hay una sola fórmula neto→IVA:
+    // se escalan neto e IVA juntos, en la misma proporción, para cerrar
+    // contra el total real del comprobante (ajuste de centavos por
+    // descuentos del proveedor, no una alícuota distinta).
+    const netoActual = parseFloat(netoEl?.value) || 0;
+    const ivaActual  = parseFloat(ivaEl?.value) || 0;
+    const baseActual = netoActual + ivaActual;
+    if (baseActual <= 0) { showToast('Cargá primero el neto/IVA del remito', 'err'); return; }
+    const factor = (totalDeseado - otros) / baseActual;
+    if (factor <= 0) { showToast('El total es menor que los otros conceptos', 'err'); return; }
+    if (netoEl) netoEl.value = Math.round(netoActual * factor * 100) / 100;
+    if (ivaEl)  ivaEl.value  = Math.round(ivaActual  * factor * 100) / 100;
+    calcularTotalesFac();
+    showToast('✅ Neto e IVA ajustados proporcionalmente para cerrar el total', 'ok');
+    return;
+  }
+
+  const alicPct = _alicFacSeleccionada();
   // total = neto + neto*alic + percIva + percIIBB + impInt + noGrav
   // → neto = (total − percIva − percIIBB − impInt − noGrav) / (1 + alic/100)
-  const otros = percIva + percIIBB + impInt + noGrav;
   const netoAjustado = Math.round((totalDeseado - otros) / (1 + alicPct/100) * 100) / 100;
 
   if(netoAjustado <= 0){ showToast('El total es menor que los otros conceptos','err'); return; }
 
-  const netoEl = document.getElementById('fac-neto');
   if(netoEl){ netoEl.value = netoAjustado; calcularTotalesFac(); }
   showToast('✅ Neto ajustado para que el total cierre exacto','ok');
 }
@@ -6699,9 +6888,15 @@ async function guardarFactura() {
   const fecha    = document.getElementById('fac-fecha')?.value;
   const vence    = document.getElementById('fac-vencimiento')?.value || null;
   const tipo     = document.getElementById('fac-tipo')?.value;
-  const alic     = parseFloat(document.getElementById('fac-alic-iva')?.value) || 21;
   const neto     = parseFloat(document.getElementById('fac-neto')?.value) || 0;
   const iva      = parseFloat(document.getElementById('fac-iva')?.value) || 0;
+  // Con una sola alícuota, se usa el valor del selector (el que eligió el
+  // usuario). Con mezcla, el selector queda deshabilitado — se guarda la
+  // tasa EFECTIVA (iva/neto) como dato informativo; el desglose real por
+  // producto sigue intacto en cada compra (no se pisa, ver más abajo).
+  const alic     = facMultiAlicuota
+    ? (neto > 0 ? Math.round((iva / neto) * 100 * 100) / 100 : 21)
+    : _alicFacSeleccionada();
   const percIva  = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
   const percIIBB = parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
   const impInt   = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
@@ -6752,13 +6947,21 @@ async function guardarFactura() {
       c.factura_cargada = true;
     }
 
-    // Actualizar la alícuota de IVA en todas las compras de la factura.
-    // En un remito, cada producto ya trae su costo cargado → NO se pisa.
-    // En una compra suelta sin costo previo, se reparte el neto ÷ cantidad.
-    if (esRemitoFactura) {
+    // Actualizar la alícuota de IVA en las compras de la factura.
+    // 4 casos posibles, sin ambigüedad:
+    //  1) Remito con UNA sola alícuota → se reafirma el valor elegido
+    //     (por si el usuario lo corrigió a mano).
+    //  2) Remito CON MEZCLA de alícuotas → cada compra ya trae la suya
+    //     real cargada desde el remito; no se toca nada.
+    //  3) Compra suelta SIN costo previo → se reparte el neto ÷ cantidad
+    //     y se fija costo + alícuota.
+    //  4) Compra suelta CON costo previo → se actualiza solo la alícuota.
+    if (esRemitoFactura && !facMultiAlicuota) {
       for (const c of delRemito) {
         try { await sbUpdate('compras', c.id, { iva_alicuota: alic }); c.iva_alicuota = alic; } catch(_){}
       }
+    } else if (esRemitoFactura && facMultiAlicuota) {
+      // Caso 2: no se toca — el desglose por producto ya es correcto.
     } else if (compra && compra.producto_id && compra.cantidad > 0 && neto > 0 && !(compra.precio_unitario > 0)) {
       const costoUnit = Math.round((neto / compra.cantidad) * 100) / 100;
       try {
@@ -6794,14 +6997,20 @@ async function guardarFactura() {
       renderDeudas();
       showToast(`📒 Factura guardada — Deuda $${total.toLocaleString('es-AR')} creada en Proveedores`, 'ok');
     } else {
-      // Registrar como gasto pagado
-      await sbInsert('gastos', {
+      // Registrar como gasto pagado. factura_id es la referencia DIRECTA
+      // que usa confirmarAnularCompra() para encontrar y borrar este
+      // gasto si la factura se anula — antes se buscaba por coincidencia
+      // de monto+fecha+categoría, que podía no encontrar el gasto real
+      // y dejarlo huérfano (exactamente el bug reportado).
+      const gasto = await sbInsert('gastos', {
         tienda_id:   STORE.id,
         monto:       total,
         categoria:   'Proveedores',
         descripcion: `Factura ${tipo} ${numero} · ${esc(proveedor || '')}`,
         fecha:       fecha,
+        factura_id:  factura?.id || null,
       });
+      if (gasto) { gastos.unshift(gasto); }
       showToast(`✅ Factura ${numero} guardada correctamente`, 'ok');
     }
 
@@ -6822,7 +7031,7 @@ async function guardarFactura() {
 
 // ── Alerta de facturas pendientes ──
 function checkAlertaFacturasPendientes() {
-  const pendientes = compras.filter(c => !c.factura_cargada && !c.anulada);
+  const pendientes = compras.filter(c => !c.factura_cargada && !c.anulada && !c.es_traspaso_interno);
   const alertBar = document.getElementById('alerta-facturas');
   if (!alertBar) return;
   if (pendientes.length > 0) {
@@ -8160,6 +8369,17 @@ function aplicarPermisosUI(){
   window.STOCK_SOLO_DISPONIBLES = esVendedor;
   // Administrativo: NO puede efectuar ventas
   window.NO_PUEDE_VENDER = esAdministrativo;
+  // Vendedor: NO puede aplicar descuentos en las ventas
+  window.NO_PUEDE_DESCONTAR = esVendedor;
+  const descWrap = document.getElementById('v-desc-wrap');
+  if (descWrap) {
+    descWrap.style.display = esVendedor ? 'none' : '';
+    if (esVendedor) {
+      const descInp = document.getElementById('v-desc');
+      if (descInp) { descInp.value = ''; }
+      if (typeof updateCart === 'function') updateCart();
+    }
+  }
   const cbtn=document.getElementById('c-btn');
   if(cbtn){
     if(esAdministrativo){ cbtn.setAttribute('disabled','true'); cbtn.style.opacity='.5'; cbtn.style.cursor='not-allowed'; cbtn.title='Tu rol (Administrativo) no puede registrar ventas'; }
@@ -8851,8 +9071,15 @@ async function eliminarUsuario(id, nombre){
 
 async function loadGastos(){
   try {
+    // IMPORTANTE: sin este filtro, un gasto "eliminado" (is_deleted=true)
+    // volvía a aparecer en cuanto se recargaba la página — eliminarGasto()
+    // solo lo sacaba de la lista en memoria de esa sesión, pero la
+    // consulta traía TODO de nuevo. Uso .or() en vez de .eq('is_deleted',
+    // false) para no ocultar por accidente gastos viejos que puedan
+    // tener is_deleted en NULL (de antes de que existiera esta columna).
     const {data,error} = await SB.from('gastos').select('*')
       .eq('tienda_id',STORE.id)
+      .or('is_deleted.is.null,is_deleted.eq.false')
       .order('fecha',{ascending:false})
       .order('created_at',{ascending:false})
       .limit(200);
@@ -9238,7 +9465,11 @@ async function registerSale(){
 
   try{
     const sub=sel.reduce((s,p)=>s+p.precio*(qtys[p.id]||0),0);
-    const desc=parseFloat(document.getElementById('v-desc').value)||0;
+    // El Vendedor no puede aplicar descuentos — se fuerza a 0 acá aunque el
+    // campo esté oculto, para no depender solo del DOM (mismo criterio que
+    // el guard de "Administrativo no puede vender" de arriba).
+    const esVendedorActual = window.NO_PUEDE_DESCONTAR || ['vendedor','empleado'].includes((USER_ROL||'').toLowerCase());
+    const desc = esVendedorActual ? 0 : (parseFloat(document.getElementById('v-desc').value)||0);
     const total=Math.round(sub*(1-desc/100));
 
     // ── Pago dividido (dos métodos) ──
@@ -9257,7 +9488,7 @@ async function registerSale(){
     const clienteEl=document.getElementById('v-cliente');
     const clienteNom=clienteEl.value?(clienteEl.options[clienteEl.selectedIndex]?.text||''):'';
     const nota=document.getElementById('v-nota').value;
-    const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota)}));
+    const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota),impuesto_interno_unitario:(p.impuesto_interno_unitario||0)}));
 
     const tipoCbte    = document.querySelector('.cbte-btn.active')?.dataset.cbte || 'B';
     const cuitCte     = document.getElementById('cuit-cte-input')?.value.trim() || null;
@@ -9280,12 +9511,20 @@ async function registerSale(){
     // ══════════════════════════════════════════════════════════════
     // Desglose real de neto/IVA por alícuota (ver _agruparAlicuotas).
     // Se calcula para CUALQUIER comprobante fiscal — no solo A/B — porque
-    // Tique B es el default de todos los días y hoy no pedía CAE
+    // Tique B sigue disponible como opción manual y no pide CAE
     // automático, pero igual necesita el neto/IVA correcto guardado en
     // `ventas` para que la contabilidad (asientoVenta/Mayor/Balance) no
     // quede desconectada del resto.
     // ══════════════════════════════════════════════════════════════
     const ivaCalc = (tipoCbte === 'X') ? null : _agruparAlicuotas(items, total, desc);
+
+    // Impuesto interno de la venta: suma el $/u de cada producto (cargado
+    // en el remito, ya viene del costo del proveedor) × cantidad vendida.
+    // Es puramente informativo/de divulgación (Régimen Transparencia
+    // Fiscal) — no se re-calcula ni se vuelve a cobrar, solo se muestra.
+    const impuestoInternoVenta = Math.round(
+      items.reduce((s,i)=> s + (i.impuesto_interno_unitario||0) * (i.cantidad||0), 0) * 100
+    ) / 100;
 
     // ══════════════════════════════════════════════════════════════
     // FACTURACIÓN ELECTRÓNICA AUTOMÁTICA (Fase 2 — Factura A/B)
@@ -9334,6 +9573,7 @@ async function registerSale(){
       p_neto_gravado: ivaCalc?.neto ?? null,
       p_importe_iva:  ivaCalc?.iva  ?? null,
       p_alicuotas:    ivaCalc?.detalle ?? null,
+      p_impuesto_interno: impuestoInternoVenta || null,
     });
 
     if (error) throw error;
@@ -9381,6 +9621,7 @@ async function registerSale(){
       neto_gravado:    ivaCalc ? ivaCalc.neto : result.neto,
       importe_iva:     ivaCalc ? ivaCalc.iva  : result.iva,
       iva_detalle:     ivaCalc ? ivaCalc.detalle : null,
+      impuesto_interno: impuestoInternoVenta || 0,
       anulada:         false,
       cae:             result.cae || null,
       cae_vto:         result.cae_vto || null,
@@ -9411,8 +9652,8 @@ async function registerSale(){
     if(cuitInput) cuitInput.value='';
     const razonInput = document.getElementById('razon-social-input');
     if(razonInput) razonInput.value='';
-    // Reset del comprobante a Tique B (evita arrastrar Factura A + CUIT del comprador anterior)
-    const btnCbteDefault = document.querySelector('.cbte-btn[data-cbte="T"]');
+    // Reset del comprobante a Factura B (evita arrastrar Factura A + CUIT del comprador anterior)
+    const btnCbteDefault = document.querySelector('.cbte-btn[data-cbte="B"]');
     if(btnCbteDefault) selectCbteTipo(btnCbteDefault);
     document.getElementById('cart').classList.remove('show');
     renderProds();renderHist();renderCaja();renderStock(stockFilter);checkAlertBar();
@@ -9752,15 +9993,18 @@ function showTicket(s){
     : `<div class="ticket-row total"><span>TOTAL</span><span>$${total.toLocaleString('es-AR')}</span></div>
        ${!esX?`<div style="font-size:10px;color:#888;text-align:right">${_leyendaIvaIncluido(s)}</div>`:''}`;
 
-  // ── Régimen de Transparencia Fiscal al Consumidor (Ley 27.743) ──
-  // Obligatorio en todo comprobante fiscal (A/B/T), no solo Consumidor
-  // Final — así sale en los tickets reales de referencia. Cálculo directo
-  // sobre el IVA de la venta (ver nota en _ivaContenidoTicket).
+  // ── Régimen de Transparencia Fiscal al Consumidor (RG 5614/24, art. 99
+  // Ley 27.743) ── Obligatorio en todo comprobante fiscal (A/B/T), no solo
+  // Consumidor Final — así sale en los tickets reales de referencia.
+  // "Otros Impuestos Nacionales Indirectos" = Impuestos Internos (Ley
+  // 24.674) de los productos vendidos que los tengan (ej. bebidas
+  // alcohólicas) — viene del remito (Internos de la factura del
+  // proveedor), no es un cálculo inventado.
   const regimenTransparencia = (!esX && _requiereCAE(s)) ? `
       <hr class="ticket-divider">
       <div style="font-size:9px;text-align:center;font-weight:700;letter-spacing:.3px;margin-bottom:3px">RÉGIMEN DE TRANSPARENCIA FISCAL</div>
       <div class="ticket-row" style="font-size:9px"><span>IVA Contenido</span><span>$${_ivaContenidoTicket(s).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
-      <div class="ticket-row" style="font-size:9px"><span>Otros Imp. Nac. Indirectos</span><span>$0,00</span></div>`
+      <div class="ticket-row" style="font-size:9px"><span>Otros Imp. Nac. Indirectos</span><span>$${(s.impuesto_interno||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>`
     : '';
 
   // Pie legal segun tipo
@@ -9850,7 +10094,8 @@ function toggleOpcionesAvanzadas(){
 async function solicitarConsumoPersonal(){
   const sel = prods.filter(p => (qtys[p.id]||0) > 0);
   if(!sel.length){ showToast('Agregá productos al carrito para el consumo','err'); return; }
-  const desc = parseFloat(document.getElementById('v-desc')?.value)||0;
+  const desc = (window.NO_PUEDE_DESCONTAR || ['vendedor','empleado'].includes((USER_ROL||'').toLowerCase()))
+    ? 0 : (parseFloat(document.getElementById('v-desc')?.value)||0);
   const sub = sel.reduce((s,p)=>s+(p.precio||0)*(qtys[p.id]||0),0);
   const total = Math.round(sub*(1-desc/100));
   const items = sel.map(p=>({producto_id:p.id, nombre:p.nombre, cantidad:qtys[p.id]||0, precio:p.precio||0, costo:p.costo||0}));
@@ -9870,7 +10115,8 @@ async function solicitarConsumoPersonal(){
 function generarPresupuesto(){
   const sel = prods.filter(p => (qtys[p.id]||0) > 0);
   if(!sel.length){ showToast('Agregá productos al carrito para el presupuesto','err'); return; }
-  const desc = parseFloat(document.getElementById('v-desc')?.value) || 0;
+  const desc = (window.NO_PUEDE_DESCONTAR || ['vendedor','empleado'].includes((USER_ROL||'').toLowerCase()))
+    ? 0 : (parseFloat(document.getElementById('v-desc')?.value) || 0);
   const sub = sel.reduce((s,p)=> s + (p.precio||0)*(qtys[p.id]||0), 0);
   const total = sub*(1-desc/100);
   const hoy = new Date();
@@ -9923,7 +10169,7 @@ function printTicket(){
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
 <style>
   *{box-sizing:border-box}
-  body{font-family:'Courier New',monospace;font-size:12px;width:300px;margin:0 auto;padding:8px 6px;color:#000}
+  body{font-family:'Courier New',monospace;font-size:11px;width:250px;margin:0 auto;padding:6px 4px;color:#000}
   .ticket-title{text-align:center;font-size:16px;font-weight:700;margin-bottom:2px}
   .ticket-sub{text-align:center;font-size:9px;margin-bottom:8px;letter-spacing:1px;text-transform:uppercase}
   .ticket-divider{border:none;border-top:1px dashed #000;margin:6px 0}
@@ -10430,6 +10676,7 @@ function editProduct(id){
   document.getElementById('np-price').value=p.precio||'';
   document.getElementById('np-barcode').value=p.barcode||'';
   { const _cp=document.getElementById('np-codprov'); if(_cp) _cp.value=p.codigo_proveedor||''; }
+  { const _ii=document.getElementById('np-imp-interno'); if(_ii) _ii.value=p.impuesto_interno_unitario||''; }
   document.getElementById('np-costo').value=p.costo||'';
   document.getElementById('np-vence').value=p.vence||'';
   document.getElementById('np-stock').value=p.stock||'';
@@ -10457,8 +10704,9 @@ async function updateProduct(id){
     const barcode = document.getElementById('np-barcode')?.value.trim() || null;
     const codigoProveedor = document.getElementById('np-codprov')?.value.trim() || null;
     const costo = parseFloat(document.getElementById('np-costo')?.value) || 0;
+    const impuestoInterno = parseFloat(document.getElementById('np-imp-interno')?.value) || 0;
     const vence = document.getElementById('np-vence')?.value || null;
-    const updates={nombre,precio:precioNuevo,barcode,codigo_proveedor:codigoProveedor,costo,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
+    const updates={nombre,precio:precioNuevo,barcode,codigo_proveedor:codigoProveedor,costo,impuesto_interno_unitario:impuestoInterno,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
     // Si cambió el precio a mano, bloquearlo para que las listas nuevas no lo pisen
     if(precioNuevo>0 && Math.abs(precioNuevo-precioAnterior)>0.01){
       updates.precio_bloqueado = true;
@@ -10516,6 +10764,7 @@ async function saveProduct(){
     const precio = parseFloat(document.getElementById('np-price').value)||0;
     const barcode = document.getElementById('np-barcode').value.trim() || null;
     const codigoProveedor = document.getElementById('np-codprov')?.value.trim() || null;
+    const impuestoInterno = parseFloat(document.getElementById('np-imp-interno')?.value) || 0;
     const vence = document.getElementById('np-vence').value || null;
     const proveedor_id = document.getElementById('np-proveedor')?.value || null;
     const p=await sbInsert('productos',{
@@ -10524,6 +10773,7 @@ async function saveProduct(){
       costo,
       barcode,
       codigo_proveedor: codigoProveedor,
+      impuesto_interno_unitario: impuestoInterno,
       vence,
       stock:parseInt(document.getElementById('np-stock').value)||0,
       categoria:document.getElementById('np-cat').value||'General',
@@ -10539,11 +10789,11 @@ async function saveProduct(){
     closeModal('ov-add-prod');
     renderCats();renderProds();renderStock(stockFilter);populateSelects();
     showToast('✅ Producto agregado','ok');
-    ['np-name','np-price','np-stock','np-cat','np-min','np-barcode','np-codprov'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+    ['np-name','np-price','np-stock','np-cat','np-min','np-barcode','np-codprov','np-imp-interno'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   }catch(e){showToast('❌ Error al guardar producto','err');console.error(e);}
 }
 function abrirAltaProducto(){
-  ['np-name','np-barcode','np-codprov','np-cat','np-vence','np-price','np-costo','np-stock','np-min'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  ['np-name','np-barcode','np-codprov','np-imp-interno','np-cat','np-vence','np-price','np-costo','np-stock','np-min'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   const npProv=document.getElementById('np-proveedor');
   if(npProv) npProv.innerHTML='<option value="">— Sin proveedor —</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
   { const _b=document.getElementById('np-bulto'); if(_b) _b.value=''; }
@@ -10972,16 +11222,19 @@ function renderCompraList(){
     const totalGrp = g.items.reduce((s,c)=> s + (c.precio_unitario||0)*(c.cantidad||0), 0);
     const unidades = g.items.reduce((s,c)=> s + (c.cantidad||0), 0);
     const tieneFac = co.factura_cargada;
+    const esTraspaso = !!co.es_traspaso_interno;
     const pagoColor = co.forma_pago==='Cuenta Corriente'?'#1565c0':co.forma_pago==='Transferencia'?'#1a5c38':'#555';
     const estadoColor = co.estado_pedido==='faltante'?'#e65100':co.estado_pedido==='roto'?'#c94040':'#1a5c38';
 
-    const facBadge = tieneFac
-      ? `<span style="font-size:10px;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:10px;font-weight:600">✅ Factura cargada</span>`
-      : `<button onclick="abrirModalFactura('${co.id}');event.stopPropagation()" style="font-size:10px;background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:10px;font-weight:600;border:none;cursor:pointer">⚠️ Cargar factura</button>`;
+    const facBadge = esTraspaso
+      ? `<span style="font-size:10px;background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:10px;font-weight:600">🔁 Traspaso interno</span>`
+      : tieneFac
+        ? `<span style="font-size:10px;background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:10px;font-weight:600">✅ Factura cargada</span>`
+        : `<button onclick="abrirModalFactura('${co.id}');event.stopPropagation()" style="font-size:10px;background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:10px;font-weight:600;border:none;cursor:pointer">⚠️ Cargar factura</button>`;
 
     // Titulo: si es remito, mostrar el remito como unidad; si no, el producto
     const titulo = g.esRemito
-      ? `<span style="font-weight:700">📦 Remito · ${g.items.length} productos</span>`
+      ? `<span style="font-weight:700">${esTraspaso?'🔁':'📦'} ${esTraspaso?'Traspaso interno':'Remito'} · ${g.items.length} productos</span>`
       : `<span style="font-weight:600">${esc(co.producto_nombre||'—')}</span>`;
 
     // Detalle de articulos (solo para remitos): lista interna
@@ -11013,7 +11266,7 @@ function renderCompraList(){
       ? `<button onclick="abrirAnularCompra('${co.id}');event.stopPropagation()" style="font-size:10px;background:#fef2f2;color:#c94040;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #fecaca;cursor:pointer" title="${g.esRemito?'Anular remito':'Anular compra'}">🗑️</button>`
       : '';
 
-    return `<div class="ccard" style="border-left:3px solid ${tieneFac?'#16a34a':'#dc2626'}">
+    return `<div class="ccard" style="border-left:3px solid ${esTraspaso?'#6d28d9':(tieneFac?'#16a34a':'#dc2626')}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div class="cc-prod">${titulo}</div>
         ${totalGrp?`<div class="cc-total" style="font-family:'DM Mono',monospace;font-weight:700">$${totalGrp.toLocaleString('es-AR')}</div>`:''}
@@ -11304,13 +11557,25 @@ function _alicuotaCompra(co){
   return 21;
 }
 
-// Devuelve {neto, iva, total, ali} de una compra usando su alícuota real
+// Devuelve {neto, iva, total, ali} de una compra usando su alícuota real.
+//
+// IMPORTANTE (corregido 25/07/2026, verificado contra factura real de
+// Distribuidora San Esteban): compras.precio_unitario es el costo NETO
+// por unidad — así lo carga el remito (recalcRemitoTotales trata "costo"
+// como neto y suma el IVA aparte) y así vienen las facturas reales de
+// tus proveedores (Neto 21%/10,5% se declaran por separado, el IVA se
+// SUMA sobre eso, no se extrae de un bruto). Antes esta función dividía
+// precio_unitario×cantidad por (1+alícuota/100) como si ya tuviera el
+// IVA adentro — eso sub-estimaba tanto el neto como el IVA Crédito
+// Fiscal en Mayor/Balance para TODAS las compras, no solo las
+// multi-alícuota. Si repasás reportes históricos con la contadora, el
+// total (Mercaderías + IVA = a pagar) ahora da más alto que antes,
+// porque antes el IVA salía "de adentro" del costo en vez de sumarse.
 function _ivaCompra(co){
-  const total = (co.precio_unitario||0)*(co.cantidad||0);
+  const neto = redondear((co.precio_unitario||0)*(co.cantidad||0), 2);
   const ali = _alicuotaCompra(co);
-  const factor = 1 + ali/100;
-  const neto = redondear(total / factor, 2);
-  const iva = redondear(total - neto, 2);
+  const iva = redondear(neto * ali / 100, 2);
+  const total = redondear(neto + iva, 2);
   return { neto, iva, total, ali };
 }
 
@@ -11416,13 +11681,32 @@ async function guardarGasto() {
 }
 
 async function eliminarGasto(id) {
+  if (!_esRolAdmin()) { showToast('Solo dueños o administrativos pueden eliminar gastos', 'err'); return; }
   if (!confirm('¿Eliminar este gasto?')) return;
   try {
-    await SB.from('gastos').update({is_deleted:true,deleted_at:new Date().toISOString()}).eq('id', id);
+    // OJO: pedimos .select() para saber si el UPDATE realmente afectó
+    // una fila. Sin esto, si una política RLS bloquea el borrado,
+    // Supabase no tira error — simplemente no actualiza nada — y el
+    // código anterior lo sacaba de la lista igual (parecía funcionar)
+    // aunque en la base seguía intacto, por eso volvía a aparecer al
+    // recargar.
+    const { data, error } = await SB.from('gastos')
+      .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+      .eq('id', id)
+      .select();
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      showToast('❌ No se pudo borrar (permiso denegado por la base) — avisale a Bautista con este mensaje', 'err');
+      console.error('eliminarGasto: UPDATE no afectó ninguna fila. Posible bloqueo por RLS. id=', id);
+      return;
+    }
     gastos = gastos.filter(g => g.id !== id);
     renderGastos();
     showToast('✅ Gasto eliminado', 'ok');
-  } catch(e) { showToast('❌ Error', 'err'); }
+  } catch(e) {
+    showToast('❌ Error al eliminar: ' + (e?.message || 'desconocido'), 'err');
+    console.error('eliminarGasto error:', e);
+  }
 }
 
 function renderGastos() {
@@ -11932,8 +12216,9 @@ function renderFinanzas(){
     });
   });
 
-  // Compras filtradas (egresos de reposición de stock)
-  const comprasFilt = (finPeriodo==='todo' ? compras : compras.filter(c=>c.fecha>=cutoff)).filter(c=>!c.anulada);
+  // Compras filtradas (egresos de reposición de stock) — excluye traspasos
+  // internos: no hubo plata real que salió de la empresa por esa mercadería.
+  const comprasFilt = (finPeriodo==='todo' ? compras : compras.filter(c=>c.fecha>=cutoff)).filter(c=>!c.anulada && !c.es_traspaso_interno);
   const totalCompras = comprasFilt.reduce((s,c)=>s+(c.precio_unitario||0)*(c.cantidad||0),0);
   const countCompras = comprasFilt.length;
 
