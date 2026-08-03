@@ -1392,7 +1392,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
             <div class="flabel">Neto gravado</div>
             <div style="position:relative">
               <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
-              <input class="inp" id="fac-neto" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
+              <input class="inp" id="fac-neto" type="number" step="0.01" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
             </div>
           </div>
           <div>
@@ -1408,7 +1408,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
             <div class="flabel">IVA</div>
             <div style="position:relative">
               <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
-              <input class="inp" id="fac-iva" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace;background:#f0f8f0" readonly>
+              <input class="inp" id="fac-iva" type="number" step="0.01" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace;background:#f0f8f0" readonly>
             </div>
           </div>
         </div>
@@ -1419,14 +1419,14 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
             <div class="flabel">Percepción IVA (RG2408/5329)</div>
             <div style="position:relative">
               <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
-              <input class="inp" id="fac-perc-iva" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
+              <input class="inp" id="fac-perc-iva" type="number" step="0.01" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
             </div>
           </div>
           <div style="flex:1">
             <div class="flabel">Percepción IIBB</div>
             <div style="position:relative">
               <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
-              <input class="inp" id="fac-perc-iibb" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
+              <input class="inp" id="fac-perc-iibb" type="number" step="0.01" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
             </div>
           </div>
         </div>
@@ -1436,14 +1436,14 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
             <div class="flabel">Impuestos internos</div>
             <div style="position:relative">
               <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
-              <input class="inp" id="fac-imp-int" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
+              <input class="inp" id="fac-imp-int" type="number" step="0.01" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
             </div>
           </div>
           <div style="flex:1">
             <div class="flabel">No gravado</div>
             <div style="position:relative">
               <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
-              <input class="inp" id="fac-no-grav" type="number" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
+              <input class="inp" id="fac-no-grav" type="number" step="0.01" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
             </div>
           </div>
         </div>
@@ -4930,14 +4930,25 @@ async function confirmarRemito(){
     // Impuesto interno por unidad — se guarda aparte para poder discriminarlo
     // en el ticket de venta (Régimen Transparencia Fiscal).
     const impInternoUnitario = (impInternoTotalLinea>0 && unidades>0) ? Math.round(impInternoTotalLinea/unidades*100)/100 : 0;
-    // Costo REAL del producto = base + impuesto interno. Se cargan por
-    // separado (tal como vienen discriminados en la factura: "Pr. unit."
-    // e "Imp. Int." son columnas distintas) y acá se suman — es lo que
-    // se guarda como costo del producto para calcular el precio de venta.
+    // IVA por unidad, a la alícuota de la línea.
+    const ivaUnitario = costoUnit!=null ? Math.round(costoUnit*alicLinea/100*100)/100 : 0;
+    // Costo CONTABLE = base + impuesto interno (SIN IVA). Es lo que se
+    // guarda en compras.precio_unitario y en el Kardex — el IVA no se
+    // suma acá porque el motor contable ya lo calcula aparte (cuenta IVA
+    // Crédito Fiscal, en asientoCompra/Mayor/Balance) a partir de este
+    // mismo neto; sumarlo acá lo contaría dos veces.
     const costoFinalUnit = costoUnit!=null ? Math.round((costoUnit+impInternoUnitario)*100)/100 : null;
-    // Neto de la línea (para el registro de la compra) = costo real × unidades
+    // Costo PARA PRECIO DE VENTA: en productos con impuesto interno
+    // (tabaco), tu propia planilla suma neto + IVA + impuesto interno —
+    // eso es lo que se guarda acá. En productos SIN impuesto interno, no
+    // se toca nada: el costo sigue siendo el mismo de siempre (sin IVA),
+    // para no cambiarte el margen de todo el resto del catálogo sin que
+    // lo hayas pedido. Avisame si en realidad querés esto para todo.
+    const costoParaPrecio = costoUnit==null ? null
+      : (impInternoUnitario>0 ? Math.round((costoUnit+ivaUnitario+impInternoUnitario)*100)/100 : costoFinalUnit);
+    // Neto de la línea (para el registro de la compra) = costo contable × unidades
     const neto = costoFinalUnit!=null ? Math.round(costoFinalUnit*unidades*100)/100 : 0;
-    lineas.push({...l, qty, modo, costo, costoModo, alicuota:alicLinea, impInternoUnitario, unidades, costoUnit, costoFinalUnit, neto});
+    lineas.push({...l, qty, modo, costo, costoModo, alicuota:alicLinea, impInternoUnitario, ivaUnitario, unidades, costoUnit, costoFinalUnit, costoParaPrecio, neto});
   }
 
   if(esSinFactura && lineas.some(l => !l.costoUnit)){
@@ -4970,12 +4981,15 @@ async function confirmarRemito(){
         p_observacion: esTraspasoInterno ? 'Traspaso interno — mercadería propia (mismo CUIT)' : (esSinFactura ? ('Sin factura'+(prov?' — '+prov:'')) : ('Remito'+(prov?' — '+prov:'')))
       });
       const pref=prods.find(p=>p.id===ln.prodId);
-      if(ln.costoFinalUnit!=null){
+      if(ln.costoParaPrecio!=null){
         // Alícuota e impuesto interno REALES de esta línea (no un valor
         // de cabecera) — cada producto guarda los suyos, así la venta los
-        // lee correctos más adelante. El costo guardado ya incluye el
-        // impuesto interno (base + impuesto interno sumados acá arriba).
-        await SB.from('productos').update({costo:ln.costoFinalUnit, iva_alicuota:ln.alicuota, impuesto_interno_unitario:ln.impInternoUnitario}).eq('id',ln.prodId);
+        // lee correctos más adelante. productos.costo = base + IVA +
+        // impuesto interno (el costo real para calcular precio de venta);
+        // compras.precio_unitario y el Kardex, más arriba, se guardaron
+        // SIN el IVA — ese valor alimenta la contabilidad, que ya calcula
+        // el IVA Crédito Fiscal por su cuenta a partir de él.
+        await SB.from('productos').update({costo:ln.costoParaPrecio, iva_alicuota:ln.alicuota, impuesto_interno_unitario:ln.impInternoUnitario}).eq('id',ln.prodId);
         if(pref){ pref.iva_alicuota = ln.alicuota; pref.impuesto_interno_unitario = ln.impInternoUnitario; }
       }
       try{ const {data:fresh}=await SB.from('productos').select('precio,costo,stock').eq('id',ln.prodId).single();
