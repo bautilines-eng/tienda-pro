@@ -724,6 +724,8 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         </div>
       </div>
       <div style="display:flex;gap:8px;width:100%">
+        <button onclick="cancelarVenta()" title="Cancelar esta venta y vaciar el carrito"
+          style="padding:13px 16px;border-radius:10px;border:1.5px solid #dc2626;background:#fef2f2;color:#dc2626;font-size:16px;cursor:pointer;font-weight:700">✕</button>
         <button class="btn btn-rust" id="c-btn" onclick="withLoadingButton(this, registerSale)()" style="flex:1">Confirmar →</button>
         <button onclick="generarLinkMP()" title="Generar link de pago MercadoPago"
           style="padding:13px 16px;border-radius:10px;border:1.5px solid #009ee3;background:#f0faff;color:#009ee3;font-size:18px;cursor:pointer;font-weight:700;white-space:nowrap"
@@ -883,11 +885,11 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         style="display:none;padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
         🚛 Recepciones GRN
       </button>
-      <button class="stock-tab" data-tab="ajuste" onclick="switchStockTab(this)"
+      <button class="stock-tab" id="stock-tab-ajuste" data-tab="ajuste" onclick="switchStockTab(this)"
         style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
         ⚖️ Ajuste Manual
       </button>
-      <button class="stock-tab" data-tab="recuento" onclick="switchStockTab(this);renderRecuento()"
+      <button class="stock-tab" id="stock-tab-recuento" data-tab="recuento" onclick="switchStockTab(this);renderRecuento()"
         style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
         📋 Recuento
       </button>
@@ -8479,6 +8481,14 @@ function aplicarPermisosUI(){
   if(adminTab && (USER?.email !== ADMIN_EMAIL)) adminTab.style.display='none';
   // Vendedor: en Stock solo ve productos disponibles (stock > 0)
   window.STOCK_SOLO_DISPONIBLES = esVendedor;
+  // Vendedor: no puede ajustar stock manualmente (ni por tab dedicado,
+  // ni por el +/- rápido de cada producto) — eso queda para dueño y
+  // administrativo, para no perder trazabilidad de quién corrige qué.
+  window.NO_PUEDE_AJUSTAR_STOCK = esVendedor;
+  const tabAjuste = document.getElementById('stock-tab-ajuste');
+  if (tabAjuste) tabAjuste.style.display = esVendedor ? 'none' : '';
+  const tabRecuento = document.getElementById('stock-tab-recuento');
+  if (tabRecuento) tabRecuento.style.display = esVendedor ? 'none' : '';
   // Administrativo: NO puede efectuar ventas
   window.NO_PUEDE_VENDER = esAdministrativo;
   // Vendedor: NO puede aplicar descuentos en las ventas
@@ -9552,6 +9562,32 @@ async function _pedirCaeAfipNC({ venta, motivo, requestId }){
   const nroTxt = String(resultado.cbte_numero).padStart(8,'0');
 
   return { cae: resultado.cae, caeVto: resultado.cae_vto, nroComprobante: ptoVtaTxt + '-' + nroTxt };
+}
+
+// Cancela la venta en curso: vacía el carrito y resetea todo el panel
+// de pago a su estado inicial, sin registrar nada. Mismo reset que se
+// hace después de confirmar una venta con éxito, pero disparado a mano.
+function cancelarVenta(){
+  const hayCarrito = Object.values(qtys).some(v=>v>0);
+  if(hayCarrito && !confirm('¿Cancelar esta venta? Se va a vaciar el carrito.')) return;
+  qtys={};
+  { const st=document.getElementById('split-toggle'); if(st) st.checked=false; splitActivo=false;
+    const sw=document.getElementById('split-wrap'); if(sw) sw.style.display='none';
+    const a1=document.getElementById('split-a1'), a2=document.getElementById('split-a2'); if(a1)a1.value=''; if(a2)a2.value='';
+    const ms=document.querySelector('.msel'); if(ms){ ms.style.opacity=''; ms.style.pointerEvents=''; } }
+  const vd=document.getElementById('v-desc'); if(vd) vd.value='';
+  const vn=document.getElementById('v-nota'); if(vn) vn.value='';
+  const cuitInput=document.getElementById('cuit-cte-input'); if(cuitInput) cuitInput.value='';
+  const razonInput=document.getElementById('razon-social-input'); if(razonInput) razonInput.value='';
+  const vc=document.getElementById('v-cliente'); if(vc) vc.value='';
+  setMethod('Efectivo');
+  const btnCbteDefault=document.querySelector('.cbte-btn[data-cbte="B"]');
+  if(btnCbteDefault) selectCbteTipo(btnCbteDefault);
+  const opcAv=document.getElementById('opc-avanzadas'); if(opcAv) opcAv.style.display='none';
+  document.getElementById('cart').classList.remove('show');
+  if(typeof updateCart==='function') updateCart();
+  if(typeof renderProds==='function') renderProds();
+  if(hayCarrito) showToast('Venta cancelada','ok');
 }
 
 async function registerSale(){
@@ -10687,6 +10723,7 @@ function updateRecuentoConteo(pid, val){
 }
 
 async function aplicarRecuento(){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden ajustar stock por recuento','err'); return; }
   const aAjustar = [];
   prods.forEach(p=>{
     const v = recuentoConteos[p.id];
@@ -10761,17 +10798,18 @@ function renderStock(f){
         <span style="color:#999">·</span>
         <span style="color:#1a5c38;font-weight:600">${p.costo>0?Math.round(((p.precio-p.costo)/p.costo)*100):0}%</span>
       </div>`:''}
-      <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+      ${window.NO_PUEDE_AJUSTAR_STOCK ? '' : `<div style="display:flex;align-items:center;gap:8px;margin-top:8px">
         <span style="font-size:11px;color:var(--muted)">Ajustar stock:</span>
         <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red);padding:4px 10px" onclick="ajustarStock('${p.id}',-1)">−</button>
         <button class="btn btn-sm" style="background:var(--pine-l);color:var(--pine);border:1.5px solid var(--pine);padding:4px 10px" onclick="ajustarStock('${p.id}',1)">+</button>
-      </div>
+      </div>`}
       ${isOut?'<div class="sc-alerta rojo">🔴 Sin stock</div>':isLow?'<div class="sc-alerta">⚠️ Stock bajo</div>':''}
     </div>`;
   }).join('');
 }
 
 async function ajustarStock(id, delta){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden ajustar stock','err'); return; }
   const p=prods.find(x=>x.id==id);if(!p)return;
   const nuevoStock=Math.max(0,p.stock+delta);
   const razon = prompt('Razón del ajuste de stock (requerida para auditoría):');
@@ -12649,6 +12687,7 @@ document.getElementById('aj-stock')?.addEventListener('input', function() {
 });
 
 async function ejecutarAjusteManual() {
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden ajustar stock manualmente','err'); return; }
   const prodId = document.getElementById('aj-prod')?.value;
   const stock  = parseInt(document.getElementById('aj-stock')?.value);
   const razon  = document.getElementById('aj-razon')?.value?.trim();
