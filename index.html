@@ -453,6 +453,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <option value="Contado">Contado</option>
       </select>
     </div>
+    <div class="fgroup"><div class="flabel">Notas <span style="font-size:10px;color:#aaa;font-weight:400">(opcional)</span></div>
+      <textarea class="inp" id="pr-notas" rows="2" placeholder="Ej: vendedor informal, sin datos fiscales confirmados..."></textarea>
+    </div>
     <div class="fgroup"><div class="flabel">Cuenta contable</div>
       <input class="inp" id="pr-cuenta" value="21101001 — PROVEEDORES" disabled style="background:#f4f4f4;color:#777"></div>
     <button class="btn btn-ink btn-full" onclick="saveProveedor()">Guardar proveedor</button>
@@ -768,6 +771,13 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div class="cm"><div class="cm-ico">🏦</div><div class="cm-l">Transfer.</div><div class="cm-v" id="cm-tr">$0</div></div>
         <div class="cm"><div class="cm-ico">💳</div><div class="cm-l">Tarjeta</div><div class="cm-v" id="cm-td">$0</div></div>
         <div class="cm"><div class="cm-ico">🔵</div><div class="cm-l">MercadoPago</div><div class="cm-v" id="cm-mp">$0</div></div>
+      </div>
+      <div class="cm" style="margin-top:8px;background:rgba(230,81,0,.14);border:1px solid rgba(230,81,0,.3);display:flex;align-items:center;justify-content:space-between;text-align:left;padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:16px">📒</span>
+          <div class="cm-l" style="margin-bottom:0">Cuenta Corriente <span style="text-transform:none;opacity:.75">— no cobrado, no suma al total</span></div>
+        </div>
+        <div class="cm-v" id="cm-cc" style="font-size:14px;flex-shrink:0;margin-left:10px">$0</div>
       </div>
     </div>
     <div class="caja-stats">
@@ -10480,12 +10490,17 @@ async function confirmarNotaCredito() {
 function renderCaja(){
   const today=new Date().toISOString().split('T')[0];
   const todaySales=sales.filter(s=>s.fecha===today);
-  const total=todaySales.reduce((s,v)=>s+(v.total||0),0);
+  const totalVentas=todaySales.reduce((s,v)=>s+(v.total||0),0);   // valor real de las ventas (para ticket promedio)
   const ef=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
   const tr=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Transferencia'),0);
   const td=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Tarjeta'),0);
   const mp=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'MercadoPago'),0);
-  const avg=todaySales.length?Math.round(total/todaySales.length):0;
+  const cc=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Cuenta Corriente'),0);
+  // "Total del día" = solo lo que efectivamente entró a caja/banco. La
+  // Cuenta Corriente es una venta real, pero todavía no cobrada — no
+  // corresponde que infle el total de caja del día (eso se ve aparte).
+  const total=ef+tr+td+mp;
+  const avg=todaySales.length?Math.round(totalVentas/todaySales.length):0;
   const totalProds=todaySales.reduce((s,v)=>{const items=typeof v.items==='string'?JSON.parse(v.items||'[]'):v.items||[];return s+items.reduce((a,i)=>a+(i.cantidad||0),0);},0);
 
   document.getElementById('caja-total-hoy').textContent=`$${total.toLocaleString('es-AR')}`;
@@ -10495,6 +10510,8 @@ function renderCaja(){
   document.getElementById('cm-td').textContent=`$${td.toLocaleString('es-AR')}`;
   const cmMp = document.getElementById('cm-mp');
   if(cmMp) cmMp.textContent=`$${mp.toLocaleString('es-AR')}`;
+  const cmCc = document.getElementById('cm-cc');
+  if(cmCc) cmCc.textContent=`$${cc.toLocaleString('es-AR')}`;
   document.getElementById('caja-avg').textContent=`$${avg.toLocaleString('es-AR')}`;
   document.getElementById('caja-prods').textContent=totalProds;
   document.getElementById('arq-ef-sistema').textContent=`$${ef.toLocaleString('es-AR')}`;
@@ -10513,6 +10530,8 @@ function renderCaja(){
         <div class="hc-dr"><span>Efectivo</span><span>$${(c.efectivo||0).toLocaleString('es-AR')}</span></div>
         <div class="hc-dr"><span>Transferencia</span><span>$${(c.transferencia||0).toLocaleString('es-AR')}</span></div>
         <div class="hc-dr"><span>Tarjeta</span><span>$${(c.tarjeta||0).toLocaleString('es-AR')}</span></div>
+        ${c.mercadopago?`<div class="hc-dr"><span>MercadoPago</span><span>$${(c.mercadopago||0).toLocaleString('es-AR')}</span></div>`:''}
+        ${c.cuenta_corriente?`<div class="hc-dr" style="color:#9a5b12"><span>📒 Cuenta Corriente (no cobrado)</span><span>$${(c.cuenta_corriente||0).toLocaleString('es-AR')}</span></div>`:''}
         <div class="hc-dr"><span>Efectivo en caja</span><span>$${(c.efectivo_caja||0).toLocaleString('es-AR')}</span></div>
         <div class="hc-dr"><span>Diferencia</span><span style="color:${(c.diferencia||0)>=0?'var(--pine)':'var(--red)'}">$${(c.diferencia||0).toLocaleString('es-AR')}</span></div>
         ${c.observaciones?`<div style="margin-top:8px;font-size:11px;color:var(--muted);background:var(--cream);padding:8px;border-radius:6px">${esc(c.observaciones)}</div>`:''}
@@ -10538,11 +10557,14 @@ function prepararCierre(){
   const today=new Date().toISOString().split('T')[0];
   const todaySales=sales.filter(s=>s.fecha===today);
   if(!todaySales.length){showToast('No hay ventas hoy para cerrar','err');return;}
-  const total=todaySales.reduce((s,v)=>s+(v.total||0),0);
   const ef=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
   const tr=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Transferencia'),0);
   const td=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Tarjeta'),0);
   const mp=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'MercadoPago'),0);
+  const cc=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Cuenta Corriente'),0);
+  // Total del cierre = solo lo cobrado (igual criterio que renderCaja).
+  // La Cuenta Corriente se ve aparte, abajo, aclarada como no cobrada.
+  const total=ef+tr+td+mp;
   const efCaja=parseFloat(document.getElementById('arq-ef').value)||0;
   const dif=efCaja-ef;
   const obs=document.getElementById('arq-obs').value;
@@ -10551,12 +10573,13 @@ function prepararCierre(){
   document.getElementById('cierre-content').innerHTML=`
     <div style="background:var(--cream);border-radius:12px;padding:16px;margin-bottom:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:12px">Resumen del día ${today}</div>
-      <div class="hc-dr"><span>Total ventas</span><span style="font-family:monospace;font-weight:700">$${total.toLocaleString('es-AR')}</span></div>
+      <div class="hc-dr"><span>Total cobrado</span><span style="font-family:monospace;font-weight:700">$${total.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>Cantidad de ventas</span><span>${todaySales.length}</span></div>
       <div class="hc-dr"><span>Efectivo</span><span>$${ef.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>Transferencia</span><span>$${tr.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>Tarjeta</span><span>$${td.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>MercadoPago</span><span>$${mp.toLocaleString('es-AR')}</span></div>
+      ${cc>0?`<div class="hc-dr" style="color:#9a5b12"><span>📒 Cuenta Corriente (no cobrado, no suma)</span><span>$${cc.toLocaleString('es-AR')}</span></div>`:''}
       ${gastosHoyCierre.length>0?`<div class="hc-dr" style="border-top:1px solid #ddd;margin-top:6px;padding-top:6px"><span style="color:#c94040;font-weight:600">Gastos del día</span><span style="color:#c94040;font-weight:700">-$${gastosHoyCierre.reduce((s,g)=>s+(g.monto||0),0).toLocaleString('es-AR')}</span></div>`:''}
       <div class="hc-dr"><span>Efectivo en caja</span><span>$${efCaja.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span style="font-weight:600">Diferencia</span><span style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${dif.toLocaleString('es-AR')}</span></div>
@@ -10565,7 +10588,7 @@ function prepararCierre(){
     <div style="font-size:13px;color:var(--red);font-weight:500">⚠️ Esta acción registrará el cierre oficial del día. No se puede deshacer.</div>`;
 
   // Store cierre data for confirm
-  window._cierreData={fecha:today,total,ventas_count:todaySales.length,efectivo:ef,transferencia:tr,tarjeta:td,mercadopago:mp,efectivo_caja:efCaja,diferencia:dif,observaciones:obs,gastos_dia:gastosHoyCierre};
+  window._cierreData={fecha:today,total,ventas_count:todaySales.length,efectivo:ef,transferencia:tr,tarjeta:td,mercadopago:mp,cuenta_corriente:cc,efectivo_caja:efCaja,diferencia:dif,observaciones:obs,gastos_dia:gastosHoyCierre};
   openModal('ov-cierre');
 }
 
@@ -10994,7 +11017,7 @@ function populateProveedoresSelect(){
   if(actual) sel.value = actual;
 }
 function abrirAltaProveedor(){
-  ['pr-razon','pr-cuit','pr-iibb','pr-provincia','pr-domicilio','pr-telefono','pr-email'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  ['pr-razon','pr-cuit','pr-iibb','pr-provincia','pr-domicilio','pr-telefono','pr-email','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   const condiva=document.getElementById('pr-condiva'); if(condiva) condiva.value='RI';
   const formapago=document.getElementById('pr-formapago'); if(formapago) formapago.value='Cuenta Corriente';
   const t=document.querySelector('#ov-add-prov .modal-title'); if(t) t.textContent='Nuevo Proveedor';
@@ -11017,6 +11040,7 @@ async function saveProveedor(){
       telefono: document.getElementById('pr-telefono').value.trim() || null,
       email: document.getElementById('pr-email').value.trim() || null,
       forma_pago: document.getElementById('pr-formapago').value,
+      notas: document.getElementById('pr-notas')?.value.trim() || null,
       cuenta_contable: '21101001',
     });
     proveedores.push(prov);
@@ -11025,7 +11049,7 @@ async function saveProveedor(){
     const sel=document.getElementById('co-prov-select'); if(sel) sel.value=prov.id;
     renderProveedores();
     showToast('✅ Proveedor guardado','ok');
-    ['pr-razon','pr-cuit','pr-iibb','pr-provincia','pr-domicilio','pr-telefono','pr-email'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+    ['pr-razon','pr-cuit','pr-iibb','pr-provincia','pr-domicilio','pr-telefono','pr-email','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   }catch(e){ showToast('❌ Error al guardar proveedor','err'); console.error(e); }
 }
 
@@ -11047,6 +11071,7 @@ function editProveedor(id){
   document.getElementById('pr-telefono').value = p.telefono || '';
   document.getElementById('pr-email').value = p.email || '';
   document.getElementById('pr-formapago').value = p.forma_pago || 'Cuenta Corriente';
+  const notasEl = document.getElementById('pr-notas'); if(notasEl) notasEl.value = p.notas || '';
   const t=document.querySelector('#ov-add-prov .modal-title'); if(t) t.textContent='Editar Proveedor';
   const btn=document.querySelector('#ov-add-prov .btn-ink');
   if(btn){ btn.textContent='Guardar cambios'; btn.onclick=()=>updateProveedor(id); }
@@ -11062,7 +11087,7 @@ async function updateProveedor(id){
 
   const idx = proveedores.findIndex(x=>x.id===id);
   if(idx<0){ showToast('Proveedor no encontrado','err'); return; }
-  const oldValue = { razon_social: proveedores[idx].razon_social, cuit: proveedores[idx].cuit, condicion_iva: proveedores[idx].condicion_iva };
+  const oldValue = { razon_social: proveedores[idx].razon_social, cuit: proveedores[idx].cuit, condicion_iva: proveedores[idx].condicion_iva, notas: proveedores[idx].notas };
 
   const updates = {
     razon_social: razon,
@@ -11074,6 +11099,7 @@ async function updateProveedor(id){
     telefono: document.getElementById('pr-telefono').value.trim() || null,
     email: document.getElementById('pr-email').value.trim() || null,
     forma_pago: document.getElementById('pr-formapago').value,
+    notas: document.getElementById('pr-notas')?.value.trim() || null,
   };
 
   try{
@@ -11084,7 +11110,7 @@ async function updateProveedor(id){
     closeModal('ov-add-prov');
     const t=document.querySelector('#ov-add-prov .modal-title'); if(t) t.textContent='Nuevo Proveedor';
     const btn=document.querySelector('#ov-add-prov .btn-ink'); if(btn){ btn.textContent='Guardar proveedor'; btn.onclick=saveProveedor; }
-    ['pr-razon','pr-cuit','pr-iibb','pr-provincia','pr-domicilio','pr-telefono','pr-email'].forEach(idEl=>{const el=document.getElementById(idEl); if(el) el.value='';});
+    ['pr-razon','pr-cuit','pr-iibb','pr-provincia','pr-domicilio','pr-telefono','pr-email','pr-notas'].forEach(idEl=>{const el=document.getElementById(idEl); if(el) el.value='';});
 
     populateProveedoresSelect();
     renderProveedores();
@@ -11115,6 +11141,7 @@ function renderProveedores(){
         </div>
         <div style="font-size:12px;color:var(--muted)">${p.cuit?('CUIT '+p.cuit+' · '):''}${p.condicion_iva||''}${p.provincia?(' · '+p.provincia):''}</div>
         <div style="font-size:12px;color:var(--muted)">Pago: ${p.forma_pago||'—'} · Cuenta ${p.cuenta_contable||'21101001'}</div>
+        ${p.notas ? `<div style="font-size:11.5px;color:#888;font-style:italic;margin-top:4px">📝 ${esc(p.notas)}</div>` : ''}
       </div>`).join('') : '<div class="empty">Sin proveedores cargados aún</div>');
 }
 
@@ -11480,16 +11507,19 @@ async function prepararCierreTurno() {
   const today = new Date().toISOString().split('T')[0];
   const now = new Date().toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
   const turnoSales = sales.filter(s => s.fecha === today);
-  const totalTurno = turnoSales.reduce((s,v) => s+(v.total||0), 0);
-  const ef = turnoSales.filter(s=>s.metodo_pago==='Efectivo').reduce((s,v)=>s+(v.total||0),0);
-  const tr = turnoSales.filter(s=>s.metodo_pago==='Transferencia').reduce((s,v)=>s+(v.total||0),0);
-  const td = turnoSales.filter(s=>s.metodo_pago==='Tarjeta').reduce((s,v)=>s+(v.total||0),0);
-  const mp = turnoSales.filter(s=>s.metodo_pago==='MercadoPago').reduce((s,v)=>s+(v.total||0),0);
-  const cc = turnoSales.filter(s=>s.metodo_pago==='Cuenta Corriente').reduce((s,v)=>s+(v.total||0),0);
+  const ef = turnoSales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
+  const tr = turnoSales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Transferencia'),0);
+  const td = turnoSales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Tarjeta'),0);
+  const mp = turnoSales.reduce((s,v)=>s+_ventaSumaMetodo(v,'MercadoPago'),0);
+  const cc = turnoSales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Cuenta Corriente'),0);
+  // TOTAL = solo lo cobrado (Efectivo+Transferencia+Tarjeta+MercadoPago).
+  // La Cuenta Corriente se ve aparte en su propia fila, aclarada como
+  // no cobrada — así el total sí cierra con el desglose de arriba.
+  const totalTurno = ef+tr+td+mp;
 
   if(!confirm(`¿Confirmar cierre de turno a las ${now}?
 
-Total: $${totalTurno.toLocaleString('es-AR')}
+Total cobrado: $${totalTurno.toLocaleString('es-AR')}${cc>0?`\nCta. Corriente (no cobrado): $${cc.toLocaleString('es-AR')}`:''}
 Ventas: ${turnoSales.length}`)) return;
 
   // Generar PDF del turno
@@ -11510,8 +11540,8 @@ Ventas: ${turnoSales.length}`)) return;
   <div class="row"><span>Transferencia</span><span>$${tr.toLocaleString('es-AR')}</span></div>
   <div class="row"><span>Tarjeta</span><span>$${td.toLocaleString('es-AR')}</span></div>
   <div class="row"><span>MercadoPago</span><span>$${mp.toLocaleString('es-AR')}</span></div>
-  <div class="row"><span>Cta. Corriente</span><span>$${cc.toLocaleString('es-AR')}</span></div>
-  <div class="row total"><span>TOTAL</span><span>$${totalTurno.toLocaleString('es-AR')}</span></div>
+  <div class="row"><span>Cta. Corriente <small style="color:#999">(no cobrado)</small></span><span>$${cc.toLocaleString('es-AR')}</span></div>
+  <div class="row total"><span>TOTAL COBRADO</span><span>$${totalTurno.toLocaleString('es-AR')}</span></div>
   <br><p style="font-size:12px;color:#999">Generado por Tienda Pro · ${new Date().toLocaleString('es-AR')}</p>
   <script>window.print();<\/script>
 </body></html>`;
