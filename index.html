@@ -9822,7 +9822,7 @@ async function registerSale(){
       cliente:         (tipoCbte === 'A' ? (razonSocial || clienteNom) : clienteNom),
       cuit_comprador:  (tipoCbte === 'A' ? cuitDigits : (cuitCte || null)),
       items:           JSON.stringify(items),
-      fecha:           new Date().toISOString().split('T')[0],
+      fecha:           fechaHoyLocal(),
       nro_comprobante: result.nro_comprobante,
       tipo_cbte:       tipoCbte,
       // IMPORTANTE: acá se usa el neto/IVA de `ivaCalc` — el desglose real
@@ -10422,8 +10422,8 @@ ${document.getElementById('ticket-content').innerHTML}
 // ══ HISTORIAL ══
 function filtH(f,el){histFilter=f;document.querySelectorAll('#ph .fb').forEach(b=>b.classList.remove('on'));el.classList.add('on');renderHist();}
 function renderHist(){
-  const today=new Date().toISOString().split('T')[0];
-  const week=new Date(Date.now()-7*86400000).toISOString().split('T')[0];
+  const today=fechaHoyLocal();
+  const week=fechaHoyLocal(Date.now()-7*86400000);
   const todaySales=sales.filter(s=>s.fecha===today);
   document.getElementById('h-vhoy').textContent=todaySales.length;
   document.getElementById('h-thoy').textContent=`$${todaySales.reduce((s,v)=>s+(v.total||0),0).toLocaleString('es-AR')}`;
@@ -10595,8 +10595,23 @@ async function confirmarNotaCredito() {
 }
 
 // ══ CIERRE DE CAJA ══
+// Fecha "de hoy" según el huso horario LOCAL del dispositivo (no UTC).
+// BUG que esto corrige: new Date().toISOString() siempre devuelve la fecha
+// en UTC. Argentina es UTC-3 sin horario de verano, así que a las 21:00 hora
+// local el reloj UTC ya cruzó la medianoche → el "día" de Caja cambiaba a
+// las 21hs en vez de a medianoche, cortando el día comercial al medio: las
+// ventas hechas después de las 21hs quedaban con fecha de "mañana" y
+// desaparecían del total de Caja de hoy (efecto "se resetea la caja a la
+// noche"). Este helper usa el mismo truco ya probado en el módulo de
+// Minutas (ver setMinutaTipo) para obtener la fecha calendario LOCAL.
+function fechaHoyLocal(d){
+  const x = d ? new Date(d) : new Date();
+  x.setMinutes(x.getMinutes() - x.getTimezoneOffset());
+  return x.toISOString().split('T')[0];
+}
+
 function renderCaja(){
-  const today=new Date().toISOString().split('T')[0];
+  const today=fechaHoyLocal();
   const todaySales=sales.filter(s=>s.fecha===today);
   const totalVentas=todaySales.reduce((s,v)=>s+(v.total||0),0);   // valor real de las ventas (para ticket promedio)
   const ef=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
@@ -10651,7 +10666,7 @@ function renderCaja(){
 }
 
 function calcArqueo(){
-  const today=new Date().toISOString().split('T')[0];
+  const today=fechaHoyLocal();
   const todaySales=sales.filter(s=>s.fecha===today);
   const ef=todaySales.filter(s=>s.metodo_pago==='Efectivo').reduce((s,v)=>s+(v.total||0),0);
   const efCaja=parseFloat(document.getElementById('arq-ef').value)||0;
@@ -10662,7 +10677,7 @@ function calcArqueo(){
 }
 
 function prepararCierre(){
-  const today=new Date().toISOString().split('T')[0];
+  const today=fechaHoyLocal();
   const todaySales=sales.filter(s=>s.fecha===today);
   if(!todaySales.length){showToast('No hay ventas hoy para cerrar','err');return;}
   const ef=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
