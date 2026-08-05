@@ -2767,8 +2767,11 @@ let stockFilter='all', histFilter='all';
 // ══════════════════════════════════
 // PDF CIERRE DE CAJA
 // ══════════════════════════════════
-function exportarCierrePDF() {
-  const d = window._cierreData;
+function exportarCierrePDF(cierreGuardado) {
+  // Acepta un cierre ya guardado (desde "Cierres anteriores") o, si no se
+  // pasa nada, usa window._cierreData (el preview antes de confirmar,
+  // comportamiento original de este botón dentro del modal de cierre).
+  const d = cierreGuardado || window._cierreData;
   if (!d) { showToast('⚠️ Primero generá el cierre', 'err'); return; }
   const tienda = STORE?.nombre || 'Tienda Pro';
   const fecha = new Date(d.fecha + 'T12:00:00').toLocaleDateString('es-AR', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
@@ -10658,11 +10661,19 @@ function renderCaja(){
         <div class="hc-dr"><span>Efectivo en caja</span><span>$${(c.efectivo_caja||0).toLocaleString('es-AR')}</span></div>
         <div class="hc-dr"><span>Diferencia</span><span style="color:${(c.diferencia||0)>=0?'var(--pine)':'var(--red)'}">$${(c.diferencia||0).toLocaleString('es-AR')}</span></div>
         ${c.observaciones?`<div style="margin-top:8px;font-size:11px;color:var(--muted);background:var(--cream);padding:8px;border-radius:6px">${esc(c.observaciones)}</div>`:''}
+        <button onclick="imprimirCierreGuardado('${c.id}', event)" style="margin-top:8px;width:100%;padding:8px;border-radius:7px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:12px;font-weight:600;cursor:pointer">🖨️ Imprimir cierre</button>
         ${c.reabierto
           ? `<div style="margin-top:8px;font-size:11px;color:#c0392b;background:#fdecea;padding:8px;border-radius:6px">Reabierto${c.reabierto_por?' por '+esc(c.reabierto_por):''}${c.reabierto_motivo?' · '+esc(c.reabierto_motivo):''}</div>`
           : `<button onclick="reabrirCaja('${c.id}', event)" style="margin-top:8px;width:100%;padding:8px;border-radius:7px;border:1px solid #e0a800;background:#fff8e1;color:#9a6a00;font-size:12px;font-weight:600;cursor:pointer">↩️ Reabrir caja</button>`}
       </div>
     </div>`).join('');
+}
+
+function imprimirCierreGuardado(id, event){
+  if(event) event.stopPropagation(); // no togglear la card al tocar el botón
+  const c = cierres.find(x => x.id === id);
+  if(!c){ showToast('No se encontró ese cierre','err'); return; }
+  exportarCierrePDF(c);
 }
 
 function calcArqueo(){
