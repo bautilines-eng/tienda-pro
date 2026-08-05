@@ -5811,6 +5811,12 @@ function fmtFecha(f)              { return (f||'').replace(/-/g,''); }
 function fmtMonto(val, len=15, dec=2) {
   return padL(Math.round(Math.abs(val||0) * Math.pow(10,dec)), len);
 }
+// Códigos de alícuota IVA del Libro IVA Digital (RG 3685), verificados
+// contra la tabla oficial: https://www.afip.gob.ar/libro-iva-digital/documentos/Libro-IVA-Digital-Tablas-del-Sistema.pdf
+function _alicCodigoRG3685(pct) {
+  const map = { 0:'0003', 10.5:'0004', 21:'0005', 27:'0006', 5:'0008', 2.5:'0009' };
+  return map[+pct] || '0005';
+}
 
 function generarIVA(tipo) {
   const periodo = document.getElementById('iva-periodo')?.value;
@@ -5891,46 +5897,66 @@ function generarIVA(tipo) {
 
   } else if (tipo === 'compras_cbte') {
     filename = `LIBRO_IVA_DIGITAL_COMPRAS_CBTE_${periodo.replace('-','')}.txt`;
-    // Excluye traspasos internos (no son facturas reales de proveedor) y
-    // compras "sin factura" (no hay comprobante válido para declarar IVA
-    // crédito fiscal ante ARCA en ninguno de los dos casos).
-    const comps = compras.filter(c => !c.anulada && !c.es_traspaso_interno && !c.es_sin_factura && c.fecha >= desde && c.fecha <= hasta)
-                         .sort((a,b) => a.fecha.localeCompare(b.fecha));
-    lineas = comps.map((co, i) => {
-      const total  = (co.precio_unitario||0)*(co.cantidad||0);
-      const iva    = fmtMonto(calcularIVA(total).iva);
-      const neto   = fmtMonto(calcularIVA(total).neto);
-      const totFmt = fmtMonto(total);
-      const nro    = padL(i+1, 20);
-      const ptoV2  = padL('00001', 5);
-      const denom  = padR(co.proveedor || 'PROVEEDOR', 30);
+    // Fuente: facturas_proveedor — UN registro por FACTURA real (antes
+    // salía de `compras`, una línea por PRODUCTO del remito, con CUIT
+    // en ceros, número inventado con un contador y neto/IVA
+    // recalculados desde cero en vez de los reales del comprobante).
+    // Solo Factura A/B/C tienen crédito fiscal declarable; Recibo y
+    // Otro no se informan acá.
+    // ⚠️ Percepción IVA, IIBB, Imp.Internos y No Gravado: el sistema
+    // SÍ los tiene cargados en facturas_proveedor, pero no incluyo acá
+    // en qué posición exacta van dentro del diseño de registro oficial
+    // de COMPRAS (es distinto al de VENTAS, que si está confirmado más
+    // abajo) — no lo tengo verificado contra la fuente oficial todavía,
+    // así que quedan en 0 en vez de arriesgar a ponerlos en el campo
+    // equivocado. Avisale a tu contadora de este punto puntual.
+    const tipoCbteMap = { FA: CONFIG_FISCAL.tipo_cbte_fac_a, FB: CONFIG_FISCAL.tipo_cbte_fac_b, FC: CONFIG_FISCAL.tipo_cbte_fac_c };
+    const facs = (facturas || []).filter(f =>
+      !f.anulada && tipoCbteMap[f.tipo_cbte] && f.fecha >= desde && f.fecha <= hasta
+    ).sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
+    lineas = facs.map(f => {
+      const { ptoVta: ptoVtaProv, numero: numeroProv } = _splitNumeroFactura(f.numero);
+      const ptoV2   = padL(ptoVtaProv || '1', 5);
+      const nro     = padL(numeroProv || '0', 20);
+      const cuitDig = String(f.cuit_prov || '').replace(/\D/g, '');
+      const nroDoc  = padL(cuitDig || '0', 20);
+      const denom   = padR(f.proveedor || 'PROVEEDOR', 30);
+      const total   = fmtMonto(f.total || 0);
+      const noGrav  = fmtMonto(f.no_gravado || 0);
+      const neto    = fmtMonto(f.neto_gravado || 0);
+      const iva     = fmtMonto(f.importe_iva || 0);
       return [
-        fmtFecha(co.fecha),
-        CONFIG_FISCAL.tipo_cbte_fac_a,  // Facturas A de proveedores
-        ptoV2, nro, nro,                // pto_vta, nro_desde, nro_hasta
-        '80', padL('0',20),             // cod_doc CUIT, nro_doc (pendiente)
+        fmtFecha(f.fecha),
+        tipoCbteMap[f.tipo_cbte],
+        ptoV2, nro, nro,                // pto_vta, nro_desde, nro_hasta — reales, parseados de f.numero
+        '80', nroDoc,                   // cod_doc CUIT, nro_doc — CUIT real del proveedor
         denom,                          // denominacion
-        totFmt,                         // imp_total
-        padL(0,15),                     // imp_tot_conc
-        neto,                           // imp_neto_grav
-        padL(0,15),padL(0,15),padL(0,15),padL(0,15),
-        iva,                            // imp_iva
+        total,                          // imp_total
+        noGrav,                         // imp_tot_conc — No Gravado real (ver aviso arriba)
+        neto,                           // imp_neto_grav — real, no recalculado
+        padL(0,15),padL(0,15),padL(0,15),padL(0,15),  // liq_tur, imp_int, perc_iva, perc_nac — sin verificar, ver aviso
+        iva,                            // imp_iva — real, no recalculado
         padL(0,15),padL(0,15),
         '1',' ','PES',padL(10000,10),
-        fmtFecha(co.fecha),
+        fmtFecha(f.fecha),
       ].join('');
     });
 
   } else if (tipo === 'compras_alic') {
     filename = `LIBRO_IVA_DIGITAL_COMPRAS_ALICUOTAS_${periodo.replace('-','')}.txt`;
-    // Excluye traspasos internos y sin factura — mismo criterio que compras_cbte arriba.
-    const comps = compras.filter(c => !c.anulada && !c.es_traspaso_interno && !c.es_sin_factura && c.fecha >= desde && c.fecha <= hasta)
-                         .sort((a,b) => a.fecha.localeCompare(b.fecha));
-    lineas = comps.map((co, i) => {
-      const total  = (co.precio_unitario||0)*(co.cantidad||0);
-      const neto   = fmtMonto(calcularIVA(total).neto, 15, 3);
-      const ivaLiq = fmtMonto(calcularIVA(total).iva, 15, 3);
-      return [CONFIG_FISCAL.tipo_cbte_fac_a, padL('00001',5), padL(i+1,20), neto, '0005', ivaLiq].join('');
+    // Mismo criterio y misma fuente que compras_cbte arriba.
+    const tipoCbteMap = { FA: CONFIG_FISCAL.tipo_cbte_fac_a, FB: CONFIG_FISCAL.tipo_cbte_fac_b, FC: CONFIG_FISCAL.tipo_cbte_fac_c };
+    const facs = (facturas || []).filter(f =>
+      !f.anulada && tipoCbteMap[f.tipo_cbte] && f.fecha >= desde && f.fecha <= hasta
+    ).sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
+    lineas = facs.map(f => {
+      const { ptoVta: ptoVtaProv, numero: numeroProv } = _splitNumeroFactura(f.numero);
+      const ptoV2   = padL(ptoVtaProv || '1', 5);
+      const nro     = padL(numeroProv || '0', 20);
+      const neto    = fmtMonto(f.neto_gravado || 0, 15, 3);
+      const ivaLiq  = fmtMonto(f.importe_iva || 0, 15, 3);
+      const codAlic = _alicCodigoRG3685(f.alicuota_iva);
+      return [tipoCbteMap[f.tipo_cbte], ptoV2, nro, neto, codAlic, ivaLiq].join('');
     });
   }
 
