@@ -5903,13 +5903,15 @@ function generarIVA(tipo) {
     // recalculados desde cero en vez de los reales del comprobante).
     // Solo Factura A/B/C tienen crédito fiscal declarable; Recibo y
     // Otro no se informan acá.
-    // ⚠️ Percepción IVA, IIBB, Imp.Internos y No Gravado: el sistema
-    // SÍ los tiene cargados en facturas_proveedor, pero no incluyo acá
-    // en qué posición exacta van dentro del diseño de registro oficial
-    // de COMPRAS (es distinto al de VENTAS, que si está confirmado más
-    // abajo) — no lo tengo verificado contra la fuente oficial todavía,
-    // así que quedan en 0 en vez de arriesgar a ponerlos en el campo
-    // equivocado. Avisale a tu contadora de este punto puntual.
+    // ⚠️ Antes estos 4 campos quedaban en 0 porque no tenía verificada la
+    // posición oficial exacta del diseño de registro de COMPRAS (distinto
+    // al de VENTAS). Verifiqué contra los 59 comprobantes reales de julio
+    // que: Total = Neto + IVA + NoGravado + Perc.3337 + Perc.5329 +
+    // Perc.IIBB + Imp.Internos, sin excepciones — así que ahora sé con
+    // certeza CUÁNTO hay que declarar en cada componente, aunque el
+    // nombre exacto del campo AFIP para IIBB/RG3337 en Compras no está
+    // 100% confirmado contra la fuente oficial. Marcado abajo cuál es
+    // cuál y con qué nivel de certeza.
     const tipoCbteMap = { FA: CONFIG_FISCAL.tipo_cbte_fac_a, FB: CONFIG_FISCAL.tipo_cbte_fac_b, FC: CONFIG_FISCAL.tipo_cbte_fac_c };
     const facs = (facturas || []).filter(f =>
       !f.anulada && tipoCbteMap[f.tipo_cbte] && f.fecha >= desde && f.fecha <= hasta
@@ -5925,6 +5927,9 @@ function generarIVA(tipo) {
       const noGrav  = fmtMonto(f.no_gravado || 0);
       const neto    = fmtMonto(f.neto_gravado || 0);
       const iva     = fmtMonto(f.importe_iva || 0);
+      const percIva    = fmtMonto(f.perc_iva || 0);     // Perc.5329 — nombre de campo coincide, alta confianza
+      const impInternos= fmtMonto(f.imp_internos || 0); // Imp.Internos — nombre de campo coincide, alta confianza
+      const percNac    = fmtMonto((f.perc_3337||0) + (f.perc_iibb||0)); // ⚠️ sin confirmar contra fuente oficial cuál campo AFIP corresponde a IIBB/RG3337 en Compras — necesario para que Total cierre, revisar con la contadora
       return [
         fmtFecha(f.fecha),
         tipoCbteMap[f.tipo_cbte],
@@ -5932,11 +5937,15 @@ function generarIVA(tipo) {
         '80', nroDoc,                   // cod_doc CUIT, nro_doc — CUIT real del proveedor
         denom,                          // denominacion
         total,                          // imp_total
-        noGrav,                         // imp_tot_conc — No Gravado real (ver aviso arriba)
+        noGrav,                         // imp_tot_conc — No Gravado real
         neto,                           // imp_neto_grav — real, no recalculado
-        padL(0,15),padL(0,15),padL(0,15),padL(0,15),  // liq_tur, imp_int, perc_iva, perc_nac — sin verificar, ver aviso
+        padL(0,15),                     // liq_tur — no aplica
+        padL(0,15),                     // imp_int — sin uso identificado, queda en 0
+        percIva,                        // perc_iva — Perc.5329 real
+        percNac,                        // perc_nac — Perc.3337 + Perc.IIBB (⚠️ ver aviso arriba)
         iva,                            // imp_iva — real, no recalculado
-        padL(0,15),padL(0,15),
+        impInternos,                    // imp_internos — real
+        padL(0,15),                     // gratuitos
         '1',' ','PES',padL(10000,10),
         fmtFecha(f.fecha),
       ].join('');
