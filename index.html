@@ -1431,6 +1431,16 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           </div>
         </div>
 
+        <div class="frow" style="grid-template-columns:1fr;margin-bottom:8px">
+          <div>
+            <div class="flabel">Percepción RG 3337</div>
+            <div style="position:relative">
+              <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
+              <input class="inp" id="fac-perc-3337" type="number" step="0.01" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="calcularTotalesFac()">
+            </div>
+          </div>
+        </div>
+
         <div class="frow" style="margin-bottom:0">
           <div style="flex:1">
             <div class="flabel">Impuestos internos</div>
@@ -2393,6 +2403,16 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           style="width:100%;padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#1a3a5c,#0d1f33);color:#fff;font-size:14px;font-weight:700;cursor:pointer">
           📦 Descargar los 4 archivos
         </button>
+
+        <div style="background:#f8f8f8;border-radius:12px;padding:14px;margin-top:14px">
+          <div style="font-size:12px;font-weight:700;color:#1a3a5c;margin-bottom:2px">📊 Libro IVA Compras — Excel</div>
+          <div style="font-size:10.5px;color:#888;margin-bottom:10px">Mismo formato que usa la distribuidora, para comparar/reconciliar. No es el archivo para ARCA.</div>
+          <button onclick="generarIVAComprasExcel()"
+            style="width:100%;padding:12px;border-radius:10px;border:1.5px solid #1565c0;background:#e3f2fd;color:#1565c0;font-size:12px;font-weight:700;cursor:pointer">
+            📊 Descargar Excel IVA Compras
+          </button>
+        </div>
+
         <div id="iva-preview" style="margin-top:12px"></div>
       </div>
 
@@ -5943,6 +5963,106 @@ function generarIVATodos() {
 }
 
 // ══════════════════════════════════════════
+// IVA COMPRAS — Excel (formato distribuidora)
+// Exporta facturas_proveedor del período elegido con el mismo layout
+// de columnas que usa la distribuidora en su Libro IVA Compras.
+// NOTA (limitación conocida): el sistema hoy no registra Notas de
+// Crédito/Débito recibidas de proveedores, así que "Comprobante" solo
+// puede salir FC/RE/OT (nunca NC/ND), y "Perc.Municipales" queda
+// siempre en 0 porque ese concepto todavía no se captura en ningún
+// lado. Ninguno de los dos se inventa — se deja explícito en pantalla.
+// ══════════════════════════════════════════
+function _facComprobanteLetra(tipo) {
+  const map = { FA:['FC','A'], FB:['FC','B'], FC:['FC','C'], RE:['RE',''], OT:['OT','']};
+  return map[tipo] || ['FC',''];
+}
+
+function _splitNumeroFactura(numeroStr) {
+  const s = String(numeroStr || '').trim();
+  const m = s.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (m) return { ptoVta: parseInt(m[1],10), numero: parseInt(m[2],10) };
+  const digits = s.replace(/\D/g, '');
+  if (digits.length > 8) {
+    return { ptoVta: parseInt(digits.slice(0, -8), 10), numero: parseInt(digits.slice(-8), 10) };
+  }
+  return { ptoVta: '', numero: s };
+}
+
+function generarIVAComprasExcel() {
+  if (typeof XLSX === 'undefined') { showToast('El generador de Excel se está cargando, probá de nuevo', 'err'); return; }
+  const periodo = document.getElementById('iva-periodo')?.value;
+  if (!periodo) { showToast('Seleccioná el período', 'err'); return; }
+
+  const [year, month] = periodo.split('-');
+  const desde = `${year}-${month}-01`;
+  const hasta = `${year}-${month}-31`;
+
+  // Solo facturas vigentes (no anuladas) del período. facturas_proveedor
+  // ya trae el desglose fiscal cargado a mano en "Cargar Factura" — es
+  // la fuente más precisa que hay, no hace falta recalcular nada.
+  const facs = (facturas || [])
+    .filter(f => !f.anulada && f.fecha >= desde && f.fecha <= hasta)
+    .sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
+
+  if (!facs.length) { showToast('Sin facturas de proveedor para el período seleccionado', 'err'); return; }
+
+  const header = ['Comprobante','Letra','Pto.Vta','Número','Fecha','Proveedor','CUIT',
+    'Neto Gravado','I.V.A.','No Gravado','Perc.3337','Perc.5329','Perc.IIBB','Imp.Internos','Perc.Municipales','Total'];
+  const aoa = [header];
+
+  const T = { neto:0, iva:0, noGrav:0, p3337:0, p5329:0, piibb:0, impInt:0, pmuni:0, total:0 };
+
+  facs.forEach(f => {
+    const [comprobante, letra] = _facComprobanteLetra(f.tipo_cbte);
+    const { ptoVta, numero } = _splitNumeroFactura(f.numero);
+    const cuitDigits = String(f.cuit_prov || '').replace(/\D/g, '');
+    const [y, m, d] = (f.fecha || '').split('-');
+    const fechaFmt = (y && m && d) ? `${d}/${m}/${y}` : (f.fecha || '');
+
+    const neto   = +f.neto_gravado || 0;
+    const iva    = +f.importe_iva  || 0;
+    const noGrav = +f.no_gravado   || 0;
+    const p3337  = +f.perc_3337    || 0;
+    const p5329  = +f.perc_iva     || 0;   // campo "Percepción IVA (RG2408/5329)"
+    const piibb  = +f.perc_iibb    || 0;
+    const impInt = +f.imp_internos || 0;
+    const pmuni  = 0;                      // no capturado por el sistema todavía
+    const total  = +f.total || 0;
+
+    T.neto+=neto; T.iva+=iva; T.noGrav+=noGrav; T.p3337+=p3337; T.p5329+=p5329;
+    T.piibb+=piibb; T.impInt+=impInt; T.pmuni+=pmuni; T.total+=total;
+
+    aoa.push([
+      comprobante, letra, ptoVta, numero, fechaFmt, f.proveedor || '',
+      cuitDigits ? +cuitDigits : '',
+      Math.round(neto*100)/100, Math.round(iva*100)/100, Math.round(noGrav*100)/100,
+      Math.round(p3337*100)/100, Math.round(p5329*100)/100, Math.round(piibb*100)/100,
+      Math.round(impInt*100)/100, Math.round(pmuni*100)/100, Math.round(total*100)/100
+    ]);
+  });
+
+  aoa.push([]);
+  aoa.push(['TOTALES','','','','','','',
+    Math.round(T.neto*100)/100, Math.round(T.iva*100)/100, Math.round(T.noGrav*100)/100,
+    Math.round(T.p3337*100)/100, Math.round(T.p5329*100)/100, Math.round(T.piibb*100)/100,
+    Math.round(T.impInt*100)/100, Math.round(T.pmuni*100)/100, Math.round(T.total*100)/100
+  ]);
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:11},{wch:7},{wch:9},{wch:12},{wch:11},{wch:32},{wch:14},
+    {wch:14},{wch:13},{wch:13},{wch:12},{wch:12},{wch:12},{wch:13},{wch:14},{wch:14}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'IVA Compras');
+  XLSX.writeFile(wb, `IVA_Compras_${year}${month}.xlsx`);
+
+  document.getElementById('iva-preview').innerHTML =
+    `<div style="background:#eaf5ee;border:1.5px solid #a5d6a7;border-radius:8px;padding:10px 14px;font-size:12px;color:#1a5c38;margin-top:8px">
+      ✅ <b>IVA_Compras_${year}${month}.xlsx</b> — ${facs.length} factura${facs.length!==1?'s':''} · Perc.Municipales no se captura aún (queda en 0) · no incluye NC/ND de proveedores
+    </div>`;
+  showToast(`✅ Excel IVA Compras descargado (${facs.length} facturas)`, 'ok');
+}
+
+// ══════════════════════════════════════════
 // PLAN DE CUENTAS — Render
 // ══════════════════════════════════════════
 function renderPlanCuentas() {
@@ -6906,7 +7026,7 @@ function abrirModalFactura(compraId) {
   if (nroEl && compra.numero_factura) nroEl.value = compra.numero_factura;
 
   // Reset campos de importes
-  ['fac-neto','fac-iva','fac-perc-iva','fac-perc-iibb','fac-imp-int','fac-no-grav','fac-cae','fac-obs','fac-cuit'].forEach(id => {
+  ['fac-neto','fac-iva','fac-perc-iva','fac-perc-iibb','fac-perc-3337','fac-imp-int','fac-no-grav','fac-cae','fac-obs','fac-cuit'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -7003,6 +7123,7 @@ function calcularTotalesFac() {
   const alicPct = _alicFacSeleccionada();
   const percIva = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
   const percIIBB= parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
+  const perc3337= parseFloat(document.getElementById('fac-perc-3337')?.value) || 0;
   const impInt  = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
   const noGrav  = parseFloat(document.getElementById('fac-no-grav')?.value) || 0;
 
@@ -7018,7 +7139,7 @@ function calcularTotalesFac() {
     if (ivaEl) ivaEl.value = iva.toFixed(2);
   }
 
-  const total = neto + iva + percIva + percIIBB + impInt + noGrav;
+  const total = neto + iva + percIva + percIIBB + perc3337 + impInt + noGrav;
   const totalEl = document.getElementById('fac-total-display');
   if (totalEl) totalEl.textContent = '$' + total.toLocaleString('es-AR', {minimumFractionDigits:2});
 }
@@ -7032,9 +7153,10 @@ function ajustarNetoAlTotal(){
 
   const percIva = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
   const percIIBB= parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
+  const perc3337= parseFloat(document.getElementById('fac-perc-3337')?.value) || 0;
   const impInt  = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
   const noGrav  = parseFloat(document.getElementById('fac-no-grav')?.value) || 0;
-  const otros = percIva + percIIBB + impInt + noGrav;
+  const otros = percIva + percIIBB + perc3337 + impInt + noGrav;
   const netoEl = document.getElementById('fac-neto');
   const ivaEl  = document.getElementById('fac-iva');
 
@@ -7088,11 +7210,12 @@ async function guardarFactura() {
     : _alicFacSeleccionada();
   const percIva  = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
   const percIIBB = parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
+  const perc3337 = parseFloat(document.getElementById('fac-perc-3337')?.value) || 0;
   const impInt   = parseFloat(document.getElementById('fac-imp-int')?.value) || 0;
   const noGrav   = parseFloat(document.getElementById('fac-no-grav')?.value) || 0;
   const obs      = document.getElementById('fac-obs')?.value.trim() || null;
   const cae      = document.getElementById('fac-cae')?.value.trim() || null;
-  const total    = neto + iva + percIva + percIIBB + impInt + noGrav;
+  const total    = neto + iva + percIva + percIIBB + perc3337 + impInt + noGrav;
 
   if (!numero) { showToast('Ingresá el número de factura', 'err'); return; }
   if (!neto && !total) { showToast('Ingresá al menos el importe neto', 'err'); return; }
@@ -7113,6 +7236,7 @@ async function guardarFactura() {
       importe_iva:  iva,
       perc_iva:     percIva,
       perc_iibb:    percIIBB,
+      perc_3337:    perc3337,
       imp_internos: impInt,
       no_gravado:   noGrav,
       total:        total,
