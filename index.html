@@ -1408,8 +1408,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
             <div class="flabel">IVA</div>
             <div style="position:relative">
               <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
-              <input class="inp" id="fac-iva" type="number" step="0.01" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace;background:#f0f8f0" readonly>
+              <input class="inp" id="fac-iva" type="number" step="0.01" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace;background:#f0f8f0" oninput="facIvaManual=true;calcularTotalesFac()">
             </div>
+            <div style="font-size:9.5px;color:#94a3b8;margin-top:3px">Se autocompleta con neto×alícuota — corregilo si la factura da distinto (redondeos por línea)</div>
           </div>
         </div>
 
@@ -7013,6 +7014,7 @@ let facturas = [];
 let facCompraId = null;
 let facPagoActual = 'Contado';
 let facMultiAlicuota = false;   // true cuando el remito de esta factura mezcla alícuotas de IVA
+let facIvaManual = false;       // true si el usuario tipeó el IVA a mano (no pisar con neto×alícuota)
 
 // Lee la alícuota elegida en #fac-alic-iva de forma segura.
 // OJO: "parseFloat(valor) || 21" está mal para este campo porque 0 es un
@@ -7065,6 +7067,7 @@ function abrirModalFactura(compraId) {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
+  facIvaManual = false; // factura nueva → el IVA vuelve a autocompletarse hasta que lo toquen
 
   // ══════════════════════════════════════════════════════════════
   // Desglose real por alícuota (mismo criterio que _ivaCompra usa en
@@ -7164,10 +7167,12 @@ function calcularTotalesFac() {
 
   // En modo multi-alícuota, el IVA ya viene sumado real por abrirModalFactura
   // (una tasa por producto) — recalcularlo acá con una sola tasa lo pisaría
-  // mal. Solo se recalcula en el caso normal de una sola alícuota.
+  // mal. Tampoco se pisa si el usuario ya lo tipeó a mano (facIvaManual) —
+  // las facturas reales suelen dar 1-2 centavos distinto del neto×alícuota
+  // por redondeo acumulado línea a línea, y el comprobante manda.
   const ivaEl = document.getElementById('fac-iva');
   let iva;
-  if (facMultiAlicuota) {
+  if (facMultiAlicuota || facIvaManual) {
     iva = parseFloat(ivaEl?.value) || 0;
   } else {
     iva = Math.round(neto * (alicPct / 100) * 100) / 100;
