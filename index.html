@@ -12726,7 +12726,10 @@ function renderFinanzas(){
   const totalGastos = gastosFilt.reduce((s,g) => s+(g.monto||0), 0);
 
   // Deudas pendientes
-  const deudasPend = deudas.filter(d=>d.estado!=='pagado');
+  // Solo lo que te deben A VOS (clientes/consumo personal) — no lo que vos
+  // le debés a proveedores/gastos, que es plata que sale, no que entra.
+  // Mismo criterio que ya usa checkAlertaFacturasPendientes/Deudores.
+  const deudasPend = deudas.filter(d=>d.estado!=='pagado' && d.tipo!=='proveedor' && d.tipo!=='gasto');
   const totalDeudas = deudasPend.reduce((s,d)=>s+(d.monto||0),0);
 
   // Balance y margen reales
