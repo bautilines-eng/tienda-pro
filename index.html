@@ -7056,8 +7056,21 @@ function abrirModalFactura(compraId) {
   const provEl = document.getElementById('fac-proveedor');
   if (provEl && compra.proveedor) provEl.value = compra.proveedor;
 
+  // CUIT del proveedor: se busca en el maestro de proveedores por
+  // proveedor_id (compra.proveedor es solo el nombre en texto).
+  const cuitEl = document.getElementById('fac-cuit');
+  if (cuitEl) {
+    const provObj = compra.proveedor_id ? proveedores.find(p => p.id === compra.proveedor_id) : null;
+    cuitEl.value = provObj?.cuit || '';
+  }
+
   const fechaEl = document.getElementById('fac-fecha');
   if (fechaEl) fechaEl.value = compra.fecha || new Date().toISOString().split('T')[0];
+
+  // Fecha de vencimiento: la que se cargó al recibir el remito (vence_pago),
+  // si la hubo — mismo dato, no hay que volver a tipearlo.
+  const venceEl = document.getElementById('fac-vencimiento');
+  if (venceEl) venceEl.value = compra.vence_pago || '';
 
   const nroEl = document.getElementById('fac-numero');
   if (nroEl && compra.numero_factura) nroEl.value = compra.numero_factura;
