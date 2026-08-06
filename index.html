@@ -764,6 +764,16 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="ht">Cierre de Caja</div>
       <div class="hs">Arqueo y cierre diario</div>
     </div>
+    <div class="cm" style="margin-bottom:12px;background:rgba(26,92,56,.10);border:1.5px solid rgba(26,92,56,.35);display:flex;align-items:center;justify-content:space-between;text-align:left;padding:12px 16px;border-radius:12px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:20px">💰</span>
+        <div>
+          <div class="cm-l" style="margin-bottom:2px">Saldo actual en caja <span style="text-transform:none;opacity:.75">— efectivo acumulado desde la 1ª venta</span></div>
+          <div style="font-size:10px;opacity:.6" id="caja-saldo-fecha"></div>
+        </div>
+      </div>
+      <div class="cm-v" id="caja-saldo-real" style="font-size:20px;font-weight:800;color:#1a5c38;flex-shrink:0;margin-left:10px">$0</div>
+    </div>
     <div class="caja-hoy">
       <div class="caja-fecha" id="caja-fecha"></div>
       <div class="caja-total" id="caja-total-hoy">$0</div>
@@ -793,8 +803,12 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <input class="ar-inp" id="arq-ef" type="number" placeholder="$0" oninput="calcArqueo()">
       </div>
       <div class="arqueo-row">
-        <div class="ar-label">Ventas en efectivo</div>
+        <div class="ar-label">Efectivo esperado <span style="font-weight:400;opacity:.65">(ventas − retiros)</span></div>
         <div class="ar-val green" id="arq-ef-sistema">$0</div>
+      </div>
+      <div class="arqueo-row" style="display:none">
+        <div class="ar-label" style="opacity:.75">↳ Gastos/retiros en efectivo hoy</div>
+        <div class="ar-val" id="arq-retiros-hoy" style="color:#c94040">-$0</div>
       </div>
       <div class="arqueo-row">
         <div class="ar-label">Diferencia</div>
@@ -3478,24 +3492,13 @@ ${comprasHoy.length ? `
 // ══════════════════════════════════════════
 // MAYOR POR CUENTA (con plan real)
 // ══════════════════════════════════════════
-function renderMayor() {
-  const cuentaCod = document.getElementById('mayor-cuenta-sel')?.value;
-  const el = document.getElementById('mayor-content');
-  if (!el) return;
-  if (!cuentaCod) { el.innerHTML = '<div class="empty">Seleccioná una cuenta para ver sus movimientos</div>'; return; }
-
-  const cuenta = PLAN_CUENTAS.find(c => c.codigo === cuentaCod);
-  if (!cuenta) return;
-
-  const mesDesde = document.getElementById('mayor-mes-desde')?.value || '';
-  const mesHasta = document.getElementById('mayor-mes-hasta')?.value || '';
-  const filtro = (fecha) => {
-    if (!fecha) return true;
-    if (mesDesde && fecha < mesDesde + '-01') return false;
-    if (mesHasta && fecha > mesHasta + '-31') return false;
-    return true;
-  };
-
+// ── Movimientos de UNA cuenta, cualquiera sea su origen ──
+// Usada por renderMayor() y por el saldo acumulado de Caja (Cierre de Caja).
+// Recorre las mismas 8 fuentes que generarAsientosPeriodo (Ventas, Gastos,
+// Pagos de deuda, Compras, Minutas, Notas de Crédito, Notas de Débito,
+// Reclasificaciones) para que Mayor y "saldo real" nunca diverjan entre sí.
+// filtro(fecha) → true/false, decide si esa fecha entra en el resultado.
+function _movimientosCuenta(cuentaCod, filtro) {
   const movs = [];
 
   // Ventas
@@ -3543,7 +3546,61 @@ function renderMayor() {
     if (cuentaCod===cuentaCredito) movs.push({fecha:co.fecha, desc:(esSF?'Pago sin factura — ':'A pagar — ')+(co.proveedor||'Proveedor'), debe:0, haber:total, origen:'Compra'});
   });
 
+  // Minutas (egreso/ingreso — incluye Fondos a Rendir)
+  (typeof minutas!=='undefined'?minutas:[]).filter(m => !m.is_deleted && !m.anulada && filtro(m.fecha)).forEach(m => {
+    const a = asientoMinuta(m); if(!a) return;
+    a.lineas.forEach(l => {
+      if (l.cuenta === cuentaCod) movs.push({fecha:m.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Minuta'});
+    });
+  });
+
+  // Notas de crédito
+  (typeof notasCredito!=='undefined'?notasCredito:[]).filter(nc => filtro(_fechaNC(nc))).forEach(nc => {
+    const a = asientoNotaCredito(nc); if(!a) return;
+    a.lineas.forEach(l => {
+      if (l.cuenta === cuentaCod) movs.push({fecha:_fechaNC(nc), desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Nota de Crédito'});
+    });
+  });
+
+  // Notas de débito
+  (typeof notasDebito!=='undefined'?notasDebito:[]).filter(nd => filtro(nd.fecha)).forEach(nd => {
+    const a = asientoNotaDebito(nd); if(!a) return;
+    a.lineas.forEach(l => {
+      if (l.cuenta === cuentaCod) movs.push({fecha:nd.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Nota de Débito'});
+    });
+  });
+
+  // Reclasificaciones (cambio de medio de pago)
+  (typeof reclasificaciones!=='undefined'?reclasificaciones:[]).filter(r => filtro(r.fecha)).forEach(r => {
+    const a = asientoReclasificacion(r); if(!a) return;
+    a.lineas.forEach(l => {
+      if (l.cuenta === cuentaCod) movs.push({fecha:r.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Reclasif.'});
+    });
+  });
+
   movs.sort((a,b) => a.fecha.localeCompare(b.fecha));
+  return movs;
+}
+
+function renderMayor() {
+  const cuentaCod = document.getElementById('mayor-cuenta-sel')?.value;
+  const el = document.getElementById('mayor-content');
+  if (!el) return;
+  if (!cuentaCod) { el.innerHTML = '<div class="empty">Seleccioná una cuenta para ver sus movimientos</div>'; return; }
+
+  const cuenta = PLAN_CUENTAS.find(c => c.codigo === cuentaCod);
+  if (!cuenta) return;
+
+  const mesDesde = document.getElementById('mayor-mes-desde')?.value || '';
+  const mesHasta = document.getElementById('mayor-mes-hasta')?.value || '';
+  const filtro = (fecha) => {
+    if (!fecha) return true;
+    if (mesDesde && fecha < mesDesde + '-01') return false;
+    if (mesHasta && fecha > mesHasta + '-31') return false;
+    return true;
+  };
+
+  const movs = _movimientosCuenta(cuentaCod, filtro);
 
   if (!movs.length) {
     el.innerHTML = `<div class="empty">Sin movimientos para <b>${cuenta.codigo} — ${esc(cuenta.nombre)}</b> en el período seleccionado</div>`;
@@ -3809,14 +3866,28 @@ function setMinutaTipo(t){
   if(_h) _h.style.display = (t==='E') ? 'block' : 'none';
 }
 
+// Cuenta "Fondos a Rendir": retiros de caja pendientes de rendición (anticipos,
+// plata que sale del cajón para un viático/compra menor y se justifica después).
+// Es un Activo (Créditos), no un Gasto — por eso no vive en GASTO_CUENTA.
+function _ctaFondosARendir(){
+  const cod = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES['fondos_a_rendir']) || '11404003';
+  const nombre = (PLAN_CUENTAS.find(c=>c.codigo===cod)?.nombre) || 'Fondos a Rendir';
+  return {cod, nombre};
+}
+
 function _populateMinutaConceptos(){
   const sel = document.getElementById('min-concepto');
   if(!sel) return;
+  const fr = _ctaFondosARendir();
   let opts;
   if(minutaTipo==='E'){
-    opts = Object.entries(GASTO_CUENTA||{}).map(([k,v])=>`<option value="${v}">${k}</option>`);
+    opts = [`<option value="${fr.cod}">💰 ${fr.nombre} (retiro de caja para rendir)</option>`]
+      .concat(Object.entries(GASTO_CUENTA||{}).map(([k,v])=>`<option value="${v}">${k}</option>`));
   } else {
-    opts = ['<option value="31101">Aporte de capital</option>'];
+    opts = [
+      '<option value="31101">Aporte de capital</option>',
+      `<option value="${fr.cod}">💰 Devolución de ${fr.nombre}</option>`,
+    ];
   }
   sel.innerHTML = opts.join('') + '<option value="__otra__">— Otra cuenta del plan —</option>';
   onMinutaConceptoChange();
@@ -3834,7 +3905,10 @@ function _populateMinutaForm(){
     const e=(METODO_CUENTA && METODO_CUENTA['Efectivo'])||'11101001';
     const t=(METODO_CUENTA && METODO_CUENTA['Transferencia'])||'11102006';
     const mp=(METODO_CUENTA && METODO_CUENTA['MercadoPago'])||'11102006';
-    med.innerHTML = `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option>`;
+    const fr=_ctaFondosARendir();
+    // "Fondos a Rendir" como medio: para cuando ese retiro se justifica con un
+    // comprobante real (el efectivo ya había salido de Caja antes, no de nuevo).
+    med.innerHTML = `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option><option value="${fr.cod}">💰 ${fr.nombre} (rendición)</option>`;
   }
   const oc = document.getElementById('min-otra-cuenta');
   if(oc && !oc.options.length){
@@ -5718,6 +5792,30 @@ function renderBalance() {
     if (!esSF && totales['11403005'])totales['11403005'].debe += iva;   // todo el CF junto (decisión contadora)
     const cuentaCredito = esSF ? _cuentaPagoCompra(co.forma_pago) : '21101001';
     if (totales[cuentaCredito])totales[cuentaCredito].haber += total;
+  });
+
+  // Minutas (egreso/ingreso — incluye Fondos a Rendir)
+  (typeof minutas!=='undefined'?minutas:[]).filter(m => !m.is_deleted && !m.anulada && filtro(m.fecha)).forEach(m => {
+    const a = asientoMinuta(m); if(!a) return;
+    a.lineas.forEach(l => { if (totales[l.cuenta]) { if(l.debe) totales[l.cuenta].debe += l.importe; else totales[l.cuenta].haber += l.importe; } });
+  });
+
+  // Notas de crédito
+  (typeof notasCredito!=='undefined'?notasCredito:[]).filter(nc => filtro(_fechaNC(nc))).forEach(nc => {
+    const a = asientoNotaCredito(nc); if(!a) return;
+    a.lineas.forEach(l => { if (totales[l.cuenta]) { if(l.debe) totales[l.cuenta].debe += l.importe; else totales[l.cuenta].haber += l.importe; } });
+  });
+
+  // Notas de débito
+  (typeof notasDebito!=='undefined'?notasDebito:[]).filter(nd => filtro(nd.fecha)).forEach(nd => {
+    const a = asientoNotaDebito(nd); if(!a) return;
+    a.lineas.forEach(l => { if (totales[l.cuenta]) { if(l.debe) totales[l.cuenta].debe += l.importe; else totales[l.cuenta].haber += l.importe; } });
+  });
+
+  // Reclasificaciones (cambio de medio de pago)
+  (typeof reclasificaciones!=='undefined'?reclasificaciones:[]).filter(r => filtro(r.fecha)).forEach(r => {
+    const a = asientoReclasificacion(r); if(!a) return;
+    a.lineas.forEach(l => { if (totales[l.cuenta]) { if(l.debe) totales[l.cuenta].debe += l.importe; else totales[l.cuenta].haber += l.importe; } });
   });
 
   const grupos = ['Caja y Bancos','Créditos','Créditos Fiscales','Bienes de Cambio','Bienes de Uso',
@@ -10790,6 +10888,23 @@ function fechaHoyLocal(d){
   return x.toISOString().split('T')[0];
 }
 
+// Efectivo que debería haber físicamente en el cajón HOY: todo lo que entró
+// en efectivo hoy (ventas —soporta pago dividido—, cobros de deuda, minutas
+// de ingreso) menos todo lo que salió en efectivo hoy (gastos, pagos a
+// proveedores, compras sin factura, minutas de egreso —incluye retiros a
+// Fondos a Rendir—). Reusa _movimientosCuenta para no desincronizarse nunca
+// del Mayor. Antes el arqueo solo miraba "ventas en efectivo del día", así
+// que cualquier salida de caja (un gasto pagado en efectivo, un retiro a
+// Fondos a Rendir) aparecía como una "diferencia" falsa.
+function _efectivoEsperadoHoy(){
+  const today = fechaHoyLocal();
+  const ctaEf = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
+  const movs = _movimientosCuenta(ctaEf, (fecha)=> fecha===today);
+  const entradas = movs.reduce((s,m)=>s+(m.debe||0),0);
+  const salidas  = movs.reduce((s,m)=>s+(m.haber||0),0);
+  return { esperado: entradas - salidas, entradas, salidas, movs };
+}
+
 function renderCaja(){
   const today=fechaHoyLocal();
   const todaySales=sales.filter(s=>s.fecha===today);
@@ -10817,8 +10932,29 @@ function renderCaja(){
   if(cmCc) cmCc.textContent=`$${cc.toLocaleString('es-AR')}`;
   document.getElementById('caja-avg').textContent=`$${avg.toLocaleString('es-AR')}`;
   document.getElementById('caja-prods').textContent=totalProds;
-  document.getElementById('arq-ef-sistema').textContent=`$${ef.toLocaleString('es-AR')}`;
   document.getElementById('arq-total').textContent=`$${total.toLocaleString('es-AR')}`;
+
+  // Efectivo esperado hoy (ventas + entradas − gastos/retiros del día en efectivo)
+  const { esperado, salidas } = _efectivoEsperadoHoy();
+  document.getElementById('arq-ef-sistema').textContent=`$${Math.round(esperado).toLocaleString('es-AR')}`;
+  const elRetiros = document.getElementById('arq-retiros-hoy');
+  if(elRetiros){
+    const rowRetiros = elRetiros.closest('.arqueo-row');
+    if(salidas>0){
+      elRetiros.textContent=`-$${Math.round(salidas).toLocaleString('es-AR')}`;
+      if(rowRetiros) rowRetiros.style.display='';
+    } else if(rowRetiros) rowRetiros.style.display='none';
+  }
+  calcArqueo();
+
+  // Saldo real acumulado en caja — todo el efectivo desde la 1ª venta
+  const ctaEf = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
+  const movsCaja = _movimientosCuenta(ctaEf, (fecha)=> !fecha || fecha <= today);
+  const saldoCaja = movsCaja.reduce((s,m)=> s + (m.debe||0) - (m.haber||0), 0);
+  const elSaldo = document.getElementById('caja-saldo-real');
+  if(elSaldo) elSaldo.textContent = `$${Math.round(saldoCaja).toLocaleString('es-AR')}`;
+  const elSaldoFecha = document.getElementById('caja-saldo-fecha');
+  if(elSaldoFecha) elSaldoFecha.textContent = `Actualizado al ${today} · ${movsCaja.length} movimiento${movsCaja.length!==1?'s':''} históricos`;
 
   // Historial cierres
   const cl=document.getElementById('cierres-list');
@@ -10854,13 +10990,14 @@ function imprimirCierreGuardado(id, event){
 }
 
 function calcArqueo(){
-  const today=fechaHoyLocal();
-  const todaySales=sales.filter(s=>s.fecha===today);
-  const ef=todaySales.filter(s=>s.metodo_pago==='Efectivo').reduce((s,v)=>s+(v.total||0),0);
+  // Antes comparaba contra "ventas en efectivo" nomás (y encima sin soportar
+  // pago dividido). Ahora compara contra lo que realmente debería haber en
+  // el cajón: ventas + entradas − gastos/retiros del día, todo en efectivo.
+  const { esperado } = _efectivoEsperadoHoy();
   const efCaja=parseFloat(document.getElementById('arq-ef').value)||0;
-  const dif=efCaja-ef;
+  const dif=efCaja-esperado;
   const difEl=document.getElementById('arq-dif');
-  difEl.textContent=`$${dif.toLocaleString('es-AR')}`;
+  difEl.textContent=`$${Math.round(dif).toLocaleString('es-AR')}`;
   difEl.className=`ar-val ${dif>=0?'green':'red'}`;
 }
 
@@ -10877,7 +11014,11 @@ function prepararCierre(){
   // La Cuenta Corriente se ve aparte, abajo, aclarada como no cobrada.
   const total=ef+tr+td+mp;
   const efCaja=parseFloat(document.getElementById('arq-ef').value)||0;
-  const dif=efCaja-ef;
+  // Diferencia real = contra lo esperado en el cajón (ventas + entradas −
+  // gastos/retiros del día en efectivo, incluye Fondos a Rendir), no solo
+  // contra las ventas en efectivo.
+  const { esperado: efEsperado, salidas: salidasHoy } = _efectivoEsperadoHoy();
+  const dif=efCaja-efEsperado;
   const obs=document.getElementById('arq-obs').value;
   const gastosHoyCierre = gastos.filter(g => g.fecha === today); // declarado ANTES de usarse (evita TDZ)
 
@@ -10891,9 +11032,10 @@ function prepararCierre(){
       <div class="hc-dr"><span>Tarjeta</span><span>$${td.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>MercadoPago</span><span>$${mp.toLocaleString('es-AR')}</span></div>
       ${cc>0?`<div class="hc-dr" style="color:#9a5b12"><span>📒 Cuenta Corriente (no cobrado, no suma)</span><span>$${cc.toLocaleString('es-AR')}</span></div>`:''}
-      ${gastosHoyCierre.length>0?`<div class="hc-dr" style="border-top:1px solid #ddd;margin-top:6px;padding-top:6px"><span style="color:#c94040;font-weight:600">Gastos del día</span><span style="color:#c94040;font-weight:700">-$${gastosHoyCierre.reduce((s,g)=>s+(g.monto||0),0).toLocaleString('es-AR')}</span></div>`:''}
-      <div class="hc-dr"><span>Efectivo en caja</span><span>$${efCaja.toLocaleString('es-AR')}</span></div>
-      <div class="hc-dr"><span style="font-weight:600">Diferencia</span><span style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${dif.toLocaleString('es-AR')}</span></div>
+      ${salidasHoy>0?`<div class="hc-dr" style="border-top:1px solid #ddd;margin-top:6px;padding-top:6px"><span style="color:#c94040;font-weight:600">Gastos y retiros en efectivo hoy</span><span style="color:#c94040;font-weight:700">-$${Math.round(salidasHoy).toLocaleString('es-AR')}</span></div>`:''}
+      <div class="hc-dr"><span style="font-weight:600">Efectivo esperado en caja</span><span style="font-weight:700">$${Math.round(efEsperado).toLocaleString('es-AR')}</span></div>
+      <div class="hc-dr"><span>Efectivo contado en caja</span><span>$${efCaja.toLocaleString('es-AR')}</span></div>
+      <div class="hc-dr"><span style="font-weight:600">Diferencia</span><span style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${Math.round(dif).toLocaleString('es-AR')}</span></div>
       ${obs?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${esc(obs)}</div>`:''}
     </div>
     <div style="font-size:13px;color:var(--red);font-weight:500">⚠️ Esta acción registrará el cierre oficial del día. No se puede deshacer.</div>`;
