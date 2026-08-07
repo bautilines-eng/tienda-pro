@@ -2832,11 +2832,8 @@ function exportarCierrePDF(cierreGuardado) {
 
   const ventasDelDia = (sales||[]).filter(v=>v.fecha===fechaCierre)
     .sort((a,b)=>String(a.nro_comprobante||'').localeCompare(String(b.nro_comprobante||'')));
-  const ef = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
-  const tr = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Transferencia'),0);
-  const td = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Tarjeta'),0);
-  const mp = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'MercadoPago'),0);
-  const cc = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Cuenta Corriente'),0);
+  // Neto de NC del día (mismo helper que renderCaja y prepararCierre).
+  const { ef, tr, td, mp, cc } = _ventasNetasDeNC(fechaCierre);
   const totalCobrado = ef+tr+td+mp;
 
   const otrosIngresosEf = movsHoy.filter(m=>m.debe>0 && m.origen!=='Venta').sort((a,b)=>b.debe-a.debe);
@@ -4216,6 +4213,33 @@ function asientoNotaCredito(nc){
     origen: 'nota_credito', origen_id: nc.id, lineas,
     total_debe: td, total_haber: th,
   };
+}
+
+// Ventas de UN día, por método de pago, ya NETAS de Notas de Crédito de ese
+// mismo día. Usada por Caja (cambio de turno), el modal de cierre y el PDF
+// — un solo lugar, para que las 3 pantallas nunca puedan desalinearse entre
+// sí. Antes cada una sumaba _ventaSumaMetodo crudo, sin descontar las NC,
+// obligando a restarlas a mano para saber cuánto hay realmente.
+function _ventasNetasDeNC(fecha){
+  const ventasDia = (sales||[]).filter(v=>v.fecha===fecha);
+  let ef = ventasDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
+  let tr = ventasDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Transferencia'),0);
+  let td2 = ventasDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Tarjeta'),0);
+  let mp = ventasDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'MercadoPago'),0);
+  let cc = ventasDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Cuenta Corriente'),0);
+  const ncDia = (typeof notasCredito!=='undefined'?notasCredito:[]).filter(nc=>_fechaNC(nc)===fecha);
+  ncDia.forEach(nc=>{
+    const a = asientoNotaCredito(nc); if(!a) return;
+    a.lineas.filter(l=>!l.debe && (l.detalle||'').startsWith('Reversión: Cobro ')).forEach(l=>{
+      const metodo = l.detalle.replace('Reversión: Cobro ', '');
+      if(metodo==='Efectivo') ef -= l.importe;
+      else if(metodo==='Transferencia') tr -= l.importe;
+      else if(metodo==='Tarjeta') td2 -= l.importe;
+      else if(metodo==='MercadoPago') mp -= l.importe;
+      else if(metodo==='Cuenta Corriente') cc -= l.importe;
+    });
+  });
+  return {ef, tr, td:td2, mp, cc};
 }
 
 async function loadReclasificaciones(){
@@ -11025,11 +11049,9 @@ function renderCaja(){
   const today=fechaHoyLocal();
   const todaySales=sales.filter(s=>s.fecha===today);
   const totalVentas=todaySales.reduce((s,v)=>s+(v.total||0),0);   // valor real de las ventas (para ticket promedio)
-  const ef=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
-  const tr=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Transferencia'),0);
-  const td=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Tarjeta'),0);
-  const mp=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'MercadoPago'),0);
-  const cc=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Cuenta Corriente'),0);
+  // Ya neto de Notas de Crédito del día — así el cambio de turno no exige
+  // restarlas a mano.
+  const { ef, tr, td, mp, cc } = _ventasNetasDeNC(today);
   // "Total del día" = solo lo que efectivamente entró a caja/banco. La
   // Cuenta Corriente es una venta real, pero todavía no cobrada — no
   // corresponde que infle el total de caja del día (eso se ve aparte).
@@ -11163,11 +11185,8 @@ function prepararCierre(){
   const today=fechaHoyLocal();
   const todaySales=sales.filter(s=>s.fecha===today);
   if(!todaySales.length){showToast('No hay ventas hoy para cerrar','err');return;}
-  const ef=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
-  const tr=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Transferencia'),0);
-  const td=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Tarjeta'),0);
-  const mp=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'MercadoPago'),0);
-  const cc=todaySales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Cuenta Corriente'),0);
+  // Neto de NC del día (mismo criterio que renderCaja — un solo helper).
+  const { ef, tr, td, mp, cc } = _ventasNetasDeNC(today);
   // Total del cierre = solo lo cobrado (igual criterio que renderCaja).
   // La Cuenta Corriente se ve aparte, abajo, aclarada como no cobrada.
   const total=ef+tr+td+mp;
@@ -12116,14 +12135,11 @@ function selectEstadoPedido(btn) {
 // CIERRE DE TURNO
 // ══════════════════════════════════
 async function prepararCierreTurno() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = fechaHoyLocal();
   const now = new Date().toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
   const turnoSales = sales.filter(s => s.fecha === today);
-  const ef = turnoSales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
-  const tr = turnoSales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Transferencia'),0);
-  const td = turnoSales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Tarjeta'),0);
-  const mp = turnoSales.reduce((s,v)=>s+_ventaSumaMetodo(v,'MercadoPago'),0);
-  const cc = turnoSales.reduce((s,v)=>s+_ventaSumaMetodo(v,'Cuenta Corriente'),0);
+  // Neto de NC del día (mismo helper que Caja y el cierre diario).
+  const { ef, tr, td, mp, cc } = _ventasNetasDeNC(today);
   // TOTAL = solo lo cobrado (Efectivo+Transferencia+Tarjeta+MercadoPago).
   // La Cuenta Corriente se ve aparte en su propia fila, aclarada como
   // no cobrada — así el total sí cierra con el desglose de arriba.
