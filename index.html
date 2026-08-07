@@ -764,7 +764,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="ht">Cierre de Caja</div>
       <div class="hs">Arqueo y cierre diario</div>
     </div>
-    <div class="cm" style="margin-bottom:12px;background:rgba(26,92,56,.10);border:1.5px solid rgba(26,92,56,.35);display:flex;align-items:center;justify-content:space-between;text-align:left;padding:12px 16px;border-radius:12px">
+    <div class="cm" id="caja-saldo-card" style="margin-bottom:12px;background:rgba(26,92,56,.10);border:1.5px solid rgba(26,92,56,.35);display:flex;align-items:center;justify-content:space-between;text-align:left;padding:12px 16px;border-radius:12px">
       <div style="display:flex;align-items:center;gap:10px">
         <span style="font-size:20px">💰</span>
         <div>
@@ -806,10 +806,11 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div class="ar-label">Efectivo esperado <span style="font-weight:400;opacity:.65">(ventas − retiros)</span></div>
         <div class="ar-val green" id="arq-ef-sistema">$0</div>
       </div>
-      <div class="arqueo-row" style="display:none">
-        <div class="ar-label" style="opacity:.75">↳ Gastos/retiros en efectivo hoy</div>
+      <div class="arqueo-row" style="display:none" id="arq-retiros-row">
+        <div class="ar-label" style="opacity:.75">↳ Gastos/retiros en efectivo hoy <span onclick="toggleRetirosDetalle()" style="cursor:pointer;text-decoration:underline;opacity:.8;font-weight:400" id="arq-retiros-toggle">(ver detalle)</span></div>
         <div class="ar-val" id="arq-retiros-hoy" style="color:#c94040">-$0</div>
       </div>
+      <div id="arq-retiros-detalle" style="display:none;background:#fdf2f2;border-radius:8px;padding:8px 10px;margin:-4px 0 8px;font-size:11px;color:#994444"></div>
       <div class="arqueo-row">
         <div class="ar-label">Diferencia</div>
         <div class="ar-val" id="arq-dif">$0</div>
@@ -2809,7 +2810,81 @@ function exportarCierrePDF(cierreGuardado) {
   const d = cierreGuardado || window._cierreData;
   if (!d) { showToast('⚠️ Primero generá el cierre', 'err'); return; }
   const tienda = STORE?.nombre || 'Tienda Pro';
-  const fecha = new Date(d.fecha + 'T12:00:00').toLocaleDateString('es-AR', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const fechaCierre = d.fecha;
+  const fecha = new Date(fechaCierre + 'T12:00:00').toLocaleDateString('es-AR', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+  // Todo se recalcula en vivo desde las tablas crudas (mismo motor que el
+  // Mayor: _movimientosCuenta) usando fechaCierre como ancla — así el
+  // impreso es preciso incluso reimprimiendo un cierre viejo, y no depende
+  // de un snapshot que puede haber quedado desactualizado (ej. si después
+  // se cargó una NC contra una venta de ese día).
+  const ctaEf = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
+  const movsAntes = _movimientosCuenta(ctaEf, f => !!f && f < fechaCierre);
+  const saldoInicial = movsAntes.reduce((s,m)=>s+(m.debe||0)-(m.haber||0), 0);
+  const movsHoy = _movimientosCuenta(ctaEf, f => f === fechaCierre);
+  const entradasCaja = movsHoy.reduce((s,m)=>s+(m.debe||0),0);
+  const salidasCaja  = movsHoy.reduce((s,m)=>s+(m.haber||0),0);
+  const saldoAcumuladoFinal = saldoInicial + entradasCaja - salidasCaja;
+
+  const ventasDelDia = (sales||[]).filter(v=>v.fecha===fechaCierre)
+    .sort((a,b)=>String(a.nro_comprobante||'').localeCompare(String(b.nro_comprobante||'')));
+  const ef = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
+  const tr = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Transferencia'),0);
+  const td = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Tarjeta'),0);
+  const mp = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'MercadoPago'),0);
+  const cc = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Cuenta Corriente'),0);
+  const totalCobrado = ef+tr+td+mp;
+
+  const otrosIngresosEf = movsHoy.filter(m=>m.debe>0 && m.origen!=='Venta').sort((a,b)=>b.debe-a.debe);
+  const egresosEf = movsHoy.filter(m=>m.haber>0).sort((a,b)=>b.haber-a.haber);
+
+  const efCaja = d.efectivo_caja||0;
+  const efEsperadoHoy = ef - salidasCaja + otrosIngresosEf.reduce((s,m)=>s+m.debe,0);
+  const dif = efCaja - efEsperadoHoy;
+
+  const fila = (label,val,extra='') => `<div class="row"><span class="row-label">${label}</span><span class="row-value" ${extra}>${val}</span></div>`;
+  const money = n => `$${Math.round(n||0).toLocaleString('es-AR')}`;
+
+  const tablaComprobantes = !ventasDelDia.length ? '<div style="font-size:12px;color:#999;padding:8px 0">Sin ventas este día</div>' : `
+    <table class="tbl">
+      <thead><tr><th>Comprobante</th><th>Cliente</th><th>Método</th><th style="text-align:right">Total</th></tr></thead>
+      <tbody>
+        ${ventasDelDia.map(v => `<tr>
+            <td>${esc(_labelCbte(v.tipo_cbte))}${v.nro_comprobante?' '+esc(v.nro_comprobante):''}</td>
+            <td>${esc(v.cliente||'Consumidor final')}</td>
+            <td>${esc(v.metodo_pago||'Mixto')}</td>
+            <td style="text-align:right">${money(v.total)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  const tablaEgresos = !egresosEf.length ? '<div style="font-size:12px;color:#999;padding:8px 0">Sin egresos en efectivo este día</div>' : `
+    <table class="tbl">
+      <thead><tr><th>Origen</th><th>Detalle</th><th style="text-align:right">Monto</th></tr></thead>
+      <tbody>
+        ${egresosEf.map(m => `<tr>
+            <td>${esc(m.origen)}</td>
+            <td>${esc(m.desc)}</td>
+            <td style="text-align:right;color:#c94040">-${money(m.haber)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  const tablaOtrosIngresos = !otrosIngresosEf.length ? '' : `
+    <div class="section">
+      <div class="section-title">Otras entradas de efectivo (no venta)</div>
+      <table class="tbl">
+        <thead><tr><th>Origen</th><th>Detalle</th><th style="text-align:right">Monto</th></tr></thead>
+        <tbody>
+          ${otrosIngresosEf.map(m => `<tr>
+              <td>${esc(m.origen)}</td>
+              <td>${esc(m.desc)}</td>
+              <td style="text-align:right;color:#1a5c38">+${money(m.debe)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+
   const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -2819,12 +2894,12 @@ function exportarCierrePDF(cierreGuardado) {
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=DM+Mono&display=swap');
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{touch-action:manipulation}
-  body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a1a0e;padding:40px;max-width:600px;margin:0 auto}
+  body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a1a0e;padding:40px;max-width:680px;margin:0 auto}
   .header{text-align:center;border-bottom:2px solid #1a1a0e;padding-bottom:24px;margin-bottom:28px}
   .logo{font-size:28px;font-weight:700;letter-spacing:-0.5px}
   .logo span{color:#c94f1a}
   .subtitle{font-size:12px;color:#666;margin-top:4px;text-transform:uppercase;letter-spacing:1px}
-  .fecha{font-size:14px;color:#333;margin-top:8px;font-weight:600}
+  .fecha{font-size:14px;color:#333;margin-top:8px;font-weight:600;text-transform:capitalize}
   .section{margin-bottom:24px}
   .section-title{font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid #eee}
   .row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5}
@@ -2839,10 +2914,15 @@ body{touch-action:manipulation}
   .badge-warn{background:#fff3e0;color:#e65100}
   .badge-err{background:#fdeaea;color:#c94040}
   .obs-box{background:#f8f8f8;border-radius:8px;padding:12px;font-size:13px;color:#555;margin-top:8px;line-height:1.5}
+  .info-box{background:#f0f5f8;border-radius:8px;padding:12px;font-size:11px;color:#555;margin-top:8px;line-height:1.5}
   .footer{text-align:center;margin-top:32px;padding-top:20px;border-top:1px solid #eee;font-size:11px;color:#aaa}
   .dif-pos{color:#1a5c38;font-weight:700}
   .dif-neg{color:#c94040;font-weight:700}
   .dif-zero{color:#666;font-weight:600}
+  .tbl{width:100%;border-collapse:collapse;font-size:11px}
+  .tbl th{text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#888;padding:4px 6px;border-bottom:1.5px solid #ddd}
+  .tbl td{padding:5px 6px;border-bottom:1px solid #f2f2f2;font-family:'DM Mono',monospace}
+  .tbl tr:last-child td{border-bottom:none}
   @media print{body{padding:20px}button{display:none!important}}
 </style>
 </head>
@@ -2854,50 +2934,57 @@ body{touch-action:manipulation}
   </div>
 
   <div class="section">
-    <div class="section-title">Resumen de ventas</div>
-    <div class="row"><span class="row-label">Total recaudado</span><span class="row-value">$${(d.total||0).toLocaleString('es-AR')}</span></div>
-    <div class="row"><span class="row-label">Cantidad de ventas</span><span class="row-value">${d.ventas_count||0}</span></div>
-    <div class="row"><span class="row-label">Ticket promedio</span><span class="row-value">$${d.ventas_count?Math.round((d.total||0)/d.ventas_count).toLocaleString('es-AR'):'0'}</span></div>
+    <div class="section-title">Ventas del día (${ventasDelDia.length})</div>
+    ${tablaComprobantes}
   </div>
 
   <div class="section">
     <div class="section-title">Desglose por método de pago</div>
-    <div class="row"><span class="row-label">💵 Efectivo</span><span class="row-value">$${(d.efectivo||0).toLocaleString('es-AR')}</span></div>
-    <div class="row"><span class="row-label">🏦 Transferencia</span><span class="row-value">$${(d.transferencia||0).toLocaleString('es-AR')}</span></div>
-    <div class="row"><span class="row-label">💳 Tarjeta</span><span class="row-value">$${(d.tarjeta||0).toLocaleString('es-AR')}</span></div>
-    <div class="row"><span class="row-label">🔵 MercadoPago</span><span class="row-value">$${(d.mercadopago||0).toLocaleString('es-AR')}</span></div>
+    ${fila('💵 Efectivo', money(ef))}
+    ${fila('🏦 Transferencia', money(tr))}
+    ${fila('💳 Tarjeta', money(td))}
+    ${fila('🔵 MercadoPago', money(mp))}
+    ${cc>0?fila('📋 Cuenta Corriente (no cobrado)', money(cc), 'style="color:#9a6a00"'):''}
   </div>
 
-  ${d.gastos_dia && d.gastos_dia.length > 0 ? `
+  ${tablaOtrosIngresos}
+
   <div class="section">
-    <div class="section-title">Gastos del día</div>
-    ${d.gastos_dia.map(g => `<div class="row"><span class="row-label">${esc(g.categoria)}${esc(g.descripcion?' · '+g.descripcion:'')}</span><span class="row-value" style="color:#c94040">-$${(g.monto||0).toLocaleString('es-AR')}</span></div>`).join('')}
-    <div class="row" style="border-top:2px solid #eee;margin-top:4px;padding-top:8px"><span class="row-label" style="font-weight:700">Total gastos</span><span class="row-value" style="color:#c94040">-$${d.gastos_dia.reduce((s,g)=>s+(g.monto||0),0).toLocaleString('es-AR')}</span></div>
-  </div>
-  ` : ''}
-
-  <div class="section" style="display:none">
+    <div class="section-title">Egresos en efectivo del día</div>
+    ${tablaEgresos}
+    ${egresosEf.length?fila('Total egresos', '-'+money(salidasCaja), 'style="color:#c94040;font-weight:700"'):''}
   </div>
 
   <div class="section">
-    <div class="section-title">Arqueo de caja</div>
-    <div class="row"><span class="row-label">Sistema registra (efectivo)</span><span class="row-value">$${(d.efectivo||0).toLocaleString('es-AR')}</span></div>
-    <div class="row"><span class="row-label">Efectivo contado</span><span class="row-value">$${(d.efectivo_caja||0).toLocaleString('es-AR')}</span></div>
+    <div class="section-title">Arqueo del día</div>
+    ${fila('Efectivo vendido hoy', money(ef))}
+    ${otrosIngresosEf.length?fila('+ Otras entradas de efectivo', '+'+money(otrosIngresosEf.reduce((s,m)=>s+m.debe,0))):''}
+    ${egresosEf.length?fila('− Egresos en efectivo', '-'+money(salidasCaja)):''}
+    ${fila('Efectivo esperado en caja', money(efEsperadoHoy), 'style="font-weight:700"')}
+    ${fila('Efectivo contado en caja', money(efCaja))}
     <div class="row">
-      <span class="row-label">Diferencia</span>
-      <span class="row-value ${(d.diferencia||0)>0?'dif-pos':(d.diferencia||0)<0?'dif-neg':'dif-zero'}">
-        ${(d.diferencia||0)>0?'+':''}$${(d.diferencia||0).toLocaleString('es-AR')}
-        <span class="badge ${Math.abs(d.diferencia||0)<500?'badge-ok':(d.diferencia||0)<0?'badge-err':'badge-warn'}" style="margin-left:6px">
-          ${Math.abs(d.diferencia||0)<500?'OK':((d.diferencia||0)<0?'Faltante':'Sobrante')}
+      <span class="row-label" style="font-weight:600">Diferencia</span>
+      <span class="row-value ${dif>0?'dif-pos':dif<0?'dif-neg':'dif-zero'}">
+        ${dif>0?'+':''}${money(dif)}
+        <span class="badge ${Math.abs(dif)<500?'badge-ok':dif<0?'badge-err':'badge-warn'}" style="margin-left:6px">
+          ${Math.abs(dif)<500?'OK':(dif<0?'Faltante':'Sobrante')}
         </span>
       </span>
     </div>
     ${d.observaciones?`<div class="obs-box">📝 ${esc(d.observaciones)}</div>`:''}
   </div>
 
+  <div class="section">
+    <div class="section-title">Saldo acumulado en Caja (referencia)</div>
+    ${fila('Saldo inicial (antes de hoy)', money(saldoInicial))}
+    ${fila('Movimiento neto del día', (entradasCaja-salidasCaja>=0?'+':'')+money(entradasCaja-salidasCaja))}
+    ${fila('Saldo acumulado al cierre', money(saldoAcumuladoFinal), 'style="font-weight:700"')}
+    <div class="info-box">ℹ️ Este es el efectivo acumulado en el sistema desde la primera venta, no lo que se cuenta físicamente hoy en el cajón (ese es el "Arqueo del día" de arriba). Sirve como referencia histórica, no como base de comparación diaria.</div>
+  </div>
+
   <div class="total-row">
-    <span class="total-label">TOTAL DEL DÍA</span>
-    <span class="total-value">$${(d.total||0).toLocaleString('es-AR')}</span>
+    <span class="total-label">TOTAL COBRADO DEL DÍA</span>
+    <span class="total-value">${money(totalCobrado)}</span>
   </div>
 
   <div class="footer">
@@ -10896,6 +10983,15 @@ function fechaHoyLocal(d){
 // del Mayor. Antes el arqueo solo miraba "ventas en efectivo del día", así
 // que cualquier salida de caja (un gasto pagado en efectivo, un retiro a
 // Fondos a Rendir) aparecía como una "diferencia" falsa.
+function toggleRetirosDetalle(){
+  const det = document.getElementById('arq-retiros-detalle');
+  const toggle = document.getElementById('arq-retiros-toggle');
+  if(!det) return;
+  const abierto = det.style.display !== 'none';
+  det.style.display = abierto ? 'none' : 'block';
+  if(toggle) toggle.textContent = abierto ? '(ver detalle)' : '(ocultar)';
+}
+
 function _efectivoEsperadoHoy(){
   const today = fechaHoyLocal();
   const ctaEf = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
@@ -10935,15 +11031,30 @@ function renderCaja(){
   document.getElementById('arq-total').textContent=`$${total.toLocaleString('es-AR')}`;
 
   // Efectivo esperado hoy (ventas + entradas − gastos/retiros del día en efectivo)
-  const { esperado, salidas } = _efectivoEsperadoHoy();
-  document.getElementById('arq-ef-sistema').textContent=`$${Math.round(esperado).toLocaleString('es-AR')}`;
+  const { esperado, salidas, movs: movsHoyCaja } = _efectivoEsperadoHoy();
+  const elEsperado = document.getElementById('arq-ef-sistema');
+  elEsperado.textContent=`$${Math.round(esperado).toLocaleString('es-AR')}`;
+  elEsperado.className = `ar-val ${esperado>=0?'green':'red'}`;
   const elRetiros = document.getElementById('arq-retiros-hoy');
+  const elRetirosDet = document.getElementById('arq-retiros-detalle');
   if(elRetiros){
-    const rowRetiros = elRetiros.closest('.arqueo-row');
+    const rowRetiros = document.getElementById('arq-retiros-row');
     if(salidas>0){
       elRetiros.textContent=`-$${Math.round(salidas).toLocaleString('es-AR')}`;
       if(rowRetiros) rowRetiros.style.display='';
-    } else if(rowRetiros) rowRetiros.style.display='none';
+      if(elRetirosDet){
+        const items = movsHoyCaja.filter(m=>m.haber>0).sort((a,b)=>b.haber-a.haber);
+        elRetirosDet.innerHTML = items.map(m =>
+          `<div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0">
+             <span>${esc(m.origen)} — ${esc(m.desc)}</span>
+             <span style="white-space:nowrap;font-weight:600">-$${Math.round(m.haber).toLocaleString('es-AR')}</span>
+           </div>`
+        ).join('');
+      }
+    } else {
+      if(rowRetiros) rowRetiros.style.display='none';
+      if(elRetirosDet){ elRetirosDet.style.display='none'; elRetirosDet.innerHTML=''; }
+    }
   }
   calcArqueo();
 
@@ -10952,7 +11063,13 @@ function renderCaja(){
   const movsCaja = _movimientosCuenta(ctaEf, (fecha)=> !fecha || fecha <= today);
   const saldoCaja = movsCaja.reduce((s,m)=> s + (m.debe||0) - (m.haber||0), 0);
   const elSaldo = document.getElementById('caja-saldo-real');
+  const elSaldoCard = document.getElementById('caja-saldo-card');
   if(elSaldo) elSaldo.textContent = `$${Math.round(saldoCaja).toLocaleString('es-AR')}`;
+  if(elSaldo)  elSaldo.style.color = saldoCaja>=0 ? '#1a5c38' : '#c0392b';
+  if(elSaldoCard){
+    elSaldoCard.style.background = saldoCaja>=0 ? 'rgba(26,92,56,.10)' : 'rgba(192,57,43,.10)';
+    elSaldoCard.style.borderColor = saldoCaja>=0 ? 'rgba(26,92,56,.35)' : 'rgba(192,57,43,.35)';
+  }
   const elSaldoFecha = document.getElementById('caja-saldo-fecha');
   if(elSaldoFecha) elSaldoFecha.textContent = `Actualizado al ${today} · ${movsCaja.length} movimiento${movsCaja.length!==1?'s':''} históricos`;
 
