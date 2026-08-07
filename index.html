@@ -807,7 +807,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <input class="ar-inp" id="arq-ef" type="number" placeholder="$0" oninput="calcArqueo()">
       </div>
       <div class="arqueo-row">
-        <div class="ar-label">Efectivo esperado <span style="font-weight:400;opacity:.65">(ventas − retiros)</span></div>
+        <div class="ar-label">Efectivo esperado <span style="font-weight:400;opacity:.65">(acumulado, no se vacía el cajón)</span></div>
         <div class="ar-val green" id="arq-ef-sistema">$0</div>
       </div>
       <div class="arqueo-row" style="display:none" id="arq-retiros-row">
@@ -2843,8 +2843,9 @@ function exportarCierrePDF(cierreGuardado) {
   const egresosEf = movsHoy.filter(m=>m.haber>0).sort((a,b)=>b.haber-a.haber);
 
   const efCaja = d.efectivo_caja||0;
-  const efEsperadoHoy = ef - salidasCaja + otrosIngresosEf.reduce((s,m)=>s+m.debe,0);
-  const dif = efCaja - efEsperadoHoy;
+  // Diferencia real = contra el saldo ACUMULADO (nunca se vacía el cajón),
+  // no contra el neto de este día solo.
+  const dif = efCaja - saldoAcumuladoFinal;
 
   const fila = (label,val,extra='') => `<div class="row"><span class="row-label">${label}</span><span class="row-value" ${extra}>${val}</span></div>`;
   const money = n => `$${Math.round(n||0).toLocaleString('es-AR')}`;
@@ -2960,11 +2961,12 @@ body{touch-action:manipulation}
   </div>
 
   <div class="section">
-    <div class="section-title">Arqueo del día</div>
-    ${fila('Efectivo vendido hoy', money(ef))}
-    ${otrosIngresosEf.length?fila('+ Otras entradas de efectivo', '+'+money(otrosIngresosEf.reduce((s,m)=>s+m.debe,0))):''}
-    ${egresosEf.length?fila('− Egresos en efectivo', '-'+money(salidasCaja)):''}
-    ${fila('Efectivo esperado en caja', money(efEsperadoHoy), 'style="font-weight:700"')}
+    <div class="section-title">Arqueo de caja</div>
+    ${fila('Saldo inicial (antes de hoy)', money(saldoInicial))}
+    ${fila('+ Efectivo vendido hoy', '+'+money(ef))}
+    ${otrosIngresosEf.length?fila('+ Otras entradas de efectivo hoy', '+'+money(otrosIngresosEf.reduce((s,m)=>s+m.debe,0))):''}
+    ${egresosEf.length?fila('− Egresos en efectivo hoy', '-'+money(salidasCaja)):''}
+    ${fila('Efectivo esperado en caja', money(saldoAcumuladoFinal), 'style="font-weight:700"')}
     ${fila('Efectivo contado en caja', money(efCaja))}
     <div class="row">
       <span class="row-label" style="font-weight:600">Diferencia</span>
@@ -2975,15 +2977,8 @@ body{touch-action:manipulation}
         </span>
       </span>
     </div>
+    <div class="info-box">ℹ️ El cajón no se vacía día a día — "Efectivo esperado" es el acumulado desde la primera venta, no solo lo generado hoy.</div>
     ${d.observaciones?`<div class="obs-box">📝 ${esc(d.observaciones)}</div>`:''}
-  </div>
-
-  <div class="section">
-    <div class="section-title">Saldo acumulado en Caja (referencia)</div>
-    ${fila('Saldo inicial (antes de hoy)', money(saldoInicial))}
-    ${fila('Movimiento neto del día', (entradasCaja-salidasCaja>=0?'+':'')+money(entradasCaja-salidasCaja))}
-    ${fila('Saldo acumulado al cierre', money(saldoAcumuladoFinal), 'style="font-weight:700"')}
-    <div class="info-box">ℹ️ Este es el efectivo acumulado en el sistema desde la primera venta, no lo que se cuenta físicamente hoy en el cajón (ese es el "Arqueo del día" de arriba). Sirve como referencia histórica, no como base de comparación diaria.</div>
   </div>
 
   <div class="total-row">
@@ -11005,13 +11000,25 @@ function toggleRetirosDetalle(){
   if(toggle) toggle.textContent = abierto ? '(ver detalle)' : '(ocultar)';
 }
 
+// Efectivo que DEBERÍA haber físicamente en el cajón ahora: el saldo
+// acumulado de la cuenta Caja desde la 1ª venta hasta hoy inclusive —
+// no solo el neto de hoy. TODO PYMES confirmó que la plata física nunca
+// se retira del cajón (no hay "vaciado" diario), así que la comparación
+// correcta es siempre contra el acumulado. El día que empiecen a retirar
+// efectivo de verdad, eso se carga como Minuta de Egreso y el acumulado
+// baja solo — este cálculo no necesita tocarse.
+// Devuelve también el desglose de SOLO HOY (entradasHoy/salidasHoy), útil
+// para mostrar "qué pasó hoy" como contexto, sin que sea la base de comparación.
 function _efectivoEsperadoHoy(){
   const today = fechaHoyLocal();
   const ctaEf = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
-  const movs = _movimientosCuenta(ctaEf, (fecha)=> fecha===today);
+  const movs = _movimientosCuenta(ctaEf, (fecha)=> !fecha || fecha <= today);
   const entradas = movs.reduce((s,m)=>s+(m.debe||0),0);
   const salidas  = movs.reduce((s,m)=>s+(m.haber||0),0);
-  return { esperado: entradas - salidas, entradas, salidas, movs };
+  const movsHoy = movs.filter(m=>m.fecha===today);
+  const entradasHoy = movsHoy.reduce((s,m)=>s+(m.debe||0),0);
+  const salidasHoy  = movsHoy.reduce((s,m)=>s+(m.haber||0),0);
+  return { esperado: entradas - salidas, entradas, salidas, movs, movsHoy, entradasHoy, salidasHoy };
 }
 
 function renderCaja(){
@@ -11043,17 +11050,19 @@ function renderCaja(){
   document.getElementById('caja-prods').textContent=totalProds;
   document.getElementById('arq-total').textContent=`$${total.toLocaleString('es-AR')}`;
 
-  // Efectivo esperado hoy (ventas + entradas − gastos/retiros del día en efectivo)
-  const { esperado, salidas, movs: movsHoyCaja } = _efectivoEsperadoHoy();
+  // Efectivo esperado = saldo acumulado de Caja (no se vacía el cajón, ver
+  // nota en _efectivoEsperadoHoy). Mismo número que "Saldo actual en caja"
+  // de arriba — antes se calculaban dos veces por separado, ahora es uno solo.
+  const { esperado: saldoCaja, movs: movsCaja, movsHoy: movsHoyCaja, salidasHoy } = _efectivoEsperadoHoy();
   const elEsperado = document.getElementById('arq-ef-sistema');
-  elEsperado.textContent=`$${Math.round(esperado).toLocaleString('es-AR')}`;
-  elEsperado.className = `ar-val ${esperado>=0?'green':'red'}`;
+  elEsperado.textContent=`$${Math.round(saldoCaja).toLocaleString('es-AR')}`;
+  elEsperado.className = `ar-val ${saldoCaja>=0?'green':'red'}`;
   const elRetiros = document.getElementById('arq-retiros-hoy');
   const elRetirosDet = document.getElementById('arq-retiros-detalle');
   if(elRetiros){
     const rowRetiros = document.getElementById('arq-retiros-row');
-    if(salidas>0){
-      elRetiros.textContent=`-$${Math.round(salidas).toLocaleString('es-AR')}`;
+    if(salidasHoy>0){
+      elRetiros.textContent=`-$${Math.round(salidasHoy).toLocaleString('es-AR')}`;
       if(rowRetiros) rowRetiros.style.display='';
       if(elRetirosDet){
         const items = movsHoyCaja.filter(m=>m.haber>0).sort((a,b)=>b.haber-a.haber);
@@ -11071,10 +11080,6 @@ function renderCaja(){
   }
   calcArqueo();
 
-  // Saldo real acumulado en caja — todo el efectivo desde la 1ª venta
-  const ctaEf = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
-  const movsCaja = _movimientosCuenta(ctaEf, (fecha)=> !fecha || fecha <= today);
-  const saldoCaja = movsCaja.reduce((s,m)=> s + (m.debe||0) - (m.haber||0), 0);
   const elSaldo = document.getElementById('caja-saldo-real');
   const elSaldoCard = document.getElementById('caja-saldo-card');
   if(elSaldo) elSaldo.textContent = `$${Math.round(saldoCaja).toLocaleString('es-AR')}`;
@@ -11167,10 +11172,9 @@ function prepararCierre(){
   // La Cuenta Corriente se ve aparte, abajo, aclarada como no cobrada.
   const total=ef+tr+td+mp;
   const efCaja=parseFloat(document.getElementById('arq-ef').value)||0;
-  // Diferencia real = contra lo esperado en el cajón (ventas + entradas −
-  // gastos/retiros del día en efectivo, incluye Fondos a Rendir), no solo
-  // contra las ventas en efectivo.
-  const { esperado: efEsperado, salidas: salidasHoy } = _efectivoEsperadoHoy();
+  // Diferencia real = contra el saldo ACUMULADO de Caja (nunca se vacía el
+  // cajón, confirmado con Bautista), no solo contra el neto de hoy.
+  const { esperado: efEsperado, salidasHoy } = _efectivoEsperadoHoy();
   const dif=efCaja-efEsperado;
   const obs=document.getElementById('arq-obs').value;
   const gastosHoyCierre = gastos.filter(g => g.fecha === today); // declarado ANTES de usarse (evita TDZ)
@@ -11186,7 +11190,7 @@ function prepararCierre(){
       <div class="hc-dr"><span>MercadoPago</span><span>$${mp.toLocaleString('es-AR')}</span></div>
       ${cc>0?`<div class="hc-dr" style="color:#9a5b12"><span>📒 Cuenta Corriente (no cobrado, no suma)</span><span>$${cc.toLocaleString('es-AR')}</span></div>`:''}
       ${salidasHoy>0?`<div class="hc-dr" style="border-top:1px solid #ddd;margin-top:6px;padding-top:6px"><span style="color:#c94040;font-weight:600">Gastos y retiros en efectivo hoy</span><span style="color:#c94040;font-weight:700">-$${Math.round(salidasHoy).toLocaleString('es-AR')}</span></div>`:''}
-      <div class="hc-dr"><span style="font-weight:600">Efectivo esperado en caja</span><span style="font-weight:700">$${Math.round(efEsperado).toLocaleString('es-AR')}</span></div>
+      <div class="hc-dr"><span style="font-weight:600">Efectivo esperado en caja <span style="font-weight:400;opacity:.6">(acumulado)</span></span><span style="font-weight:700">$${Math.round(efEsperado).toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>Efectivo contado en caja</span><span>$${efCaja.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span style="font-weight:600">Diferencia</span><span style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${Math.round(dif).toLocaleString('es-AR')}</span></div>
       ${obs?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${esc(obs)}</div>`:''}
