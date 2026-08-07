@@ -764,7 +764,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="ht">Cierre de Caja</div>
       <div class="hs">Arqueo y cierre diario</div>
     </div>
-    <div class="cm" id="caja-saldo-card" style="margin-bottom:12px;background:rgba(26,92,56,.10);border:1.5px solid rgba(26,92,56,.35);display:flex;align-items:center;justify-content:space-between;text-align:left;padding:12px 16px;border-radius:12px">
+    <div class="cm" id="caja-saldo-card" style="margin-bottom:4px;background:rgba(26,92,56,.10);border:1.5px solid rgba(26,92,56,.35);display:flex;align-items:center;justify-content:space-between;text-align:left;padding:12px 16px;border-radius:12px">
       <div style="display:flex;align-items:center;gap:10px">
         <span style="font-size:20px">💰</span>
         <div>
@@ -774,6 +774,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
       <div class="cm-v" id="caja-saldo-real" style="font-size:20px;font-weight:800;color:#1a5c38;flex-shrink:0;margin-left:10px">$0</div>
     </div>
+    <div style="text-align:right;margin-bottom:8px">
+      <span onclick="toggleSaldoDetalle()" id="caja-saldo-toggle" style="cursor:pointer;text-decoration:underline;font-size:11px;opacity:.7">ver de qué se compone</span>
+    </div>
+    <div id="caja-saldo-detalle" style="display:none;background:#f7f8f4;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px"></div>
     <div class="caja-hoy">
       <div class="caja-fecha" id="caja-fecha"></div>
       <div class="caja-total" id="caja-total-hoy">$0</div>
@@ -10983,6 +10987,15 @@ function fechaHoyLocal(d){
 // del Mayor. Antes el arqueo solo miraba "ventas en efectivo del día", así
 // que cualquier salida de caja (un gasto pagado en efectivo, un retiro a
 // Fondos a Rendir) aparecía como una "diferencia" falsa.
+function toggleSaldoDetalle(){
+  const det = document.getElementById('caja-saldo-detalle');
+  const toggle = document.getElementById('caja-saldo-toggle');
+  if(!det) return;
+  const abierto = det.style.display !== 'none';
+  det.style.display = abierto ? 'none' : 'block';
+  if(toggle) toggle.textContent = abierto ? 'ver de qué se compone' : 'ocultar';
+}
+
 function toggleRetirosDetalle(){
   const det = document.getElementById('arq-retiros-detalle');
   const toggle = document.getElementById('arq-retiros-toggle');
@@ -11072,6 +11085,29 @@ function renderCaja(){
   }
   const elSaldoFecha = document.getElementById('caja-saldo-fecha');
   if(elSaldoFecha) elSaldoFecha.textContent = `Actualizado al ${today} · ${movsCaja.length} movimiento${movsCaja.length!==1?'s':''} históricos`;
+
+  // Desglose del saldo acumulado, agrupado por origen (mismos datos, sin
+  // recalcular nada aparte — es un group-by de movsCaja).
+  const elSaldoDet = document.getElementById('caja-saldo-detalle');
+  if(elSaldoDet){
+    const grupos = {};
+    movsCaja.forEach(m=>{
+      const k = m.origen || 'Otro';
+      if(!grupos[k]) grupos[k] = {debe:0, haber:0, cant:0};
+      grupos[k].debe += m.debe||0; grupos[k].haber += m.haber||0; grupos[k].cant++;
+    });
+    const filas = Object.entries(grupos)
+      .map(([origen,v])=>({origen, neto:v.debe-v.haber, cant:v.cant}))
+      .sort((a,b)=>Math.abs(b.neto)-Math.abs(a.neto));
+    elSaldoDet.innerHTML = filas.map(f =>
+      `<div style="display:flex;justify-content:space-between;padding:3px 0">
+         <span>${esc(f.origen)} <span style="opacity:.5">(${f.cant})</span></span>
+         <span style="font-weight:600;color:${f.neto>=0?'#1a5c38':'#c0392b'}">${f.neto>=0?'+':''}$${Math.round(f.neto).toLocaleString('es-AR')}</span>
+       </div>`
+    ).join('') + `<div style="display:flex;justify-content:space-between;padding:5px 0 0;margin-top:4px;border-top:1px solid #ddd;font-weight:700">
+         <span>Saldo total</span><span>$${Math.round(saldoCaja).toLocaleString('es-AR')}</span>
+       </div>`;
+  }
 
   // Historial cierres
   const cl=document.getElementById('cierres-list');
