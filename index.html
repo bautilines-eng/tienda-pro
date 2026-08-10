@@ -5460,6 +5460,13 @@ async function confirmarRemito(){
 
 let ncpLineas = [];
 
+// A diferencia de Finanzas (que redondea a pesos enteros para dashboards),
+// acá SÍ hace falta mostrar los centavos exactos: la idea es poder comparar
+// el modal, número por número, contra el papel real de la Nota de Crédito.
+function _money2(n){
+  return '$' + (Math.round((n||0)*100)/100).toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
 function abrirModalNCProveedor(){
   ncpLineas = [];
   const sel = document.getElementById('ncp-prov');
@@ -5510,7 +5517,7 @@ function onNCPProveedorChange(){
   sel.innerHTML = '<option value="">No aplicar contra ninguna factura</option>' +
     lista.map(d=>{
       const estadoTxt = d.estado==='pagado' ? ' (ya pagada)' : '';
-      return `<option value="${d.id}">${esc(d.descripcion||d.nombre_cliente||'Deuda')}${estadoTxt} — saldo $${Math.round(d.monto||0).toLocaleString('es-AR')}</option>`;
+      return `<option value="${d.id}">${esc(d.descripcion||d.nombre_cliente||'Deuda')}${estadoTxt} — saldo ${_money2(d.monto||0)}</option>`;
     }).join('');
   recalcNCPTotales();
 }
@@ -5616,9 +5623,9 @@ function recalcNCPTotales(){
       // descuenta solo del próximo pago a ese proveedor.
       const nuevoSaldo = Math.round((deuda.monto-total)*100)/100;
       if(nuevoSaldo >= 0){
-        aplicacionHTML = `<div style="font-size:11px;color:#1a5c38;margin-top:6px">✅ Se aplicará contra "${esc(deuda.descripcion||deuda.nombre_cliente||'')}" — queda $${nuevoSaldo.toLocaleString('es-AR')} pendiente en esa factura.</div>`;
+        aplicacionHTML = `<div style="font-size:11px;color:#1a5c38;margin-top:6px">✅ Se aplicará contra "${esc(deuda.descripcion||deuda.nombre_cliente||'')}" — queda ${_money2(nuevoSaldo)} pendiente en esa factura.</div>`;
       } else {
-        aplicacionHTML = `<div style="font-size:11px;color:#1a5ec9;margin-top:6px">💰 Se aplicará contra "${esc(deuda.descripcion||deuda.nombre_cliente||'')}" — queda un <b>saldo a favor de $${Math.abs(nuevoSaldo).toLocaleString('es-AR')}</b> con ese proveedor, para descontar de la próxima compra.</div>`;
+        aplicacionHTML = `<div style="font-size:11px;color:#1a5ec9;margin-top:6px">💰 Se aplicará contra "${esc(deuda.descripcion||deuda.nombre_cliente||'')}" — queda un <b>saldo a favor de ${_money2(Math.abs(nuevoSaldo))}</b> con ese proveedor, para descontar de la próxima compra.</div>`;
       }
     } else {
       aplicacionHTML = `<div style="font-size:11px;color:#e65100;margin-top:6px">⏳ Sin factura elegida — se revierte el stock, pero la NC queda <b>pendiente de contabilizar</b> hasta que elijas contra qué factura va.</div>`;
@@ -5627,9 +5634,9 @@ function recalcNCPTotales(){
 
   el.innerHTML = `
     <div style="background:#fafafa;border-radius:12px;padding:12px 14px;margin-top:4px">
-      <div style="display:flex;justify-content:space-between;font-size:12px;color:#666"><span>Neto</span><span>$${Math.round(neto).toLocaleString('es-AR')}</span></div>
-      <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-top:3px"><span>IVA</span><span>$${Math.round(iva).toLocaleString('es-AR')}</span></div>
-      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;color:#1a1a1a;margin-top:6px;padding-top:6px;border-top:1px solid #e5e5e5"><span>TOTAL</span><span>$${Math.round(total).toLocaleString('es-AR')}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#666"><span>Neto</span><span>${_money2(neto)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-top:3px"><span>IVA</span><span>${_money2(iva)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;color:#1a1a1a;margin-top:6px;padding-top:6px;border-top:1px solid #e5e5e5"><span>TOTAL</span><span>${_money2(total)}</span></div>
       ${aplicacionHTML}
     </div>`;
 }
@@ -5732,10 +5739,10 @@ async function guardarNCProveedor(){
     if(contabilizada){
       const saldoFinal = deuda ? deuda.monto : 0;
       showToast(saldoFinal < 0
-        ? '✅ NC registrada y contabilizada — te quedó un saldo a favor de $'+Math.round(Math.abs(saldoFinal)).toLocaleString('es-AR')+' con ese proveedor'
+        ? '✅ NC registrada y contabilizada — te quedó un saldo a favor de '+_money2(Math.abs(saldoFinal))+' con ese proveedor'
         : '✅ NC registrada: stock revertido, factura actualizada y contabilizada', 'ok');
     } else {
-      showToast('✅ NC registrada y stock revertido — quedó ⏳ pendiente de contabilizar ($'+Math.round(saldoSinAplicar).toLocaleString('es-AR')+') porque no elegiste contra qué factura aplicarla.', 'ok');
+      showToast('✅ NC registrada y stock revertido — quedó ⏳ pendiente de contabilizar ('+_money2(saldoSinAplicar)+') porque no elegiste contra qué factura aplicarla.', 'ok');
     }
   }catch(e){
     showToast('❌ '+(e.message||'Error al registrar la NC'), 'err');
@@ -5753,7 +5760,7 @@ function renderNCPList(){
   el.innerHTML = lista.map(ncp=>{
     const badge = ncp.contabilizada
       ? `<span style="font-size:10px;background:#eaf5ee;color:#1a5c38;padding:3px 8px;border-radius:10px;font-weight:600">✅ Contabilizada</span>`
-      : `<span style="font-size:10px;background:#fff8e1;color:#e65100;padding:3px 8px;border-radius:10px;font-weight:600">⏳ Pendiente ($${Math.round(ncp.saldo_sin_aplicar||0).toLocaleString('es-AR')})</span>`;
+      : `<span style="font-size:10px;background:#fff8e1;color:#e65100;padding:3px 8px;border-radius:10px;font-weight:600">⏳ Pendiente (${_money2(ncp.saldo_sin_aplicar||0)})</span>`;
     return `<div class="card" style="margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="min-width:0">
@@ -5761,7 +5768,7 @@ function renderNCPList(){
           <div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(ncp.fecha||'')}${ncp.factura_relacionada?' · ref '+esc(ncp.factura_relacionada):''}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700">$${Math.round(ncp.total||0).toLocaleString('es-AR')}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700">${_money2(ncp.total||0)}</div>
         </div>
       </div>
       <div style="margin-top:6px">${badge}</div>
