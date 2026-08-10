@@ -1180,6 +1180,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <button class="de-tab active" data-tab="clientes" onclick="switchDeTab(this)" style="flex:1;padding:9px 4px;border:1.5px solid #c97f1a;border-radius:9px;background:#fdf5ea;color:#c97f1a;font-size:12px;font-weight:600;cursor:pointer">👤 Clientes</button>
       <button class="de-tab" data-tab="proveedores" onclick="switchDeTab(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">🏭 Proveedores</button>
       <button class="de-tab" data-tab="saldos" onclick="switchDeTab(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">📊 Saldos</button>
+      <button class="de-tab" data-tab="pagos" onclick="switchDeTab(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">💳 Pagos</button>
     </div>
     <div style="padding:10px 20px 0">
       <input type="text" id="de-buscar-nombre" class="inp" placeholder="🔍 Buscar por nombre…" oninput="deBuscarNombre=this.value; renderDeudas();" style="width:100%;box-sizing:border-box">
@@ -1192,6 +1193,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="empty" style="padding:14px;text-align:center;color:#aaa">Sin notas de débito emitidas</div>
     </div>
     <div id="de-saldos" style="display:none;padding:0 20px"></div>
+    <div id="de-pagos" style="display:none;padding:0 20px 20px"></div>
   </div>
 
   <!-- MODAL NUEVO GASTO -->
@@ -10049,19 +10051,28 @@ function renderDeudas(){
   const deTabEl = document.querySelector('.de-tab.active');
   const deTab = deTabEl?.dataset?.tab || deTabActual || 'clientes';
 
-  // Handle saldos tab
+  // Handle saldos / pagos tabs (vistas alternativas a la lista de deudas)
   const deListEl = document.getElementById('de-list');
   const deSaldosEl = document.getElementById('de-saldos');
+  const dePagosEl = document.getElementById('de-pagos');
 
   if (deTab === 'saldos') {
     if(deListEl) deListEl.style.display = 'none';
     if(deSaldosEl) deSaldosEl.style.display = 'block';
+    if(dePagosEl) dePagosEl.style.display = 'none';
     renderSaldoProveedores(deBuscarNombre);
     return;
-  } else {
-    if(deListEl) deListEl.style.display = 'block';
-    if(deSaldosEl) deSaldosEl.style.display = 'none';
   }
+  if (deTab === 'pagos') {
+    if(deListEl) deListEl.style.display = 'none';
+    if(deSaldosEl) deSaldosEl.style.display = 'none';
+    if(dePagosEl) dePagosEl.style.display = 'block';
+    renderPagosRealizados(deBuscarNombre);
+    return;
+  }
+  if(deListEl) deListEl.style.display = 'block';
+  if(deSaldosEl) deSaldosEl.style.display = 'none';
+  if(dePagosEl) dePagosEl.style.display = 'none';
 
   if (deTab === 'clientes') {
     renderClientesAgrupados();
@@ -10715,6 +10726,77 @@ function imprimirReciboPago(loteId){
     +'<p style="margin-top:50px">Firma: _______________________</p></body></html>');
   win.document.close();
   setTimeout(()=>{ try{ win.focus(); win.print(); }catch(e){} }, 300);
+}
+
+// Vista global de "Pagos" (pestaña 💳 en Deudores) — agrupa pagosDeuda por
+// lote_id: una acción de pago = una tarjeta, aunque haya cubierto varias
+// facturas o se haya dividido en dos métodos. Los pagos de antes de esta
+// función (sin lote_id) se listan igual, cada uno con su propia tarjeta,
+// pero sin botón de recibo — no hay nada que imprimir ahí, no se inventa.
+function renderPagosRealizados(filtroNombre){
+  const el = document.getElementById('de-pagos');
+  if(!el) return;
+
+  if(!pagosDeuda || !pagosDeuda.length){
+    el.innerHTML = '<div class="empty" style="margin-top:20px">Todavía no registraste ningún pago</div>';
+    return;
+  }
+
+  const grupos = {};
+  pagosDeuda.forEach(p=>{
+    const key = p.lote_id || ('__'+p.id);
+    (grupos[key] = grupos[key] || []).push(p);
+  });
+
+  let tarjetas = Object.entries(grupos).map(([key, pagos])=>{
+    const total = pagos.reduce((s,p)=>s+(Number(p.monto_abonado)||0),0);
+    const fecha = pagos.map(p=>p.fecha||'').sort().slice(-1)[0] || '';
+    const creadoEn = pagos.map(p=>p.created_at||'').sort().slice(-1)[0] || '';
+    const deudaRef = (deudas||[]).find(d=>d.id===pagos[0].deuda_id);
+    const nombre = deudaRef?.nombre_cliente || 'Sin nombre';
+    const tipo = deudaRef?.tipo || 'cliente';
+    const medios = [...new Set(pagos.map(p=>p.medio_pago).filter(Boolean))];
+    // Cantidad de FACTURAS distintas cubiertas — no de filas de pago (una
+    // factura partida entre dos métodos cuenta una sola vez acá).
+    const facturasUnicas = new Set(pagos.map(p=>p.deuda_id)).size;
+    return { total, fecha, creadoEn, nombre, tipo, medios, facturasUnicas, loteId: pagos[0].lote_id || null };
+  });
+
+  const q = (filtroNombre||'').trim().toLowerCase();
+  if(q) tarjetas = tarjetas.filter(t=>t.nombre.toLowerCase().includes(q));
+  tarjetas.sort((a,b)=> (b.fecha+b.creadoEn).localeCompare(a.fecha+a.creadoEn));
+
+  if(!tarjetas.length){
+    el.innerHTML = `<div class="empty" style="margin-top:20px">Sin resultados${filtroNombre?` para "${esc(filtroNombre)}"`:''}</div>`;
+    return;
+  }
+
+  el.innerHTML = tarjetas.map(t=>{
+    const badge = t.tipo==='proveedor'
+      ? '<span style="font-size:10px;background:#e3f2fd;color:#1565c0;padding:2px 7px;border-radius:10px;font-weight:600">PROVEEDOR</span>'
+      : (t.tipo==='gasto'
+        ? '<span style="font-size:10px;background:#f3e5f5;color:#6a1b9a;padding:2px 7px;border-radius:10px;font-weight:600">GASTO</span>'
+        : '<span style="font-size:10px;background:#fff3e0;color:#e65100;padding:2px 7px;border-radius:10px;font-weight:600">CLIENTE</span>');
+    return `<div class="card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <div style="font-size:13px;font-weight:700">${esc(t.nombre)}</div>
+            ${badge}
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px">${esc(t.fecha)} · ${t.facturasUnicas} factura${t.facturasUnicas!==1?'s':''} · ${esc(t.medios.join(' + '))}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-family:DM Mono,monospace;font-size:17px;font-weight:700;color:var(--pine)">$${t.total.toLocaleString('es-AR')}</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;text-align:right">
+        ${t.loteId
+          ? `<button onclick="imprimirReciboPago('${t.loteId}')" style="padding:5px 12px;border-radius:7px;border:1px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:11px;font-weight:600;cursor:pointer">🖨️ Recibo</button>`
+          : `<span style="font-size:10px;color:var(--muted)">Sin recibo (pago anterior a esta función)</span>`}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // ══ USUARIOS ══
