@@ -190,6 +190,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 .hcard.open .hc-detail{display:block}
 .hc-dr{display:flex;justify-content:space-between;font-size:12px;padding:3px 0;color:var(--muted)}
 .hc-dr span:last-child{font-weight:600;color:var(--ink);font-family:'DM Mono',monospace}
+.cc-detail{display:none}
+.ccard.open .cc-detail{display:block}
+.ccard.expandible{cursor:pointer}
 
 /* FILTER BAR */
 .fbar{display:flex;gap:6px;padding:12px 20px 0;overflow-x:auto;scrollbar-width:none}
@@ -1138,6 +1141,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       align-items:center;gap:8px;flex-wrap:wrap"></div>
 
     <div class="slabel"><span class="slabel-t">Últimas compras</span></div>
+    <div style="padding:0 20px 10px">
+      <input type="text" id="co-buscar-proveedor" class="inp" placeholder="🔍 Buscar por proveedor…" oninput="coBuscarProveedor=this.value; renderCompraList();" style="width:100%;box-sizing:border-box">
+    </div>
     <div class="clist" id="colist"><div class="empty">Sin compras aún</div></div>
     <div id="co-prov-panel" style="display:none;padding:0 20px"></div>
     <div id="co-orden-panel" style="display:none;padding:0 20px"></div>
@@ -1174,6 +1180,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <button class="de-tab active" data-tab="clientes" onclick="switchDeTab(this)" style="flex:1;padding:9px 4px;border:1.5px solid #c97f1a;border-radius:9px;background:#fdf5ea;color:#c97f1a;font-size:12px;font-weight:600;cursor:pointer">👤 Clientes</button>
       <button class="de-tab" data-tab="proveedores" onclick="switchDeTab(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">🏭 Proveedores</button>
       <button class="de-tab" data-tab="saldos" onclick="switchDeTab(this)" style="flex:1;padding:9px 4px;border:1.5px solid #e0e0e0;border-radius:9px;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer">📊 Saldos</button>
+    </div>
+    <div style="padding:10px 20px 0">
+      <input type="text" id="de-buscar-nombre" class="inp" placeholder="🔍 Buscar por nombre…" oninput="deBuscarNombre=this.value; renderDeudas();" style="width:100%;box-sizing:border-box">
     </div>
     <div style="padding:0 20px;display:flex;flex-direction:column;gap:8px" id="de-list">
       <div class="empty">Sin deudas registradas</div>
@@ -7456,7 +7465,7 @@ function renderHistorialProveedores() {
 // ══════════════════════════════════════════
 // SALDO POR PROVEEDOR (en Deudores)
 // ══════════════════════════════════════════
-function renderSaldoProveedores() {
+function renderSaldoProveedores(filtroNombre) {
   const el = document.getElementById('de-saldos');
   if (!el) return;
 
@@ -7477,6 +7486,21 @@ function renderSaldoProveedores() {
 
   const totalGeneral = deudasProv.reduce((s,d) => s+(d.monto||0), 0);
 
+  const q = (filtroNombre||'').trim().toLowerCase();
+  let entradas = Object.entries(byProv);
+  if(q) entradas = entradas.filter(([prov]) => prov.toLowerCase().includes(q));
+
+  if(q && !entradas.length){
+    el.innerHTML = `
+      <div style="background:linear-gradient(135deg,#1a3a5c,#0d1f33);border-radius:14px;padding:16px;margin-bottom:16px;color:#fff">
+        <div style="font-size:11px;opacity:.7;margin-bottom:4px">TOTAL ADEUDADO A PROVEEDORES</div>
+        <div style="font-family:'DM Mono',monospace;font-size:26px;font-weight:700">$${totalGeneral.toLocaleString('es-AR')}</div>
+        <div style="font-size:11px;opacity:.7;margin-top:4px">${Object.keys(byProv).length} proveedor${Object.keys(byProv).length!==1?'es':''}</div>
+      </div>
+      <div class="empty">Sin resultados para "${esc(filtroNombre)}"</div>`;
+    return;
+  }
+
   el.innerHTML = `
     <!-- Resumen total -->
     <div style="background:linear-gradient(135deg,#1a3a5c,#0d1f33);border-radius:14px;padding:16px;margin-bottom:16px;color:#fff">
@@ -7485,7 +7509,7 @@ function renderSaldoProveedores() {
       <div style="font-size:11px;opacity:.7;margin-top:4px">${Object.keys(byProv).length} proveedor${Object.keys(byProv).length!==1?'es':''}</div>
     </div>
 
-    ${Object.entries(byProv).sort((a,b) => {
+    ${entradas.sort((a,b) => {
       const sa = a[1].reduce((s,d)=>s+(d.monto||0),0);
       const sb = b[1].reduce((s,d)=>s+(d.monto||0),0);
       return sb - sa;
@@ -9852,6 +9876,8 @@ async function rechazarConsumo(id){
   }catch(e){ console.error('rechazar', e); showToast('Error al rechazar','err'); }
 }
 
+let deBuscarNombre = '';
+
 function renderDeudas(){
   if(typeof renderConsumos === 'function') renderConsumos();
   if(typeof renderNotasDebito === 'function') renderNotasDebito();
@@ -9867,23 +9893,29 @@ function renderDeudas(){
   if (deTab === 'saldos') {
     if(deListEl) deListEl.style.display = 'none';
     if(deSaldosEl) deSaldosEl.style.display = 'block';
-    renderSaldoProveedores();
+    renderSaldoProveedores(deBuscarNombre);
     return;
   } else {
     if(deListEl) deListEl.style.display = 'block';
     if(deSaldosEl) deSaldosEl.style.display = 'none';
   }
 
-  if (deTab === 'proveedores') {
-    pendientes = deudas.filter(d => d.estado !== 'pagado' && (d.tipo === 'proveedor' || d.tipo === 'gasto'));
-  } else {
-    pendientes = deudas.filter(d => d.estado !== 'pagado' && d.tipo !== 'proveedor' && d.tipo !== 'gasto');
+  if (deTab === 'clientes') {
+    renderClientesAgrupados();
+    return;
   }
+
+  // ── Proveedores: lista plana, sin cambios de fondo — solo se le sumó el
+  // filtro por nombre, compartido con las otras dos pestañas ──
+  pendientes = deudas.filter(d => d.estado !== 'pagado' && (d.tipo === 'proveedor' || d.tipo === 'gasto'));
+  const q = (deBuscarNombre||'').trim().toLowerCase();
+  if(q) pendientes = pendientes.filter(d => (d.nombre_cliente||'').toLowerCase().includes(q));
+
   const total = pendientes.reduce((s,d) => s+(d.monto||0), 0);
   document.getElementById('de-count').textContent = pendientes.length;
   document.getElementById('de-total').textContent = `$${total.toLocaleString('es-AR')}`;
   const el = document.getElementById('de-list');
-  if(!pendientes.length){ el.innerHTML='<div class="empty">Sin deudas pendientes 🎉</div>'; return; }
+  if(!pendientes.length){ el.innerHTML = `<div class="empty">${q?`Sin resultados para "${esc(deBuscarNombre)}"`:'Sin deudas pendientes 🎉'}</div>`; return; }
   el.innerHTML = pendientes.map(d => {
     const vencida = d.fecha_limite && new Date(d.fecha_limite) < new Date();
     const montoOrig = d.monto_original || d.monto;
@@ -9924,6 +9956,84 @@ function renderDeudas(){
           <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="eliminarDeuda('${d.id}')">🗑️</button>
         </div>
       </div>
+    </div>`;
+  }).join('');
+}
+
+// Clientes agrupados por nombre — mismo patrón visual que ya usa
+// renderSaldoProveedores para proveedores (tarjeta con total del grupo +
+// detalle de cada deuda individual adentro), aplicado ahora a clientes.
+// Agrupa por nombre normalizado (trim + minúsculas) para que "Bautista
+// Lines" y "bautista lines " no queden separados por error de tipeo.
+function renderClientesAgrupados(){
+  const el = document.getElementById('de-list');
+  if(!el) return;
+  const pendientes = deudas.filter(d => d.estado !== 'pagado' && d.tipo !== 'proveedor' && d.tipo !== 'gasto');
+
+  document.getElementById('de-count').textContent = pendientes.length;
+  const totalGeneral = pendientes.reduce((s,d)=>s+(d.monto||0),0);
+  document.getElementById('de-total').textContent = `$${totalGeneral.toLocaleString('es-AR')}`;
+
+  if(!pendientes.length){ el.innerHTML = '<div class="empty">Sin deudas pendientes 🎉</div>'; return; }
+
+  const byCliente = {};
+  pendientes.forEach(d=>{
+    const nombre = (d.nombre_cliente||'Sin nombre').trim();
+    const key = nombre.toLowerCase();
+    if(!byCliente[key]) byCliente[key] = { nombre, items:[] };
+    byCliente[key].items.push(d);
+  });
+
+  let grupos = Object.values(byCliente);
+  const q = (deBuscarNombre||'').trim().toLowerCase();
+  if(q) grupos = grupos.filter(g => g.nombre.toLowerCase().includes(q));
+  grupos.sort((a,b)=>{
+    const sa = a.items.reduce((s,d)=>s+(d.monto||0),0);
+    const sb = b.items.reduce((s,d)=>s+(d.monto||0),0);
+    return sb - sa;
+  });
+
+  if(!grupos.length){ el.innerHTML = `<div class="empty">Sin resultados para "${esc(deBuscarNombre)}"</div>`; return; }
+
+  el.innerHTML = grupos.map(g=>{
+    const total = g.items.reduce((s,d)=>s+(d.monto||0),0);
+    const orig  = g.items.reduce((s,d)=>s+(d.monto_original||d.monto||0),0);
+    const pct   = orig > 0 ? Math.round((orig-total)/orig*100) : 0;
+    const vencidas = g.items.filter(d=>d.fecha_limite && new Date(d.fecha_limite) < new Date());
+    const telefono = g.items.find(d=>d.telefono)?.telefono;
+
+    return `<div class="card" style="${vencidas.length?'border-color:var(--red);background:var(--red-l)':''}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:${g.items.length>1?'10px':'6px'}">
+        <div>
+          <div style="font-size:13px;font-weight:700">👤 ${esc(g.nombre)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${g.items.length} deuda${g.items.length!==1?'s':''} pendiente${g.items.length!==1?'s':''}</div>
+          ${vencidas.length?`<div style="font-size:11px;color:var(--red);font-weight:600;margin-top:2px">⚠️ ${vencidas.length} vencida${vencidas.length!==1?'s':''}</div>`:''}
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:DM Mono,monospace;font-size:18px;font-weight:700;color:${vencidas.length?'var(--red)':'var(--amber)'}">$${total.toLocaleString('es-AR')}</div>
+          ${pct>0?`<div style="font-size:10px;color:var(--pine);margin-top:2px">Pagado ${pct}%</div>`:''}
+        </div>
+      </div>
+      ${pct>0?`<div style="background:var(--cream);border-radius:4px;height:5px;overflow:hidden;margin-bottom:10px">
+        <div style="background:var(--pine);height:100%;width:${pct}%"></div>
+      </div>`:''}
+      ${telefono?`<div style="margin-bottom:8px"><a href="https://wa.me/${telefono.replace(/\D/g,'')}" target="_blank" class="btn btn-sm btn-outline">💬 WA</a></div>`:''}
+      ${g.items.map(d=>{
+        const vencida = d.fecha_limite && new Date(d.fecha_limite) < new Date();
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(18,16,14,.06);font-size:11.5px;flex-wrap:wrap;gap:6px">
+          <div style="min-width:0">
+            <span style="color:#555">${esc(d.descripcion)||'Venta a cuenta corriente'}</span>
+            ${d.tipo==='personal'?'<span style="font-size:9px;background:#fdf5ea;color:#8a5a1a;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:5px">PERSONAL</span>':''}
+            ${d.fecha_limite?`<span style="margin-left:6px;color:${vencida?'var(--red)':'var(--muted)'}">${vencida?'⚠️ Vencida':'📅'} ${new Date(d.fecha_limite+'T12:00:00').toLocaleDateString('es-AR')}</span>`:'<span style="margin-left:6px;color:var(--muted)">Sin fecha límite</span>'}
+          </div>
+          <div style="display:flex;align-items:center;gap:5px">
+            <span style="font-family:DM Mono,monospace;font-weight:600;color:${vencida?'var(--red)':'#1a3a5c'}">$${(d.monto||0).toLocaleString('es-AR')}</span>
+            <button onclick="abrirModalPago('${d.id}','${esc(d.nombre_cliente||'')}',${d.monto||0})" title="Registrar pago" style="padding:4px 8px;border-radius:6px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:10px;cursor:pointer">💰</button>
+            <button onclick="verHistorialPagos('${d.id}','${esc(d.nombre_cliente||'')}')" title="Historial" style="padding:4px 8px;border-radius:6px;border:1.5px solid var(--pine);background:var(--pine-l);color:var(--pine);font-size:10px;cursor:pointer">📋</button>
+            <button onclick="eliminarDeuda('${d.id}')" title="Eliminar" style="padding:4px 8px;border-radius:6px;border:1.5px solid var(--red);background:var(--red-l);color:var(--red);font-size:10px;cursor:pointer">🗑️</button>
+          </div>
+        </div>`;
+      }).join('')}
     </div>`;
   }).join('');
 }
@@ -12583,6 +12693,8 @@ async function doCompra(){
   }catch(e){ showToast('❌ Error al registrar compra','err'); console.error(e); }
 }
 
+let coBuscarProveedor = '';
+
 function renderCompraList(){
   const el=document.getElementById('colist');
   if(!compras.length){el.innerHTML='<div class="empty">Sin compras aún</div>';return;}
@@ -12607,7 +12719,16 @@ function renderCompraList(){
   });
   grupos.forEach(g => { g.esRemito = g.items.length > 1; });
 
-  el.innerHTML = grupos.map(g => {
+  // ── Filtro por proveedor (todos los ítems de un remito comparten proveedor) ──
+  const q = (coBuscarProveedor||'').trim().toLowerCase();
+  const gruposFiltrados = q ? grupos.filter(g => (g.items[0].proveedor||'').toLowerCase().includes(q)) : grupos;
+
+  if(!gruposFiltrados.length){
+    el.innerHTML = `<div class="empty">Sin compras de proveedores que coincidan con "${esc(coBuscarProveedor)}"</div>`;
+    return;
+  }
+
+  el.innerHTML = gruposFiltrados.map(g => {
     const co       = g.items[0];
     const totalGrp = g.items.reduce((s,c)=> s + (c.precio_unitario||0)*(c.cantidad||0), 0);
     const unidades = g.items.reduce((s,c)=> s + (c.cantidad||0), 0);
@@ -12630,9 +12751,12 @@ function renderCompraList(){
       ? `<span style="font-weight:700">${esTraspaso?'🔁':'📦'} ${esTraspaso?'Traspaso interno':'Remito'} · ${g.items.length} productos</span>`
       : `<span style="font-weight:600">${esc(co.producto_nombre||'—')}</span>`;
 
-    // Detalle de articulos (solo para remitos): lista interna
+    // Detalle de articulos (solo para remitos): colapsado por defecto —
+    // mismo patrón que las tarjetas de Historial (.hcard/.hc-detail), para
+    // no abrumar la lista cuando hay muchos remitos con varios productos.
     const detalle = g.esRemito
-      ? `<div style="margin-top:8px;padding:8px;background:#fafafa;border-radius:8px;border:1px solid #eee">
+      ? `<div style="font-size:10.5px;color:#1565c0;margin-top:4px">▾ Tocá para ver los ${g.items.length} productos</div>
+         <div class="cc-detail" style="margin-top:8px;padding:8px;background:#fafafa;border-radius:8px;border:1px solid #eee">
            ${g.items.map(c=>{
              const t=(c.precio_unitario||0)*(c.cantidad||0);
              const btnEditarLinea = (_esRolAdmin() && !c.factura_cargada)
@@ -12659,7 +12783,7 @@ function renderCompraList(){
       ? `<button onclick="abrirAnularCompra('${co.id}');event.stopPropagation()" style="font-size:10px;background:#fef2f2;color:#c94040;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #fecaca;cursor:pointer" title="${g.esRemito?'Anular remito':'Anular compra'}">🗑️</button>`
       : '';
 
-    return `<div class="ccard" style="border-left:3px solid ${esTraspaso?'#6d28d9':(esSinFactura?'#64748b':(tieneFac?'#16a34a':'#dc2626'))}">
+    return `<div class="ccard${g.esRemito?' expandible':''}" ${g.esRemito?`onclick="this.classList.toggle('open')"`:''} style="border-left:3px solid ${esTraspaso?'#6d28d9':(esSinFactura?'#64748b':(tieneFac?'#16a34a':'#dc2626'))}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div class="cc-prod">${titulo}</div>
         ${totalGrp?`<div class="cc-total" style="font-family:'DM Mono',monospace;font-weight:700">$${totalGrp.toLocaleString('es-AR')}</div>`:''}
