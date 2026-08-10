@@ -7521,6 +7521,7 @@ function renderSaldoProveedores(filtroNombre) {
       const orig  = ds.reduce((s,d) => s+(d.monto_original||d.monto||0), 0);
       const pct   = orig > 0 ? Math.round((orig-total)/orig*100) : 0;
       const vencidas = ds.filter(d => d.fecha_limite && new Date(d.fecha_limite) < new Date());
+      const provKey = prov.replace(/[^a-zA-Z0-9]/g,'_');
 
       return `<div style="background:#fff;border:1.5px solid ${vencidas.length?'#ffcdd2':'#f0f0f0'};border-radius:12px;padding:14px 16px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
@@ -7537,14 +7538,24 @@ function renderSaldoProveedores(filtroNombre) {
         ${pct>0?`<div style="background:#f0f0f0;border-radius:4px;height:5px;overflow:hidden;margin-bottom:10px">
           <div style="background:#1a5c38;height:100%;width:${pct}%"></div>
         </div>`:''}
+        ${ds.length>1?`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-bottom:8px;background:#f5f8fc;border-radius:8px;border:1px dashed #cbd5e1">
+          <div style="font-size:10.5px;color:#555">Seleccionadas: <b id="sel-count-${provKey}">0</b> · <b id="sel-total-${provKey}">$0</b></div>
+          <button id="btn-pagar-lote-${provKey}" onclick="abrirModalPagoLote('${provKey}')" disabled
+            style="padding:5px 12px;border-radius:6px;border:none;background:#94a3b8;color:#fff;font-size:10.5px;font-weight:700;cursor:pointer">
+            💰 Pagar seleccionadas
+          </button>
+        </div>`:''}
         ${ds.map(d => {
           const vencida = d.fecha_limite && new Date(d.fecha_limite) < new Date();
           return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #fafafa;font-size:11px">
-            <div>
-              <span style="color:#555">${esc(d.descripcion)||'Deuda proveedor'}</span>
-              ${d.fecha_limite?`<span style="margin-left:6px;color:${vencida?'#c94040':'#999'}">${vencida?'⚠️ Vencida':'📅'} ${new Date(d.fecha_limite+'T12:00:00').toLocaleDateString('es-AR')}</span>`:''}
+            <div style="display:flex;align-items:center;gap:8px;min-width:0">
+              ${ds.length>1?`<input type="checkbox" class="chk-pago-lote" data-provkey="${provKey}" data-id="${d.id}" data-monto="${d.monto||0}" onchange="actualizarSeleccionLote('${provKey}')" style="width:15px;height:15px;flex-shrink:0;cursor:pointer">`:''}
+              <span style="min-width:0">
+                <span style="color:#555">${esc(d.descripcion)||'Deuda proveedor'}</span>
+                ${d.fecha_limite?`<span style="margin-left:6px;color:${vencida?'#c94040':'#999'}">${vencida?'⚠️ Vencida':'📅'} ${new Date(d.fecha_limite+'T12:00:00').toLocaleDateString('es-AR')}</span>`:''}
+              </span>
             </div>
-            <div style="display:flex;align-items:center;gap:8px">
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
               <span style="font-family:'DM Mono',monospace;font-weight:600;color:${vencida?'#c94040':'#1a3a5c'}">$${(d.monto||0).toLocaleString('es-AR')}</span>
               <button onclick="abrirModalPago('${d.id}','${esc(d.nombre_cliente||'')}',${d.monto||0})"
                 style="padding:4px 10px;border-radius:6px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:10px;font-weight:600;cursor:pointer">
@@ -7556,6 +7567,25 @@ function renderSaldoProveedores(filtroNombre) {
       </div>`;
     }).join('')}`;
 }
+
+// Actualiza el contador/total/botón de "Pagar seleccionadas" de UN proveedor
+// leyendo en vivo qué checkboxes están tildados — no mantiene un estado JS
+// paralelo que se pueda desincronizar del DOM.
+function actualizarSeleccionLote(provKey){
+  const checks = document.querySelectorAll(`.chk-pago-lote[data-provkey="${provKey}"]:checked`);
+  let total = 0;
+  checks.forEach(c => total += parseFloat(c.dataset.monto)||0);
+  const countEl = document.getElementById('sel-count-'+provKey);
+  const totalEl = document.getElementById('sel-total-'+provKey);
+  const btnEl = document.getElementById('btn-pagar-lote-'+provKey);
+  if(countEl) countEl.textContent = checks.length;
+  if(totalEl) totalEl.textContent = '$'+total.toLocaleString('es-AR');
+  if(btnEl){
+    btnEl.disabled = checks.length===0;
+    btnEl.style.background = checks.length===0 ? '#94a3b8' : '#1a3a5c';
+  }
+}
+
 
 // ══════════════════════════════════════════
 // ORDEN DE COMPRA — PDF profesional
@@ -10118,10 +10148,26 @@ function actualizarPreviewPago(){
   }
 }
 
-let pagoTotalCliente = null; // nombre del cliente cuando el modal está en modo "pagar todo"; null = pago individual normal
+let pagoTotalCliente = null; // nombre del cliente cuando el modal está en modo "pagar todo"
+let pagoLoteIds = null;      // array de ids de deuda cuando el modal está en modo "pagar seleccionadas"
+// null en ambos = pago individual normal
+
+// Puebla el <select> de medio de pago una sola vez (se reusa en los 3 modos
+// de apertura del modal: individual, "pagar todo" y "pagar seleccionadas").
+function _poblarMedioPagoSiVacio(){
+  const med = document.getElementById('pago-medio');
+  if(med && !med.options.length){
+    const e  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo'])      || '11101001';
+    const t  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Transferencia'])  || '11102006';
+    const mp = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['MercadoPago'])    || '11102006';
+    const ch = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cheque'])         || '11302001';
+    med.innerHTML = `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option><option value="${ch}">Cheque (Valores al cobro)</option>`;
+  }
+}
 
 function abrirModalPago(id, nombre, saldo){
   pagoTotalCliente = null;
+  pagoLoteIds = null;
   const montoWrap = document.getElementById('pago-monto-wrap');
   const resumen = document.getElementById('pago-total-resumen');
   if(montoWrap) montoWrap.style.display = 'block';
@@ -10131,14 +10177,7 @@ function abrirModalPago(id, nombre, saldo){
   document.getElementById('pago-saldo').textContent = '$'+Number(saldo).toLocaleString('es-AR');
   document.getElementById('pago-monto').value = '';
   document.getElementById('pago-nota').value = '';
-  const med = document.getElementById('pago-medio');
-  if(med && !med.options.length){
-    const e  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo'])      || '11101001';
-    const t  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Transferencia'])  || '11102006';
-    const mp = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['MercadoPago'])    || '11102006';
-    const ch = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cheque'])         || '11302001';
-    med.innerHTML = `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option><option value="${ch}">Cheque (Valores al cobro)</option>`;
-  }
+  _poblarMedioPagoSiVacio();
   openModal('ov-registrar-pago');
 }
 
@@ -10154,6 +10193,7 @@ function abrirModalPagoTotal(nombreCliente){
   const total = items.reduce((s,d)=>s+(d.monto||0),0);
 
   pagoTotalCliente = nombreCliente;
+  pagoLoteIds = null;
   document.getElementById('pago-deuda-id').value = '';
   document.getElementById('pago-deuda-nombre').textContent = `TODAS las deudas de ${nombreCliente} (${items.length})`;
   document.getElementById('pago-saldo').textContent = '$'+total.toLocaleString('es-AR');
@@ -10162,30 +10202,48 @@ function abrirModalPagoTotal(nombreCliente){
   const resumen = document.getElementById('pago-total-resumen');
   if(montoWrap) montoWrap.style.display = 'none';
   if(resumen) resumen.style.display = 'block';
-
-  const med = document.getElementById('pago-medio');
-  if(med && !med.options.length){
-    const e  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo'])      || '11101001';
-    const t  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Transferencia'])  || '11102006';
-    const mp = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['MercadoPago'])    || '11102006';
-    const ch = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cheque'])         || '11302001';
-    med.innerHTML = `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option><option value="${ch}">Cheque (Valores al cobro)</option>`;
-  }
+  _poblarMedioPagoSiVacio();
   openModal('ov-registrar-pago');
 }
 
-// Paga cada deuda del cliente por su saldo COMPLETO, una por una y en
-// orden (sin Promise.all a propósito: si una falla a mitad de camino,
-// hay que saber exactamente cuáles quedaron pagadas y cuáles no, en vez
-// de un fallo caótico en paralelo). Reporta honestamente si algo falló,
-// nunca dice "listo" si quedó algo pendiente.
-async function _guardarPagoTotalCliente(){
-  const nombreCliente = pagoTotalCliente;
-  const items = deudas.filter(d => d.estado!=='pagado' && d.tipo!=='proveedor' && d.tipo!=='gasto'
-    && (d.nombre_cliente||'').trim().toLowerCase() === nombreCliente.trim().toLowerCase());
+// "Pagar seleccionadas" — para proveedores con muchas facturas, elegís con
+// checkbox cuáles pagar juntas (no necesariamente todas) y un solo medio
+// de pago para el lote. Lee los checkboxes tildados de ESE proveedor
+// puntual (identificado por provKey) directo del DOM.
+function abrirModalPagoLote(provKey){
+  const checks = document.querySelectorAll(`.chk-pago-lote[data-provkey="${provKey}"]:checked`);
+  if(!checks.length){ showToast('Seleccioná al menos una factura','err'); return; }
+  const ids = Array.from(checks).map(c => c.dataset.id);
+  const items = ids.map(id => deudas.find(d=>d.id===id)).filter(Boolean);
+  const total = items.reduce((s,d)=>s+(d.monto||0),0);
+  const nombreProv = items[0]?.nombre_cliente || 'proveedor';
+
+  pagoLoteIds = ids;
+  pagoTotalCliente = null;
+  document.getElementById('pago-deuda-id').value = '';
+  document.getElementById('pago-deuda-nombre').textContent = `${items.length} factura(s) seleccionada(s) de ${nombreProv}`;
+  document.getElementById('pago-saldo').textContent = '$'+total.toLocaleString('es-AR');
+  document.getElementById('pago-nota').value = '';
+  const montoWrap = document.getElementById('pago-monto-wrap');
+  const resumen = document.getElementById('pago-total-resumen');
+  if(montoWrap) montoWrap.style.display = 'none';
+  if(resumen) resumen.style.display = 'block';
+  _poblarMedioPagoSiVacio();
+  openModal('ov-registrar-pago');
+}
+
+// Motor único de pago en lote: recibe una lista explícita de ids de deuda
+// y paga cada una por su saldo COMPLETO, una por una y en orden (sin
+// Promise.all a propósito: si una falla a mitad de camino, hay que saber
+// exactamente cuáles quedaron pagadas y cuáles no). Reporta honestamente
+// si algo falló, nunca dice "listo" si quedó algo pendiente. Tanto
+// "Pagar todo" (por cliente) como "Pagar seleccionadas" (por checkbox)
+// terminan acá — un solo lugar que hace el UPDATE + INSERT real.
+async function _guardarPagoLote(ids, etiqueta){
+  const items = ids.map(id => deudas.find(d=>d.id===id)).filter(Boolean);
   if(!items.length){
-    showToast('❌ No quedan deudas pendientes de esa persona','err');
-    pagoTotalCliente = null;
+    showToast('❌ No encontré esas deudas','err');
+    pagoTotalCliente = null; pagoLoteIds = null;
     closeModal('ov-registrar-pago');
     return;
   }
@@ -10219,17 +10277,33 @@ async function _guardarPagoTotalCliente(){
   }
 
   pagoTotalCliente = null;
+  pagoLoteIds = null;
   closeModal('ov-registrar-pago');
   renderDeudas();
 
+  const etq = etiqueta || `${pagadas} pago(s)`;
   if(fallidas === 0){
-    showToast(`🎉 Se saldaron las ${pagadas} deudas de ${nombreCliente} — total $${totalAPagar.toLocaleString('es-AR')}`, 'ok');
+    showToast(`🎉 Se registró ${etq} — total $${totalAPagar.toLocaleString('es-AR')}`, 'ok');
   } else {
-    showToast(`⚠️ Se pagaron ${pagadas} de ${items.length} deudas de ${nombreCliente}. ${fallidas} fallaron — revisá su historial antes de darlo por cerrado.`, 'err');
+    showToast(`⚠️ Se pagaron ${pagadas} de ${items.length} facturas. ${fallidas} fallaron — revisá antes de darlo por cerrado.`, 'err');
   }
 }
 
+async function _guardarPagoTotalCliente(){
+  const nombreCliente = pagoTotalCliente;
+  const items = deudas.filter(d => d.estado!=='pagado' && d.tipo!=='proveedor' && d.tipo!=='gasto'
+    && (d.nombre_cliente||'').trim().toLowerCase() === nombreCliente.trim().toLowerCase());
+  if(!items.length){
+    showToast('❌ No quedan deudas pendientes de esa persona','err');
+    pagoTotalCliente = null;
+    closeModal('ov-registrar-pago');
+    return;
+  }
+  return await _guardarPagoLote(items.map(d=>d.id), `las ${items.length} deudas de ${nombreCliente}`);
+}
+
 async function guardarPago(){
+  if(pagoLoteIds && pagoLoteIds.length){ return await _guardarPagoLote(pagoLoteIds); }
   if(pagoTotalCliente){ return await _guardarPagoTotalCliente(); }
   const id = document.getElementById('pago-deuda-id').value;
   const monto = parseFloat(document.getElementById('pago-monto').value);
