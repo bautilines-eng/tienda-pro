@@ -2612,12 +2612,40 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="card" id="fin-metodos"></div>
     </div>
 
+    <!-- PUNTO DE EQUILIBRIO -->
+    <div style="padding:14px 20px 0">
+      <div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Punto de equilibrio</div>
+      <div class="card">
+        <div id="fin-pe-resultado"></div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(18,16,14,.08)">
+          <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="document.getElementById('fin-pe-config').style.display=document.getElementById('fin-pe-config').style.display==='none'?'block':'none'">
+            <span style="font-size:11.5px;color:var(--muted)">⚙️ Configurar qué gastos son fijos</span>
+            <span style="font-size:11px;color:var(--muted)">▾</span>
+          </div>
+          <div id="fin-pe-config" style="display:none;margin-top:10px">
+            <div style="font-size:10.5px;color:var(--muted);margin-bottom:8px">Marcá las categorías de gasto que consideres fijas (alquiler, sueldos, etc.). Lo que no marques se trata como costo variable, junto con el costo de mercadería.</div>
+            <div id="fin-pe-checks" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- RESUMEN TEXTUAL -->
-    <div style="padding:14px 20px 24px">
+    <div style="padding:14px 20px 0">
       <div class="card" style="background:var(--pine-l);border-color:var(--pine)">
         <div style="font-size:13px;font-weight:600;color:var(--pine);margin-bottom:8px">📋 Resumen del período</div>
         <div id="fin-resumen" style="font-size:13px;color:var(--ink);line-height:1.7"></div>
       </div>
+    </div>
+
+    <!-- EXPORTAR -->
+    <div style="padding:14px 20px 24px">
+      <div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Exportar análisis financiero</div>
+      <div style="display:flex;gap:10px">
+        <button onclick="exportarFinanzasExcel()" style="flex:1;padding:12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--ink);font-size:12px;font-weight:700;cursor:pointer">📊 Excel</button>
+        <button onclick="exportarFinanzasCSV()" style="flex:1;padding:12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--ink);font-size:12px;font-weight:700;cursor:pointer">📄 CSV</button>
+      </div>
+      <div style="font-size:10.5px;color:var(--muted);margin-top:6px">Exporta el período que tenés seleccionado arriba (<span id="fin-export-rango">—</span>).</div>
     </div>
   </div>
 
@@ -13460,6 +13488,172 @@ function renderFinMargenBajo(listaCompleta){
     </div>`).join('') + (bajos.length>20 ? `<div style="font-size:10.5px;color:#92400e;margin-top:6px">y ${bajos.length-20} más…</div>` : '');
 }
 
+// ── Fase 3: punto de equilibrio + exportación ──
+
+// Categorías de gasto marcadas como "fijas" por el usuario — guardado
+// opcional por tienda (localStorage, mismo patrón que margenObjetivo_ y
+// listaMap_). Sin esto configurado, NO se calcula un punto de equilibrio
+// inventado — se lo pide explícitamente, tal como se pidió.
+function finCargarCatsFijas(){
+  const key = 'gastosFijos_' + (STORE?.id || 'default');
+  try{
+    const raw = JSON.parse(localStorage.getItem(key) || '[]');
+    return new Set(Array.isArray(raw) ? raw : []);
+  }catch(_){ return new Set(); }
+}
+function finGuardarCatsFijas(set){
+  const key = 'gastosFijos_' + (STORE?.id || 'default');
+  localStorage.setItem(key, JSON.stringify(Array.from(set)));
+}
+function finToggleCatFija(cat){
+  const set = finCargarCatsFijas();
+  if(set.has(cat)) set.delete(cat); else set.add(cat);
+  finGuardarCatsFijas(set);
+  renderFinPuntoEquilibrio();
+}
+
+// Punto de equilibrio = Gastos fijos / Margen de contribución.
+// Margen de contribución = (Ventas − Costos variables) / Ventas, donde
+// Costos variables = costo de mercadería (P.costoMercaderia, el mismo de
+// siempre) + los gastos de categorías NO marcadas como fijas. Si no hay
+// categorías configuradas, o el margen de contribución da ≤0, no se
+// muestra ningún número — se explica por qué en vez de inventar uno.
+function finCalcularPuntoEquilibrio(P){
+  const catsFijas = finCargarCatsFijas();
+  if(!P || catsFijas.size===0) return { configurado:false };
+  let gastosFijos=0, gastosVariables=0;
+  (P.gastosFilt||[]).forEach(g=>{
+    const cat = g.categoria || 'Otro';
+    if(catsFijas.has(cat)) gastosFijos += (g.monto||0);
+    else gastosVariables += (g.monto||0);
+  });
+  if(P.ventasTotal<=0) return { configurado:true, calculable:false, motivo:'No hay ventas en este período para estimar el margen de contribución.' };
+  const costosVariables = P.costoMercaderia + gastosVariables;
+  const margenContribPct = (P.ventasTotal - costosVariables) / P.ventasTotal * 100;
+  if(margenContribPct<=0) return { configurado:true, calculable:false, motivo:'El margen de contribución de este período es cero o negativo — no se puede estimar un punto de equilibrio confiable.' };
+  const puntoEquilibrio = gastosFijos / (margenContribPct/100);
+  return {
+    configurado:true, calculable:true, gastosFijos, gastosVariables, costosVariables,
+    margenContribPct, puntoEquilibrio,
+    superado: P.ventasTotal >= puntoEquilibrio,
+    faltante: Math.max(puntoEquilibrio - P.ventasTotal, 0),
+  };
+}
+
+function renderFinPuntoEquilibrio(){
+  const P = FIN_ULTIMO_PERIODO;
+  const resEl = document.getElementById('fin-pe-resultado');
+  const checksEl = document.getElementById('fin-pe-checks');
+  if(!P || !resEl || !checksEl) return;
+
+  const catsFijas = finCargarCatsFijas();
+  checksEl.innerHTML = Object.keys(GAS_CATS).map(cat=>{
+    const on = catsFijas.has(cat);
+    return `<div onclick="finToggleCatFija('${esc(cat)}')" style="padding:6px 12px;border-radius:16px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid ${on?'var(--amber)':'var(--border)'};background:${on?'var(--amber)':'var(--white)'};color:${on?'var(--ink)':'var(--muted)'}">${GAS_CATS[cat].icon} ${esc(cat)}</div>`;
+  }).join('');
+
+  const pe = finCalcularPuntoEquilibrio(P);
+  if(!pe.configurado){
+    resEl.innerHTML = `<div style="font-size:12px;color:var(--muted)">Todavía no configuraste qué gastos son fijos. Abrí "⚙️ Configurar" abajo y marcá las categorías correspondientes (alquiler, sueldos, etc.) para calcular tu punto de equilibrio.</div>`;
+    return;
+  }
+  if(!pe.calculable){
+    resEl.innerHTML = `<div style="font-size:12px;color:#c94040">⚠️ ${pe.motivo}</div>`;
+    return;
+  }
+  const pct = Math.min(100, Math.round(P.ventasTotal/pe.puntoEquilibrio*100));
+  resEl.innerHTML = `
+    <div style="font-size:12.5px;margin-bottom:8px">Necesitás vender aproximadamente <strong>$${Math.round(pe.puntoEquilibrio).toLocaleString('es-AR')}</strong> en este período para cubrir tus gastos fijos.</div>
+    <div style="height:8px;background:var(--cream);border-radius:4px;overflow:hidden;margin-bottom:6px">
+      <div style="height:8px;background:${pe.superado?'#1a5c38':'var(--amber)'};width:${pct}%"></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted)">${pe.superado ? '✅ Ya superaste tu punto de equilibrio en este período.' : `Te faltan $${Math.round(pe.faltante).toLocaleString('es-AR')} para llegar (${pct}% del camino).`}</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px">Gastos fijos: $${Math.round(pe.gastosFijos).toLocaleString('es-AR')} · Margen de contribución: ${pe.margenContribPct.toFixed(1)}%</div>
+  `;
+}
+
+// Exportación — reusa exactamente los mismos helpers que ya usa el resto
+// del sistema (_descargarCSV/_csvCell/_csvNum para CSV, XLSX para Excel),
+// nada nuevo inventado. Respeta el período seleccionado (FIN_RANGO).
+function exportarFinanzasCSV(){
+  const P = FIN_ULTIMO_PERIODO;
+  if(!P){ showToast('Esperá a que termine de cargar Finanzas','err'); return; }
+  const SEP=';';
+  const byM={}, countM={};
+  P.ventasFilt.forEach(v=>{ _debitosVenta(v).forEach(d=>{ byM[d.metodo]=(byM[d.metodo]||0)+(d.importe||0); countM[d.metodo]=(countM[d.metodo]||0)+1; }); });
+  const rows=[];
+  rows.push(_csvCell('ANÁLISIS FINANCIERO '+P.desde+' a '+P.hasta));
+  rows.push('');
+  rows.push([_csvCell('Ventas'),_csvNum(P.ventasTotal)].join(SEP));
+  rows.push([_csvCell('Costo mercadería'),_csvNum(P.costoMercaderia)].join(SEP));
+  rows.push([_csvCell('Ganancia bruta'),_csvNum(P.gananciaBruta)].join(SEP));
+  rows.push([_csvCell('Margen bruto %'),_csvNum(P.margenBruto)].join(SEP));
+  rows.push([_csvCell('Gastos'),_csvNum(P.gastosTotal)].join(SEP));
+  rows.push([_csvCell('Ganancia neta'),_csvNum(P.gananciaNeta)].join(SEP));
+  rows.push([_csvCell('Cobros (caja)'),_csvNum(P.cobros)].join(SEP));
+  rows.push([_csvCell('Egresos de caja'),_csvNum(P.egresosCaja)].join(SEP));
+  rows.push([_csvCell('Movimiento neto de caja'),_csvNum(P.movimientoCaja)].join(SEP));
+  rows.push([_csvCell('Compras de mercadería'),_csvNum(P.comprasTotal)].join(SEP));
+  rows.push([_csvCell('Cantidad de ventas'),_csvCell(P.countVentas)].join(SEP));
+  rows.push([_csvCell('Ticket promedio'),_csvNum(P.ticketProm)].join(SEP));
+  rows.push('');
+  rows.push([_csvCell('MÉTODOS DE PAGO')].join(SEP));
+  rows.push([_csvCell('Método'),_csvCell('Monto'),_csvCell('Operaciones'),_csvCell('% del total')].join(SEP));
+  Object.entries(byM).sort((a,b)=>b[1]-a[1]).forEach(([m,t])=>{
+    rows.push([_csvCell(m),_csvNum(t),_csvCell(countM[m]||0),_csvNum(P.ventasTotal?t/P.ventasTotal*100:0)].join(SEP));
+  });
+  rows.push('');
+  rows.push([_csvCell('RENTABILIDAD POR PRODUCTO')].join(SEP));
+  rows.push([_csvCell('Producto'),_csvCell('Unidades'),_csvCell('Ventas'),_csvCell('Costo'),_csvCell('Ganancia'),_csvCell('Margen %')].join(SEP));
+  finRentabilidadProductos(P.ventasFilt).sort((a,b)=>b.ventas-a.ventas).forEach(p=>{
+    rows.push([_csvCell(p.nombre),_csvCell(p.unidades),_csvNum(p.ventas),_csvNum(p.costo),_csvNum(p.ganancia),p.tieneCosto?_csvNum(p.margen):_csvCell('—')].join(SEP));
+  });
+  _descargarCSV(rows, 'analisis_financiero_'+P.desde+'_a_'+P.hasta+'.csv');
+  showToast('Análisis financiero exportado ✅','ok');
+}
+
+function exportarFinanzasExcel(){
+  if(typeof XLSX==='undefined'){ showToast('El generador de Excel se está cargando, probá de nuevo','err'); return; }
+  const P = FIN_ULTIMO_PERIODO;
+  if(!P){ showToast('Esperá a que termine de cargar Finanzas','err'); return; }
+
+  const resumen = [
+    ['Análisis financiero', P.desde+' a '+P.hasta],
+    [],
+    ['Ventas', P.ventasTotal],
+    ['Costo mercadería', P.costoMercaderia],
+    ['Ganancia bruta', P.gananciaBruta],
+    ['Margen bruto %', Math.round(P.margenBruto*100)/100],
+    ['Gastos', P.gastosTotal],
+    ['Ganancia neta', P.gananciaNeta],
+    ['Cobros (caja)', P.cobros],
+    ['Egresos de caja', P.egresosCaja],
+    ['Movimiento neto de caja', P.movimientoCaja],
+    ['Compras de mercadería', P.comprasTotal],
+    ['Cantidad de ventas', P.countVentas],
+    ['Ticket promedio', Math.round(P.ticketProm*100)/100],
+  ];
+
+  const byM={}, countM={};
+  P.ventasFilt.forEach(v=>{ _debitosVenta(v).forEach(d=>{ byM[d.metodo]=(byM[d.metodo]||0)+(d.importe||0); countM[d.metodo]=(countM[d.metodo]||0)+1; }); });
+  const metodos = [['Método','Monto','Operaciones','% del total']];
+  Object.entries(byM).sort((a,b)=>b[1]-a[1]).forEach(([m,t])=>{
+    metodos.push([m, Math.round(t*100)/100, countM[m]||0, P.ventasTotal?Math.round(t/P.ventasTotal*10000)/100:0]);
+  });
+
+  const rentabilidad = [['Producto','Unidades','Ventas','Costo','Ganancia','Margen %']];
+  finRentabilidadProductos(P.ventasFilt).sort((a,b)=>b.ventas-a.ventas).forEach(p=>{
+    rentabilidad.push([p.nombre, p.unidades, Math.round(p.ventas*100)/100, Math.round(p.costo*100)/100, Math.round(p.ganancia*100)/100, p.tieneCosto?Math.round(p.margen*100)/100:'']);
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumen), 'Resumen');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(metodos), 'Metodos de pago');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rentabilidad), 'Rentabilidad');
+  XLSX.writeFile(wb, 'analisis_financiero_'+P.desde+'_a_'+P.hasta+'.xlsx');
+  showToast('Análisis financiero exportado ✅','ok');
+}
+
 function renderFinanzas(){
   if(!FIN_RANGO.desde || !FIN_RANGO.hasta){
     const r0 = finRangoFechas(FIN_RANGO.modo || 'mes');
@@ -13612,6 +13806,7 @@ function renderFinanzas(){
   // funciones propias de Fase 2, ambas reusan P/finCalcularPeriodo.
   renderFinChart();
   renderFinRentabilidad();
+  renderFinPuntoEquilibrio();
 
   // Resumen textual
   const diasRango = Math.round((_finParseFecha(hasta)-_finParseFecha(desde))/86400000)+1;
@@ -13624,6 +13819,8 @@ function renderFinanzas(){
     Tu método de pago más usado fue <strong>${metodoTop?.[0]||'—'}</strong> con ${metodoTop&&P.ventasTotal?Math.round(metodoTop[1]/P.ventasTotal*100):0}% del total.<br>
     Promedio diario de ventas: <strong>$${Math.round(promDia).toLocaleString('es-AR')}</strong>.
   `;
+  const expRangoEl = document.getElementById('fin-export-rango');
+  if(expRangoEl) expRangoEl.textContent = _finFechaCorta(desde) + ' — ' + _finFechaCorta(hasta);
 }
 
 // ══ ADMIN ══
