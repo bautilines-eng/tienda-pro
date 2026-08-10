@@ -2612,6 +2612,18 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="card" id="fin-metodos"></div>
     </div>
 
+    <!-- GASTOS POR CATEGORÍA -->
+    <div style="padding:14px 20px 0">
+      <div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Gastos por categoría</div>
+      <div class="card" id="fin-gastos-cat"></div>
+    </div>
+
+    <!-- CUENTAS POR COBRAR -->
+    <div style="padding:14px 20px 0">
+      <div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Cuentas por cobrar</div>
+      <div class="card" id="fin-deudas-detalle"></div>
+    </div>
+
     <!-- PUNTO DE EQUILIBRIO -->
     <div style="padding:14px 20px 0">
       <div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Punto de equilibrio</div>
@@ -2628,6 +2640,12 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- ANÁLISIS AUTOMÁTICO -->
+    <div style="padding:14px 20px 0">
+      <div style="font-family:DM Mono,monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">🧠 Análisis del negocio</div>
+      <div class="card" id="fin-analisis-auto"></div>
     </div>
 
     <!-- RESUMEN TEXTUAL -->
@@ -13237,6 +13255,20 @@ function finCalcularPeriodo(desde, hasta){
   const egresosCaja = _finEgresosCaja(comprasFilt, gastosFilt, pagosDeudaFilt);
   const movimientoCaja = cobros - egresosCaja;
 
+  // Fase 4 — Deudas: NO reconstruyo un saldo histórico de "cuentas por
+  // cobrar al cierre del período anterior" porque no hay datos confiables
+  // para eso (deudas.monto es el saldo ACTUAL, no una foto por fecha).
+  // En cambio calculo dos movimientos reales y fechados: deuda nueva
+  // generada y deuda efectivamente cobrada en el rango — esto sí se
+  // puede comparar contra el período anterior sin inventar nada.
+  const deudaNuevaGenerada = deudas
+    .filter(d => d.tipo!=='proveedor' && d.tipo!=='gasto')
+    .filter(d => { if(!d.created_at) return false; const f = fechaHoyLocal(new Date(d.created_at)); return f>=desde && f<=hasta; })
+    .reduce((s,d)=>s+(d.monto_original||d.monto||0),0);
+  const deudaCobrada = pagosDeudaFilt
+    .filter(p => { const dd=(deudas||[]).find(x=>x.id===p.deuda_id); const tipo=dd?.tipo||'cliente'; return tipo!=='proveedor' && tipo!=='gasto'; })
+    .reduce((s,p)=>s+(p.monto_abonado||0),0);
+
   return {
     desde, hasta, ventasFilt, comprasFilt, gastosFilt, pagosDeudaFilt,
     ventasTotal, countVentas, ticketProm,
@@ -13244,6 +13276,7 @@ function finCalcularPeriodo(desde, hasta){
     gastosTotal, gananciaNeta, margenNeto,
     comprasTotal, countCompras,
     cobros, egresosCaja, movimientoCaja,
+    deudaNuevaGenerada, deudaCobrada,
   };
 }
 
@@ -13654,6 +13687,177 @@ function exportarFinanzasExcel(){
   showToast('Análisis financiero exportado ✅','ok');
 }
 
+// ── Fase 4: gastos por categoría, cuentas por cobrar detalladas, análisis automático ──
+
+// Agrupa gastos por categoría — usa GAS_CATS tal cual existe, no inventa
+// categorías nuevas.
+function finGastosPorCategoria(gastosFilt){
+  const map = {};
+  (gastosFilt||[]).forEach(g=>{
+    const cat = g.categoria || 'Otro';
+    map[cat] = (map[cat]||0) + (g.monto||0);
+  });
+  return Object.entries(map).map(([categoria,monto])=>({categoria,monto})).sort((a,b)=>b.monto-a.monto);
+}
+
+function renderFinGastosCategoria(P, ANT){
+  const el = document.getElementById('fin-gastos-cat');
+  if(!el) return;
+  const actuales = finGastosPorCategoria(P.gastosFilt);
+  if(!actuales.length){ el.innerHTML = '<div class="empty" style="padding:12px 0">Sin gastos en este período</div>'; return; }
+  const mapAnt = {};
+  if(ANT) finGastosPorCategoria(ANT.gastosFilt).forEach(a=>mapAnt[a.categoria]=a.monto);
+  const maxM = Math.max(...actuales.map(a=>a.monto),1);
+  el.innerHTML = actuales.map(a=>{
+    const catInfo = (typeof GAS_CATS!=='undefined' && GAS_CATS[a.categoria]) || (typeof GAS_CATS!=='undefined' && GAS_CATS['Otro']) || {icon:'📦',color:'#555'};
+    const pct = Math.round(a.monto/maxM*100);
+    let alerta = '';
+    if(ANT){
+      const ant = mapAnt[a.categoria]||0;
+      if(ant>0){
+        const variacion = (a.monto-ant)/ant*100;
+        alerta = variacion>=30
+          ? `<div style="font-size:10px;color:#c94040;margin-top:2px">⚠️ Subió ${variacion.toFixed(0)}% vs período anterior</div>`
+          : `<div style="font-size:10px;color:var(--muted);margin-top:2px">${_finDeltaHTML(a.monto,ant,true)} vs período anterior</div>`;
+      } else {
+        alerta = `<div style="font-size:10px;color:var(--muted);margin-top:2px">Categoría nueva este período</div>`;
+      }
+    }
+    return `<div style="padding:8px 0;border-bottom:1px solid rgba(18,16,14,.06)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:16px">${catInfo.icon}</span>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:500;margin-bottom:4px">${esc(a.categoria)}</div>
+          <div style="height:5px;background:var(--cream);border-radius:3px"><div style="height:5px;border-radius:3px;background:${catInfo.color||'var(--rust)'};width:${pct}%"></div></div>
+        </div>
+        <div style="font-family:DM Mono,monospace;font-size:12px;font-weight:600;white-space:nowrap">$${Math.round(a.monto).toLocaleString('es-AR')}</div>
+      </div>
+      ${alerta}
+    </div>`;
+  }).join('');
+}
+
+// Cuentas por cobrar: total/deudores/promedio son foto de HOY (correcto,
+// es un saldo). Deuda nueva/cobrada SÍ son movimientos del período y se
+// pueden comparar contra el anterior. Vencimientos: solo para las deudas
+// que tienen fecha_limite cargada — el resto se cuenta aparte, nunca se
+// inventa a qué categoría pertenecen.
+function renderFinDeudasDetalle(P, ANT){
+  const el = document.getElementById('fin-deudas-detalle');
+  if(!el) return;
+
+  const deudasPend = deudas.filter(d=>d.estado!=='pagado' && d.tipo!=='proveedor' && d.tipo!=='gasto');
+  const totalPend = deudasPend.reduce((s,d)=>s+(d.monto||0),0);
+  const deudoresUnicos = new Set(deudasPend.map(d=>d.nombre_cliente||'Sin nombre')).size;
+  const promedio = deudoresUnicos ? totalPend/deudoresUnicos : 0;
+
+  const hoy = fechaHoyLocal();
+  const en7 = _finSumarDias(hoy,7);
+  const conFecha = deudasPend.filter(d=>d.fecha_limite);
+  const sinFecha = deudasPend.length - conFecha.length;
+  const vencidas = conFecha.filter(d=>d.fecha_limite < hoy);
+  const proximas = conFecha.filter(d=>d.fecha_limite >= hoy && d.fecha_limite <= en7);
+  const alDia = conFecha.filter(d=>d.fecha_limite > en7);
+
+  let html = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+      <div style="background:#f8f8f8;border-radius:8px;padding:10px">
+        <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total pendiente</div>
+        <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700">$${Math.round(totalPend).toLocaleString('es-AR')}</div>
+      </div>
+      <div style="background:#f8f8f8;border-radius:8px;padding:10px">
+        <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Deudores</div>
+        <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700">${deudoresUnicos}</div>
+      </div>
+      <div style="background:#f8f8f8;border-radius:8px;padding:10px;grid-column:span 2">
+        <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Deuda promedio por deudor</div>
+        <div style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700">$${Math.round(promedio).toLocaleString('es-AR')}</div>
+      </div>
+    </div>`;
+
+  html += `<div style="font-size:11.5px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(18,16,14,.08)">
+    En este período se generó <strong>$${Math.round(P.deudaNuevaGenerada).toLocaleString('es-AR')}</strong> en deuda nueva${ANT?` (${_finDeltaHTML(P.deudaNuevaGenerada, ANT.deudaNuevaGenerada, true)})`:''}
+    y se cobraron <strong>$${Math.round(P.deudaCobrada).toLocaleString('es-AR')}</strong>${ANT?` (${_finDeltaHTML(P.deudaCobrada, ANT.deudaCobrada, false)})`:''} de deudas anteriores.
+  </div>`;
+
+  if(conFecha.length){
+    html += `<div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="flex:1;min-width:80px;text-align:center;background:#fdeaea;border-radius:8px;padding:8px">
+        <div style="font-size:16px;font-weight:700;color:#c94040">${vencidas.length}</div>
+        <div style="font-size:9.5px;color:#c94040">🔴 Vencidas</div>
+      </div>
+      <div style="flex:1;min-width:80px;text-align:center;background:#fff8e1;border-radius:8px;padding:8px">
+        <div style="font-size:16px;font-weight:700;color:#e65100">${proximas.length}</div>
+        <div style="font-size:9.5px;color:#e65100">🟡 Próx. a vencer</div>
+      </div>
+      <div style="flex:1;min-width:80px;text-align:center;background:#eaf5ee;border-radius:8px;padding:8px">
+        <div style="font-size:16px;font-weight:700;color:#1a5c38">${alDia.length}</div>
+        <div style="font-size:9.5px;color:#1a5c38">🟢 Al día</div>
+      </div>
+    </div>`;
+    if(sinFecha>0) html += `<div style="font-size:10.5px;color:var(--muted);margin-top:8px">${sinFecha} deuda(s) sin fecha de vencimiento cargada — no se pueden clasificar.</div>`;
+  } else if(deudasPend.length){
+    html += `<div style="font-size:11.5px;color:var(--muted)">Ninguna de tus ${deudasPend.length} deuda(s) pendiente(s) tiene fecha de vencimiento cargada, así que no se pueden clasificar en vencidas/próximas/al día. Cargala al crear la deuda para activar esto.</div>`;
+  } else {
+    html += `<div style="font-size:11.5px;color:var(--muted)">No tenés cuentas por cobrar pendientes.</div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+// Reglas simples sobre datos reales — cada insight se agrega SOLO si hay
+// datos que lo sostengan. Nada se inventa ni se fuerza a aparecer.
+function finAnalisisAutomatico(P, ANT){
+  const insights = [];
+
+  if(ANT){
+    if(ANT.ventasTotal>0){
+      const pct = (P.ventasTotal-ANT.ventasTotal)/ANT.ventasTotal*100;
+      if(Math.abs(pct)>=1) insights.push(`${pct>=0?'📈':'📉'} Las ventas ${pct>=0?'aumentaron':'cayeron'} ${Math.abs(pct).toFixed(1)}% respecto al período anterior.`);
+    }
+    if(P.tieneCosto && ANT.tieneCosto){
+      const puntos = P.margenBruto - ANT.margenBruto;
+      if(Math.abs(puntos)>=1) insights.push(`${puntos>=0?'📈':'📉'} El margen bruto ${puntos>=0?'subió':'cayó'} ${Math.abs(puntos).toFixed(1)} puntos porcentuales.`);
+    }
+    if(ANT.gastosTotal>0){
+      const pct = (P.gastosTotal-ANT.gastosTotal)/ANT.gastosTotal*100;
+      if(Math.abs(pct)>=1) insights.push(`${pct>=0?'⚠️':'✅'} Los gastos ${pct>=0?'aumentaron':'bajaron'} ${Math.abs(pct).toFixed(1)}%.`);
+    }
+    if(ANT.ticketProm>0){
+      const pct = (P.ticketProm-ANT.ticketProm)/ANT.ticketProm*100;
+      if(Math.abs(pct)>=1) insights.push(`🎟️ El ticket promedio ${pct>=0?'aumentó':'cayó'} ${Math.abs(pct).toFixed(1)}%.`);
+    }
+  }
+
+  const rentabilidad = finRentabilidadProductos(P.ventasFilt).filter(p=>p.tieneCosto);
+  if(rentabilidad.length){
+    const top = rentabilidad.slice().sort((a,b)=>b.ganancia-a.ganancia)[0];
+    if(top && top.ganancia>0) insights.push(`🏆 El producto que más ganancia generó fue "${esc(top.nombre)}" ($${Math.round(top.ganancia).toLocaleString('es-AR')}).`);
+  }
+
+  const totalDeudasIns = deudas.filter(d=>d.estado!=='pagado' && d.tipo!=='proveedor' && d.tipo!=='gasto').reduce((s,d)=>s+(d.monto||0),0);
+  if(totalDeudasIns>0) insights.push(`💳 Tenés $${Math.round(totalDeudasIns).toLocaleString('es-AR')} pendientes de cobro.`);
+
+  const objetivo = parseFloat(localStorage.getItem('margenObjetivo_'+(STORE?.id||'default')));
+  if(!isNaN(objetivo)){
+    const bajos = rentabilidad.filter(p=>p.margen<objetivo);
+    if(bajos.length) insights.push(`⚠️ Hay ${bajos.length} producto(s) vendido(s) con margen inferior al ${objetivo}% objetivo.`);
+  }
+
+  return insights;
+}
+
+function renderFinAnalisisAuto(P, ANT){
+  const el = document.getElementById('fin-analisis-auto');
+  if(!el) return;
+  const insights = finAnalisisAutomatico(P, ANT);
+  if(!insights.length){
+    el.innerHTML = `<div style="font-size:12px;color:var(--muted)">Todavía no hay datos suficientes en este período para generar un análisis.${ANT?'':' Activá "🔁 Comparar con período anterior" arriba para ver más conclusiones.'}</div>`;
+    return;
+  }
+  el.innerHTML = insights.map(t=>`<div style="padding:7px 0;border-bottom:1px solid rgba(18,16,14,.06);font-size:12.5px;line-height:1.5">${t}</div>`).join('');
+}
+
 function renderFinanzas(){
   if(!FIN_RANGO.desde || !FIN_RANGO.hasta){
     const r0 = finRangoFechas(FIN_RANGO.modo || 'mes');
@@ -13807,6 +14011,9 @@ function renderFinanzas(){
   renderFinChart();
   renderFinRentabilidad();
   renderFinPuntoEquilibrio();
+  renderFinGastosCategoria(P, ANT);
+  renderFinDeudasDetalle(P, ANT);
+  renderFinAnalisisAuto(P, ANT);
 
   // Resumen textual
   const diasRango = Math.round((_finParseFecha(hasta)-_finParseFecha(desde))/86400000)+1;
