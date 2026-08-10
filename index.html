@@ -10013,7 +10013,8 @@ function abrirModalPago(id, nombre, saldo){
     const e  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo'])      || '11101001';
     const t  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Transferencia'])  || '11102006';
     const mp = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['MercadoPago'])    || '11102006';
-    med.innerHTML = `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option>`;
+    const ch = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cheque'])         || '11302001';
+    med.innerHTML = `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option><option value="${ch}">Cheque (Valores al cobro)</option>`;
   }
   openModal('ov-registrar-pago');
 }
