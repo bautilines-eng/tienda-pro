@@ -1021,6 +1021,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <div style="padding:14px 20px 0">
       <button onclick="abrirModalRemito()" style="width:100%;margin-bottom:12px;padding:12px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:700;cursor:pointer">📦 Cargar remito (varios productos)</button>
+      <button onclick="abrirModalNCProveedor()" style="width:100%;margin-bottom:12px;padding:12px;border-radius:10px;border:1.5px solid #c94040;background:#fdeaea;color:#c94040;font-size:13px;font-weight:700;cursor:pointer">🔄 Nota de Crédito (devolución a proveedor)</button>
       <div class="card">
         <div style="font-size:14px;font-weight:600;margin-bottom:14px">📥 Nueva Compra <span style="font-size:11px;font-weight:400;color:#999">(un producto)</span></div>
         <div class="fgroup" style="position:relative"><div class="flabel">Producto</div><input type="hidden" id="co-prod"><input type="text" class="inp" id="co-prod-search" autocomplete="off" placeholder="Buscar producto por nombre o código..." oninput="filtrarComboProd('co-prod', this.value)" onfocus="filtrarComboProd('co-prod', this.value)"><div id="co-prod-list" class="combo-list"></div></div>
@@ -1140,6 +1141,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div class="clist" id="colist"><div class="empty">Sin compras aún</div></div>
     <div id="co-prov-panel" style="display:none;padding:0 20px"></div>
     <div id="co-orden-panel" style="display:none;padding:0 20px"></div>
+
+    <div class="slabel" style="margin-top:16px"><span class="slabel-t">Notas de Crédito de Proveedor</span></div>
+    <div id="ncp-list" style="padding:0 20px"><div class="empty">Sin notas de crédito cargadas</div></div>
   </div>
 
   <!-- DEUDORES -->
@@ -2822,6 +2826,66 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<!-- MODAL NOTA DE CRÉDITO DE PROVEEDOR (devolución de mercadería) -->
+<div class="overlay" id="ov-ncp">
+  <div class="modal" style="position:relative;max-width:560px">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-ncp')">✕</button>
+
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:4px">
+      <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#c94040,#7a1f1f);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🔄</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:18px;font-weight:800;color:#1a1a1a;letter-spacing:-.3px">Nota de Crédito de Proveedor</div>
+        <div style="font-size:12px;color:#888;margin-top:1px">Devolución de mercadería — revierte stock, deuda y contabilidad</div>
+      </div>
+    </div>
+
+    <!-- Datos del comprobante -->
+    <div style="background:#fafafa;border:1px solid #eee;border-radius:14px;padding:14px;margin:14px 0">
+      <div class="frow">
+        <div style="flex:1"><div class="flabel">Proveedor</div>
+          <select class="inp" id="ncp-prov" style="cursor:pointer" onchange="onNCPProveedorChange()"><option value="">Elegí...</option></select></div>
+        <div style="width:150px"><div class="flabel">Nº de la NC</div><input class="inp" id="ncp-nro" placeholder="A 0007 00160333"></div>
+      </div>
+      <div class="frow" style="margin-top:10px">
+        <div style="flex:1"><div class="flabel">Fecha</div><input class="inp" id="ncp-fecha" type="date"></div>
+        <div style="flex:1"><div class="flabel">Factura relacionada <span style="font-weight:400;color:#999;font-size:9px">(opcional)</span></div><input class="inp" id="ncp-factura" placeholder="FACTURA-A-7-916807"></div>
+      </div>
+      <div class="frow" style="margin-top:10px">
+        <div style="flex:1"><div class="flabel">Motivo <span style="font-weight:400;color:#999;font-size:9px">(opcional)</span></div><input class="inp" id="ncp-motivo" placeholder="Ej: mercadería defectuosa"></div>
+      </div>
+      <div class="frow" style="margin-top:10px" id="ncp-deuda-wrap">
+        <div style="flex:1">
+          <div class="flabel">Aplicar contra factura del proveedor <span style="font-weight:400;color:#999;font-size:9px">(recomendado)</span></div>
+          <select class="inp" id="ncp-deuda" style="cursor:pointer" onchange="recalcNCPTotales()">
+            <option value="">Sin aplicar / elegí un proveedor primero</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Buscador de productos -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="font-weight:700;font-size:13px;color:#1a1a1a">Productos devueltos</div>
+      <div style="font-size:11px;color:#aaa" id="ncp-count-badge"></div>
+    </div>
+    <div class="fgroup" style="position:relative;margin-bottom:10px">
+      <input type="hidden" id="ncp-add">
+      <input type="text" class="inp" id="ncp-add-search" autocomplete="off" placeholder="🔍 Buscá el producto devuelto..." oninput="filtrarComboProd('ncp-add', this.value)" onfocus="filtrarComboProd('ncp-add', this.value)" style="border-color:#f5c6c6;background:#fdf6f6">
+      <div id="ncp-add-list" class="combo-list"></div>
+    </div>
+
+    <div id="ncp-lineas"></div>
+
+    <!-- Pie de totales tipo comprobante -->
+    <div id="ncp-totales"></div>
+
+    <button class="btn btn-full" id="ncp-btn" onclick="guardarNCProveedor()" style="margin-top:14px;font-size:14px;font-weight:700;padding:14px;background:#c94040;color:#fff;border:none;border-radius:10px;cursor:pointer">
+      Registrar Nota de Crédito
+    </button>
+  </div>
+</div>
+
 <!-- MODAL NOTA DE DÉBITO -->
 <div class="overlay" id="ov-nota-debito">
   <div class="modal" style="position:relative">
@@ -3444,6 +3508,8 @@ function generarAsientosPeriodo(mesAno) {
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
   const ndFilt = (notasDebito||[]).filter(n => n.fecha && n.fecha >= desde && n.fecha <= hasta)
                              .sort((a,b) => a.fecha.localeCompare(b.fecha));
+  const ncpFilt = (notasCreditoProveedor||[]).filter(n => n.fecha && n.fecha >= desde && n.fecha <= hasta)
+                             .sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   // Merge and sort all by date
   const movs = [
@@ -3455,6 +3521,7 @@ function generarAsientosPeriodo(mesAno) {
     ...ncFilt.map(nc => ({fecha: _fechaNC(nc), tipo: 'nc', data: nc})),
     ...reclasifFilt.map(r => ({fecha: r.fecha, tipo: 'rc', data: r})),
     ...ndFilt.map(n => ({fecha: n.fecha, tipo: 'nd', data: n})),
+    ...ncpFilt.map(n => ({fecha: n.fecha, tipo: 'ncp', data: n})),
   ].sort((a,b) => a.fecha.localeCompare(b.fecha));
 
   movs.forEach(m => {
@@ -3466,6 +3533,7 @@ function generarAsientosPeriodo(mesAno) {
     if (m.tipo === 'nc') todos.push(asientoNotaCredito(m.data));
     if (m.tipo === 'rc') todos.push(asientoReclasificacion(m.data));
     if (m.tipo === 'nd') todos.push(asientoNotaDebito(m.data));
+    if (m.tipo === 'ncp') { const _ancp=asientoNotaCreditoProveedor(m.data); if(_ancp) todos.push(_ancp); }
   });
 
   return todos;
@@ -3757,6 +3825,16 @@ function _movimientosCuenta(cuentaCod, filtro) {
     const a = asientoNotaDebito(nd); if(!a) return;
     a.lineas.forEach(l => {
       if (l.cuenta === cuentaCod) movs.push({fecha:nd.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Nota de Débito'});
+    });
+  });
+
+  // Notas de crédito de proveedor (devolución de mercadería) — asientoNotaCreditoProveedor
+  // devuelve null mientras esté "pendiente de contabilizar", así que automáticamente
+  // no aparece acá hasta que se resuelva el tratamiento del saldo.
+  (typeof notasCreditoProveedor!=='undefined'?notasCreditoProveedor:[]).filter(ncp => filtro(ncp.fecha)).forEach(ncp => {
+    const a = asientoNotaCreditoProveedor(ncp); if(!a) return;
+    a.lineas.forEach(l => {
+      if (l.cuenta === cuentaCod) movs.push({fecha:ncp.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'NC Proveedor'});
     });
   });
 
@@ -4440,6 +4518,39 @@ function asientoReclasificacion(r){
 
 async function loadNotasDebito(){
   try{ notasDebito = await sbGet('notas_debito'); }catch(e){ notasDebito = []; }
+}
+
+let notasCreditoProveedor = [];
+async function loadNotasCreditoProveedor(){
+  try{ notasCreditoProveedor = await sbGet('notas_credito_proveedor'); }catch(e){ notasCreditoProveedor = []; }
+}
+
+// Asiento espejo de asientoCompra: Debe Proveedores (reduce lo que le debo,
+// puede dejar saldo a favor si queda negativo) / Haber Mercaderías + IVA
+// Crédito Fiscal (revierte lo que se había tomado). SOLO se genera si
+// ncp.contabilizada === true — eso pasa siempre que la NC se aplicó contra
+// una factura del proveedor. Si no se eligió ninguna factura al cargarla,
+// queda pendiente (contabilizada=false) y esta función devuelve null a
+// propósito, para no inventar contra qué cuenta va.
+function asientoNotaCreditoProveedor(ncp){
+  if(!ncp || !ncp.contabilizada) return null;
+  const cuentaMerc = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES['mercaderias']) || '11501008';
+  const cuentaIVA  = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES['iva_credito'])  || '11403005';
+  const cuentaProv = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES['proveedores'])  || '21101001';
+  const lineas = [
+    { debe:true,  cuenta:cuentaProv, nombre:'Proveedores',        importe:ncp.total, detalle:'NC '+(ncp.nro_nota||'')+' — '+(ncp.proveedor||'Proveedor') },
+    { debe:false, cuenta:cuentaMerc, nombre:'Mercaderías',        importe:ncp.neto,  detalle:'Devolución mercadería — '+(ncp.nro_nota||'') },
+  ];
+  if(ncp.iva>0) lineas.push({ debe:false, cuenta:cuentaIVA, nombre:'IVA Crédito Fiscal', importe:ncp.iva, detalle:'Reversión CF — '+(ncp.nro_nota||'') });
+  return {
+    nro: getNroAsiento(), fecha: ncp.fecha,
+    tipo: 'NC PROVEEDOR',
+    comprobante: ncp.nro_nota || ('NCP-'+String(ncp.id||'').slice(0,8)),
+    descripcion: 'Nota de crédito de proveedor '+(ncp.nro_nota||'')+' · '+(ncp.proveedor||'')+(ncp.factura_relacionada?' · ref '+ncp.factura_relacionada:''),
+    origen:'nota_credito_proveedor', origen_id:ncp.id, lineas,
+    total_debe:  Math.round(lineas.filter(l=>l.debe).reduce((s,l)=>s+l.importe,0)*100)/100,
+    total_haber: Math.round(lineas.filter(l=>!l.debe).reduce((s,l)=>s+l.importe,0)*100)/100,
+  };
 }
 
 function abrirModalNotaDebito(){
@@ -5333,6 +5444,333 @@ async function confirmarRemito(){
 
 
 // ══════════════════════════════════════════════════════════════
+// NOTA DE CRÉDITO DE PROVEEDOR — devolución de mercadería
+// Distinta de "anular compra" (Punto 7): la compra original queda
+// asentada tal cual, en su propia fecha. La NC es un movimiento NUEVO,
+// fechado el día que la recibís, que revierte stock/deuda/contabilidad
+// en espejo — así nunca descuadra un período ya cerrado.
+//
+// Regla confirmada con la contadora: se baja el saldo de la factura
+// elegida por el total completo de la NC, sin importar si queda negativo
+// — eso es saldo a favor con el proveedor, se descuenta en el próximo
+// pago. Por eso el selector de factura incluye tanto abiertas como
+// pagadas recientes. Solo queda "pendiente de contabilizar" si no se
+// elige ninguna factura (ahí no hay cuenta a la que aplicarlo).
+// ══════════════════════════════════════════════════════════════
+
+let ncpLineas = [];
+
+function abrirModalNCProveedor(){
+  ncpLineas = [];
+  const sel = document.getElementById('ncp-prov');
+  if(sel){
+    sel.innerHTML = '<option value="">Elegí...</option>' + (proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
+  }
+  const f = document.getElementById('ncp-fecha'); if(f) f.value = fechaHoyLocal();
+  ['ncp-nro','ncp-factura','ncp-motivo'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  const s = document.getElementById('ncp-add-search'); if(s) s.value='';
+  onNCPProveedorChange();
+  renderNCPLineas();
+  openModal('ov-ncp');
+}
+
+// Deudas a proveedor abiertas para el proveedor elegido — vía compra_id
+// (confiable) con fallback por nombre para deudas viejas sin compra_id
+// resoluble. No inventa vínculos: si no encuentra nada, la lista queda vacía.
+// Deudas a proveedor del proveedor elegido — vía compra_id (confiable) con
+// fallback por nombre. Incluye TANTO abiertas como pagadas recientes: según
+// la contadora, la NC se aplica contra el saldo de LA FACTURA que corresponda,
+// aunque ya esté pagada (ahí el saldo queda negativo = a favor nuestro).
+function _deudasProveedor(proveedorId, proveedorNombre){
+  const todas = (deudas||[]).filter(d=>{
+    if(d.tipo!=='proveedor') return false;
+    if(d.compra_id){
+      const co = (compras||[]).find(c=>c.id===d.compra_id);
+      if(co && co.proveedor_id) return co.proveedor_id === proveedorId;
+    }
+    return !!proveedorNombre && (d.nombre_cliente||'').trim().toLowerCase() === proveedorNombre.trim().toLowerCase();
+  });
+  const abiertas = todas.filter(d=>d.estado!=='pagado');
+  const pagadas  = todas.filter(d=>d.estado==='pagado')
+    .sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||'')).slice(0,10);
+  return [...abiertas, ...pagadas];
+}
+
+function onNCPProveedorChange(){
+  const provId = document.getElementById('ncp-prov')?.value;
+  const prov = (proveedores||[]).find(p=>p.id===provId);
+  const sel = document.getElementById('ncp-deuda');
+  if(!sel) return;
+  if(!provId){
+    sel.innerHTML = '<option value="">Sin aplicar / elegí un proveedor primero</option>';
+    recalcNCPTotales();
+    return;
+  }
+  const lista = _deudasProveedor(provId, prov?.razon_social);
+  sel.innerHTML = '<option value="">No aplicar contra ninguna factura</option>' +
+    lista.map(d=>{
+      const estadoTxt = d.estado==='pagado' ? ' (ya pagada)' : '';
+      return `<option value="${d.id}">${esc(d.descripcion||d.nombre_cliente||'Deuda')}${estadoTxt} — saldo $${Math.round(d.monto||0).toLocaleString('es-AR')}</option>`;
+    }).join('');
+  recalcNCPTotales();
+}
+
+function agregarLineaNCP(pid){
+  const p = (prods||[]).find(x=>x.id===pid); if(!p) return;
+  if(ncpLineas.some(l=>l.prodId===pid)){ showToast('Ese producto ya está en la nota','err'); return; }
+  ncpLineas.push({
+    uid: 'N'+Date.now()+Math.floor(Math.random()*1000),
+    prodId: pid, nombre: p.nombre,
+    cantidad: '1',
+    costo: p.costo ? String(p.costo) : '',
+    alicuota: (p.iva_alicuota!=null) ? Number(p.iva_alicuota) : 21,
+  });
+  renderNCPLineas();
+}
+function quitarLineaNCP(uid){
+  ncpLineas = ncpLineas.filter(l=>l.uid!==uid);
+  renderNCPLineas();
+}
+
+function renderNCPLineas(){
+  const cont = document.getElementById('ncp-lineas'); if(!cont) return;
+  const badge = document.getElementById('ncp-count-badge');
+  if(!ncpLineas.length){
+    cont.innerHTML = '<div style="padding:26px 14px;text-align:center;border:1.5px dashed #f0d0d0;border-radius:14px;background:#fdf8f8">'
+      + '<div style="font-size:28px;margin-bottom:6px;opacity:.5">🔄</div>'
+      + '<div style="font-size:13px;font-weight:600;color:#8a5a5a">Todavía no agregaste productos devueltos</div>'
+      + '<div style="font-size:11.5px;color:#c9a3a3;margin-top:2px">Buscá arriba y sumá lo que dice la Nota de Crédito</div></div>';
+    if(badge) badge.textContent='';
+    recalcNCPTotales(); return;
+  }
+  if(badge) badge.textContent = ncpLineas.length + (ncpLineas.length===1?' producto':' productos');
+  cont.innerHTML = ncpLineas.map((l,idx)=>`
+    <div style="border:1px solid #f0dede;border-radius:14px;padding:12px 12px 10px;margin-bottom:8px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.03)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px">
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:7px">
+            <span style="font-size:10px;font-weight:700;color:#c94040;background:#fdeaea;border-radius:6px;width:19px;height:19px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">${idx+1}</span>
+            <span style="font-weight:700;font-size:13px;color:#1a1a1a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.nombre)}</span>
+          </div>
+        </div>
+        <button onclick="quitarLineaNCP('${l.uid}')" title="Quitar" style="border:none;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:13px;width:26px;height:26px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center">✕</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px">
+        <div>
+          <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Cantidad</div>
+          <input type="number" id="ncp-qty-${l.uid}" min="1" value="${escAttr(l.cantidad ?? '1')}" class="inp" style="padding:9px 10px" oninput="recalcNCPTotales()">
+        </div>
+        <div>
+          <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Costo unit.</div>
+          <input type="number" id="ncp-costo-${l.uid}" min="0" placeholder="0" value="${escAttr(l.costo ?? '')}" class="inp" style="padding:9px 10px" oninput="recalcNCPTotales()">
+        </div>
+        <div>
+          <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">IVA</div>
+          <select id="ncp-alic-${l.uid}" class="inp" style="cursor:pointer;padding:9px 10px" onchange="recalcNCPTotales()">
+            <option value="21" ${Number(l.alicuota??21)===21?'selected':''}>21%</option>
+            <option value="27" ${Number(l.alicuota)===27?'selected':''}>27%</option>
+            <option value="10.5" ${Number(l.alicuota)===10.5?'selected':''}>10,5%</option>
+            <option value="5" ${Number(l.alicuota)===5?'selected':''}>5%</option>
+            <option value="2.5" ${Number(l.alicuota)===2.5?'selected':''}>2,5%</option>
+            <option value="0" ${Number(l.alicuota)===0?'selected':''}>0%</option>
+          </select>
+        </div>
+      </div>
+    </div>`).join('');
+  recalcNCPTotales();
+}
+
+// Lee los inputs en vivo, recalcula neto/iva/total, y arma la previsualización
+// de contra qué deuda se aplica (o si va a quedar pendiente de contabilizar).
+function _leerLineasNCP(){
+  return ncpLineas.map(l=>{
+    const qty = parseFloat(document.getElementById('ncp-qty-'+l.uid)?.value) || 0;
+    const costo = parseFloat(document.getElementById('ncp-costo-'+l.uid)?.value) || 0;
+    const alic = parseFloat(document.getElementById('ncp-alic-'+l.uid)?.value);
+    const alicuota = isNaN(alic) ? 21 : alic;
+    const neto = qty*costo;
+    const iva = Math.round(neto*alicuota/100*100)/100;
+    return { ...l, cantidad:qty, costoUnit:costo, alicuota, neto, iva, total:Math.round((neto+iva)*100)/100 };
+  });
+}
+
+function _totalesNCP(){
+  const lineas = _leerLineasNCP();
+  const neto = lineas.reduce((s,l)=>s+l.neto,0);
+  const iva  = lineas.reduce((s,l)=>s+l.iva,0);
+  const total = Math.round((neto+iva)*100)/100;
+  return { lineas, neto, iva, total };
+}
+
+function recalcNCPTotales(){
+  const el = document.getElementById('ncp-totales'); if(!el) return;
+  const { neto, iva, total } = _totalesNCP();
+  const deudaId = document.getElementById('ncp-deuda')?.value;
+  const deuda = deudaId ? (deudas||[]).find(d=>d.id===deudaId) : null;
+
+  let aplicacionHTML = '';
+  if(total>0){
+    if(deuda){
+      // Según la contadora: se baja el saldo de la factura por el total de
+      // la NC, sin importar si queda negativo — eso es saldo a favor, se
+      // descuenta solo del próximo pago a ese proveedor.
+      const nuevoSaldo = Math.round((deuda.monto-total)*100)/100;
+      if(nuevoSaldo >= 0){
+        aplicacionHTML = `<div style="font-size:11px;color:#1a5c38;margin-top:6px">✅ Se aplicará contra "${esc(deuda.descripcion||deuda.nombre_cliente||'')}" — queda $${nuevoSaldo.toLocaleString('es-AR')} pendiente en esa factura.</div>`;
+      } else {
+        aplicacionHTML = `<div style="font-size:11px;color:#1a5ec9;margin-top:6px">💰 Se aplicará contra "${esc(deuda.descripcion||deuda.nombre_cliente||'')}" — queda un <b>saldo a favor de $${Math.abs(nuevoSaldo).toLocaleString('es-AR')}</b> con ese proveedor, para descontar de la próxima compra.</div>`;
+      }
+    } else {
+      aplicacionHTML = `<div style="font-size:11px;color:#e65100;margin-top:6px">⏳ Sin factura elegida — se revierte el stock, pero la NC queda <b>pendiente de contabilizar</b> hasta que elijas contra qué factura va.</div>`;
+    }
+  }
+
+  el.innerHTML = `
+    <div style="background:#fafafa;border-radius:12px;padding:12px 14px;margin-top:4px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#666"><span>Neto</span><span>$${Math.round(neto).toLocaleString('es-AR')}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-top:3px"><span>IVA</span><span>$${Math.round(iva).toLocaleString('es-AR')}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;color:#1a1a1a;margin-top:6px;padding-top:6px;border-top:1px solid #e5e5e5"><span>TOTAL</span><span>$${Math.round(total).toLocaleString('es-AR')}</span></div>
+      ${aplicacionHTML}
+    </div>`;
+}
+
+async function guardarNCProveedor(){
+  const provId = document.getElementById('ncp-prov')?.value;
+  const prov = (proveedores||[]).find(p=>p.id===provId);
+  const nro = document.getElementById('ncp-nro')?.value.trim();
+  const fecha = document.getElementById('ncp-fecha')?.value;
+  const facturaRel = document.getElementById('ncp-factura')?.value.trim();
+  const motivo = document.getElementById('ncp-motivo')?.value.trim();
+  const deudaId = document.getElementById('ncp-deuda')?.value || null;
+
+  if(!provId){ showToast('Elegí el proveedor','err'); return; }
+  if(!fecha){ showToast('Elegí la fecha','err'); return; }
+  if(!ncpLineas.length){ showToast('Agregá al menos un producto devuelto','err'); return; }
+
+  const { lineas, neto, iva, total } = _totalesNCP();
+  if(lineas.some(l=>!l.cantidad || l.cantidad<=0)){ showToast('Revisá las cantidades — no pueden ser 0','err'); return; }
+  if(total<=0){ showToast('El total tiene que ser mayor a 0 — revisá los costos','err'); return; }
+
+  const deuda = deudaId ? (deudas||[]).find(d=>d.id===deudaId) : null;
+  // Según la contadora: si hay una factura/deuda elegida, la NC se aplica
+  // SIEMPRE completa contra su saldo — aunque quede negativo. Ese negativo
+  // es saldo a favor con el proveedor, se descuenta solo en el próximo pago.
+  // Solo queda "pendiente de contabilizar" si no se eligió ninguna factura
+  // (ahí sí no hay dato para saber contra qué cuenta va).
+  const cubreTotal = !!deuda;
+  const montoAplicado = cubreTotal ? total : 0;
+  const saldoSinAplicar = total - montoAplicado;
+  const contabilizada = cubreTotal;
+
+  const btn = document.getElementById('ncp-btn');
+  const txt = btn ? btn.textContent : '';
+  if(btn){ btn.disabled=true; btn.textContent='Procesando...'; }
+
+  try{
+    // 1. Revertir stock por kardex, línea por línea — mismo control que la
+    // anulación de compras: si esa mercadería ya se vendió, se aborta con
+    // un mensaje claro en vez de dejar el stock descuadrado.
+    const revertidas = [];
+    for(const l of lineas){
+      const prodRef = (prods||[]).find(p=>p.id===l.prodId);
+      const { data: kResult, error: kErr } = await SB.rpc('mover_stock_con_kardex', {
+        p_tienda_id: STORE.id, p_producto_id: l.prodId,
+        p_cantidad: -l.cantidad,
+        p_tipo_mov: 'DEVOLUCION_PROVEEDOR', p_doc_tipo: 'NOTA_CREDITO_PROVEEDOR',
+        p_doc_nro: nro || ('NCP-'+fecha),
+        p_costo_unit: l.costoUnit || 0,
+        p_precio_unit: (prodRef && prodRef.precio) || 0,
+        p_observacion: 'Devolución a proveedor — NC '+(nro||'')+(prov?' — '+prov.razon_social:'')
+      });
+      if(kErr || (kResult && kResult.exito===false)){
+        const msg = (kErr && kErr.message) || (kResult && kResult.error) || '';
+        const stockActual = prodRef ? (prodRef.stock||0) : 0;
+        if(/negativ|>= 0|check|constraint|stock_nuevo/i.test(msg) || stockActual < l.cantidad){
+          throw new Error('No se puede devolver "'+l.nombre+'": hay '+stockActual+' en stock y estás devolviendo '+l.cantidad+'. Revisá la cantidad.');
+        }
+        throw new Error('No se pudo revertir el stock de "'+l.nombre+'": '+msg);
+      }
+      if(prodRef && kResult && kResult.stock_nuevo!=null) prodRef.stock = kResult.stock_nuevo;
+      revertidas.push(l);
+    }
+
+    // 2. Reducir el saldo de la factura elegida por el total completo de la
+    // NC — según la contadora, sin importar si queda negativo (eso es saldo
+    // a favor con el proveedor, se descuenta en el próximo pago). Solo se
+    // marca 'pagado' cuando el saldo da EXACTO 0; si no, queda 'pendiente'
+    // (ya sea que le debamos a él, o que él nos deba a nosotros).
+    if(cubreTotal && deuda){
+      const nuevoSaldo = Math.round((deuda.monto - total)*100)/100;
+      const nuevoEstado = nuevoSaldo === 0 ? 'pagado' : 'pendiente';
+      await SB.from('deudas').update({ monto: nuevoSaldo, estado: nuevoEstado }).eq('id', deuda.id);
+      deuda.monto = nuevoSaldo;
+      deuda.estado = nuevoEstado;
+    }
+
+    // 3. Registrar la NC
+    const ncp = await sbInsert('notas_credito_proveedor', {
+      proveedor: prov?.razon_social || null, proveedor_id: provId,
+      nro_nota: nro || null, factura_relacionada: facturaRel || null,
+      fecha, motivo: motivo || null,
+      items: lineas.map(l=>({ producto_id:l.prodId, producto_nombre:l.nombre, cantidad:l.cantidad, costo_unitario:l.costoUnit, alicuota:l.alicuota })),
+      neto: Math.round(neto*100)/100, iva: Math.round(iva*100)/100, total: Math.round(total*100)/100,
+      deuda_id: cubreTotal ? deudaId : null,
+      monto_aplicado_deuda: montoAplicado, saldo_sin_aplicar: saldoSinAplicar,
+      contabilizada,
+      created_by: USER?.email || null,
+    });
+    notasCreditoProveedor.unshift(ncp);
+
+    closeModal('ov-ncp');
+    if(typeof renderCompraList==='function') renderCompraList();
+    if(typeof renderStock==='function' && typeof stockFilter!=='undefined') renderStock(stockFilter);
+    if(typeof renderProds==='function') renderProds();
+    if(typeof renderDeudas==='function') renderDeudas();
+    if(typeof checkAlertBar==='function') checkAlertBar();
+    renderNCPList();
+
+    if(contabilizada){
+      const saldoFinal = deuda ? deuda.monto : 0;
+      showToast(saldoFinal < 0
+        ? '✅ NC registrada y contabilizada — te quedó un saldo a favor de $'+Math.round(Math.abs(saldoFinal)).toLocaleString('es-AR')+' con ese proveedor'
+        : '✅ NC registrada: stock revertido, factura actualizada y contabilizada', 'ok');
+    } else {
+      showToast('✅ NC registrada y stock revertido — quedó ⏳ pendiente de contabilizar ($'+Math.round(saldoSinAplicar).toLocaleString('es-AR')+') porque no elegiste contra qué factura aplicarla.', 'ok');
+    }
+  }catch(e){
+    showToast('❌ '+(e.message||'Error al registrar la NC'), 'err');
+    console.error('Error guardando NC de proveedor:', e);
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent=txt; }
+  }
+}
+
+function renderNCPList(){
+  const el = document.getElementById('ncp-list');
+  if(!el) return;
+  const lista = (notasCreditoProveedor||[]).slice().sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||'')).slice(0,20);
+  if(!lista.length){ el.innerHTML = '<div class="empty">Sin notas de crédito cargadas</div>'; return; }
+  el.innerHTML = lista.map(ncp=>{
+    const badge = ncp.contabilizada
+      ? `<span style="font-size:10px;background:#eaf5ee;color:#1a5c38;padding:3px 8px;border-radius:10px;font-weight:600">✅ Contabilizada</span>`
+      : `<span style="font-size:10px;background:#fff8e1;color:#e65100;padding:3px 8px;border-radius:10px;font-weight:600">⏳ Pendiente ($${Math.round(ncp.saldo_sin_aplicar||0).toLocaleString('es-AR')})</span>`;
+    return `<div class="card" style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="min-width:0">
+          <div style="font-size:12.5px;font-weight:700">${esc(ncp.proveedor||'Proveedor')} ${ncp.nro_nota?'· '+esc(ncp.nro_nota):''}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(ncp.fecha||'')}${ncp.factura_relacionada?' · ref '+esc(ncp.factura_relacionada):''}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700">$${Math.round(ncp.total||0).toLocaleString('es-AR')}</div>
+        </div>
+      </div>
+      <div style="margin-top:6px">${badge}</div>
+    </div>`;
+  }).join('');
+}
+
+
+// ══════════════════════════════════════════════════════════════
 // PUNTO 7 — ANULAR COMPRA/REMITO CON REVERSIÓN COMPLETA
 // Solo dueños y administrativos. Reversión: stock, deuda/gasto,
 // factura, contabilidad. Append-only (soft-delete, no hard delete).
@@ -6026,6 +6464,13 @@ function renderBalance() {
   // Notas de débito
   (typeof notasDebito!=='undefined'?notasDebito:[]).filter(nd => filtro(nd.fecha)).forEach(nd => {
     const a = asientoNotaDebito(nd); if(!a) return;
+    a.lineas.forEach(l => { if (totales[l.cuenta]) { if(l.debe) totales[l.cuenta].debe += l.importe; else totales[l.cuenta].haber += l.importe; } });
+  });
+
+  // Notas de crédito de proveedor (devolución de mercadería) — igual que en
+  // _movimientosCuenta, no aparece mientras esté pendiente de contabilizar.
+  (typeof notasCreditoProveedor!=='undefined'?notasCreditoProveedor:[]).filter(ncp => filtro(ncp.fecha)).forEach(ncp => {
+    const a = asientoNotaCreditoProveedor(ncp); if(!a) return;
     a.lineas.forEach(l => { if (totales[l.cuenta]) { if(l.debe) totales[l.cuenta].debe += l.importe; else totales[l.cuenta].haber += l.importe; } });
   });
 
@@ -9183,6 +9628,7 @@ async function initApp(){
       loadNotasCredito(),
       loadReclasificaciones(),
       loadNotasDebito(),
+      loadNotasCreditoProveedor(),
     loadCierres(),
     loadDeudas(),
     loadConsumos(),
@@ -9206,6 +9652,7 @@ function updateDate(){
 function renderAll(){
   renderCats();renderProds();renderHist();renderCaja();
   renderReportes();renderStock('all');renderClients();populateSelects();checkAlertBar();renderDeudas();renderGastos();renderProyecciones();setTimeout(checkVencimientos,2000);cargarConfigFiscal();loadPlanCuentas();checkAlertaFacturasPendientes();checkAlertaCAE();
+  if(typeof renderNCPList==='function') renderNCPList();
 }
 
 // ══ SUPABASE CRUD ══
@@ -11913,6 +12360,7 @@ function seleccionarComboProd(targetId, pid){
   const list = document.getElementById(targetId+'-list');
   if(list){ list.style.display='none'; list.innerHTML=''; }
   if(targetId==='rem-add' && typeof agregarLineaRemito==='function'){ agregarLineaRemito(pid); if(s) s.value=''; if(h) h.value=''; return; }
+  if(targetId==='ncp-add' && typeof agregarLineaNCP==='function'){ agregarLineaNCP(pid); if(s) s.value=''; if(h) h.value=''; return; }
   if(targetId==='co-prod' && typeof actualizarCompraUnidades==='function') actualizarCompraUnidades();
 }
 
