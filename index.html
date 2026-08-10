@@ -1980,7 +1980,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <!-- Form -->
     <div style="padding:20px">
       <input type="hidden" id="pago-deuda-id">
-      <div style="margin-bottom:16px">
+      <div id="pago-total-resumen" style="display:none;margin-bottom:16px;padding:12px 14px;background:#e8f5e9;border-radius:10px;border:1.5px solid #a5d6a7">
+        <div style="font-size:12px;color:#2e7d32;font-weight:600">✅ Se va a registrar el pago total de estas deudas — no queda nada pendiente de esta persona.</div>
+      </div>
+      <div id="pago-monto-wrap" style="margin-bottom:16px">
         <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Monto a abonar *</div>
         <div style="position:relative">
           <div style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:16px;font-weight:700;color:#e65100;pointer-events:none">$</div>
@@ -10017,7 +10020,10 @@ function renderClientesAgrupados(){
       ${pct>0?`<div style="background:var(--cream);border-radius:4px;height:5px;overflow:hidden;margin-bottom:10px">
         <div style="background:var(--pine);height:100%;width:${pct}%"></div>
       </div>`:''}
-      ${telefono?`<div style="margin-bottom:8px"><a href="https://wa.me/${telefono.replace(/\D/g,'')}" target="_blank" class="btn btn-sm btn-outline">💬 WA</a></div>`:''}
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        ${telefono?`<a href="https://wa.me/${telefono.replace(/\D/g,'')}" target="_blank" class="btn btn-sm btn-outline">💬 WA</a>`:''}
+        ${g.items.length>1?`<button onclick="abrirModalPagoTotal('${esc(g.nombre)}')" class="btn btn-sm" style="background:#e65100;color:#fff;border:1.5px solid #e65100;font-weight:700">💰 Pagar todo ($${total.toLocaleString('es-AR')})</button>`:''}
+      </div>
       ${g.items.map(d=>{
         const vencida = d.fecha_limite && new Date(d.fecha_limite) < new Date();
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(18,16,14,.06);font-size:11.5px;flex-wrap:wrap;gap:6px">
@@ -10112,7 +10118,14 @@ function actualizarPreviewPago(){
   }
 }
 
+let pagoTotalCliente = null; // nombre del cliente cuando el modal está en modo "pagar todo"; null = pago individual normal
+
 function abrirModalPago(id, nombre, saldo){
+  pagoTotalCliente = null;
+  const montoWrap = document.getElementById('pago-monto-wrap');
+  const resumen = document.getElementById('pago-total-resumen');
+  if(montoWrap) montoWrap.style.display = 'block';
+  if(resumen) resumen.style.display = 'none';
   document.getElementById('pago-deuda-id').value = id;
   document.getElementById('pago-deuda-nombre').textContent = nombre;
   document.getElementById('pago-saldo').textContent = '$'+Number(saldo).toLocaleString('es-AR');
@@ -10129,7 +10142,95 @@ function abrirModalPago(id, nombre, saldo){
   openModal('ov-registrar-pago');
 }
 
+// "Pagar todo" — salda de una sola vez TODAS las deudas pendientes de un
+// mismo cliente. Reusa el mismo modal, pero en modo lectura (el monto ya
+// no se edita: siempre es el total). Cada deuda se paga por su saldo
+// completo, generando su propio pagos_deuda — exactamente lo mismo que
+// pasaría si tocaras "💰" en cada una por separado, una por una.
+function abrirModalPagoTotal(nombreCliente){
+  const items = deudas.filter(d => d.estado!=='pagado' && d.tipo!=='proveedor' && d.tipo!=='gasto'
+    && (d.nombre_cliente||'').trim().toLowerCase() === nombreCliente.trim().toLowerCase());
+  if(!items.length){ showToast('No encontré deudas pendientes de esa persona','err'); return; }
+  const total = items.reduce((s,d)=>s+(d.monto||0),0);
+
+  pagoTotalCliente = nombreCliente;
+  document.getElementById('pago-deuda-id').value = '';
+  document.getElementById('pago-deuda-nombre').textContent = `TODAS las deudas de ${nombreCliente} (${items.length})`;
+  document.getElementById('pago-saldo').textContent = '$'+total.toLocaleString('es-AR');
+  document.getElementById('pago-nota').value = '';
+  const montoWrap = document.getElementById('pago-monto-wrap');
+  const resumen = document.getElementById('pago-total-resumen');
+  if(montoWrap) montoWrap.style.display = 'none';
+  if(resumen) resumen.style.display = 'block';
+
+  const med = document.getElementById('pago-medio');
+  if(med && !med.options.length){
+    const e  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo'])      || '11101001';
+    const t  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Transferencia'])  || '11102006';
+    const mp = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['MercadoPago'])    || '11102006';
+    const ch = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cheque'])         || '11302001';
+    med.innerHTML = `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option><option value="${ch}">Cheque (Valores al cobro)</option>`;
+  }
+  openModal('ov-registrar-pago');
+}
+
+// Paga cada deuda del cliente por su saldo COMPLETO, una por una y en
+// orden (sin Promise.all a propósito: si una falla a mitad de camino,
+// hay que saber exactamente cuáles quedaron pagadas y cuáles no, en vez
+// de un fallo caótico en paralelo). Reporta honestamente si algo falló,
+// nunca dice "listo" si quedó algo pendiente.
+async function _guardarPagoTotalCliente(){
+  const nombreCliente = pagoTotalCliente;
+  const items = deudas.filter(d => d.estado!=='pagado' && d.tipo!=='proveedor' && d.tipo!=='gasto'
+    && (d.nombre_cliente||'').trim().toLowerCase() === nombreCliente.trim().toLowerCase());
+  if(!items.length){
+    showToast('❌ No quedan deudas pendientes de esa persona','err');
+    pagoTotalCliente = null;
+    closeModal('ov-registrar-pago');
+    return;
+  }
+
+  const medSel = document.getElementById('pago-medio');
+  const cuentaMedio = medSel ? medSel.value : '11101001';
+  const medioPago   = medSel ? medSel.options[medSel.selectedIndex]?.text : 'Efectivo';
+  const nota = document.getElementById('pago-nota').value.trim();
+  const fechaHoy = fechaHoyLocal();
+  const totalAPagar = items.reduce((s,d)=>s+(d.monto||0),0);
+
+  let pagadas = 0, fallidas = 0;
+  for(const deuda of items){
+    try{
+      const monto = deuda.monto;
+      const montoOriginal = deuda.monto_original || deuda.monto;
+      await SB.from('deudas').update({ monto: 0, estado: 'pagado', monto_original: montoOriginal }).eq('id', deuda.id);
+      const pago = await sbInsert('pagos_deuda', {
+        deuda_id: deuda.id, monto_abonado: monto, saldo_restante: 0,
+        nota: nota || null, medio_pago: medioPago, cuenta_medio: cuentaMedio, fecha: fechaHoy
+      });
+      pagosDeuda.unshift(pago);
+      deuda.monto = 0;
+      deuda.estado = 'pagado';
+      deuda.monto_original = montoOriginal;
+      pagadas++;
+    }catch(e){
+      console.error('Error pagando deuda', deuda.id, e);
+      fallidas++;
+    }
+  }
+
+  pagoTotalCliente = null;
+  closeModal('ov-registrar-pago');
+  renderDeudas();
+
+  if(fallidas === 0){
+    showToast(`🎉 Se saldaron las ${pagadas} deudas de ${nombreCliente} — total $${totalAPagar.toLocaleString('es-AR')}`, 'ok');
+  } else {
+    showToast(`⚠️ Se pagaron ${pagadas} de ${items.length} deudas de ${nombreCliente}. ${fallidas} fallaron — revisá su historial antes de darlo por cerrado.`, 'err');
+  }
+}
+
 async function guardarPago(){
+  if(pagoTotalCliente){ return await _guardarPagoTotalCliente(); }
   const id = document.getElementById('pago-deuda-id').value;
   const monto = parseFloat(document.getElementById('pago-monto').value);
   const nota = document.getElementById('pago-nota').value.trim();
