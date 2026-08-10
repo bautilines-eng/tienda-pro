@@ -1953,9 +1953,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 
 <!-- MODAL REGISTRAR PAGO -->
 <div class="overlay" id="ov-registrar-pago">
-  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0">
+  <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0;display:flex;flex-direction:column;max-height:88vh">
     <!-- Header -->
-    <div style="background:linear-gradient(135deg,#e65100 0%,#bf360c 100%);padding:24px 24px 20px;position:relative">
+    <div style="background:linear-gradient(135deg,#e65100 0%,#bf360c 100%);padding:24px 24px 20px;position:relative;flex-shrink:0">
       <div class="modal-handle" style="background:rgba(255,255,255,.35);margin-bottom:14px"></div>
       <div style="display:flex;align-items:center;gap:12px">
         <div style="width:44px;height:44px;background:rgba(255,255,255,.15);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px">💰</div>
@@ -1966,6 +1966,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-registrar-pago')">✕</span>
       </div>
     </div>
+    <!-- Todo lo que sigue del header scrollea si no entra en pantalla
+         (el header queda siempre fijo arriba, gracias a flex-shrink:0) -->
+    <div style="overflow-y:auto;min-height:0;flex:1">
     <!-- Deudor info card -->
     <div style="margin:20px 20px 0;background:#fff8f0;border:1.5px solid #ffccbc;border-radius:14px;padding:14px 16px">
       <div style="display:flex;justify-content:space-between;align-items:center">
@@ -2044,6 +2047,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           Registrar pago →
         </button>
       </div>
+    </div>
     </div>
   </div>
 </div>
