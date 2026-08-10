@@ -2002,6 +2002,32 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Medio de pago *</div>
         <select class="inp" id="pago-medio" style="border-color:#ffccbc"></select>
       </div>
+      <div id="pago-split-toggle-wrap" style="margin-bottom:16px">
+        <div class="ps" id="pago-split-toggle" onclick="togglePagoSplit()" style="display:inline-block">➗ Dividir en dos métodos</div>
+      </div>
+      <div id="pago-split-wrap" style="display:none;margin-bottom:16px;padding:12px;background:#fafafa;border-radius:10px;border:1px dashed #ddd">
+        <div class="frow">
+          <div style="flex:1">
+            <div class="flabel">Método 1</div>
+            <select class="inp" id="pago-medio-1" style="border-color:#ffccbc"></select>
+          </div>
+          <div style="flex:1">
+            <div class="flabel">Monto 1</div>
+            <input class="inp" id="pago-monto-1" type="number" min="0" placeholder="$0" oninput="actualizarPagoSplitResto()">
+          </div>
+        </div>
+        <div class="frow" style="margin-top:8px">
+          <div style="flex:1">
+            <div class="flabel">Método 2</div>
+            <select class="inp" id="pago-medio-2" style="border-color:#ffccbc"></select>
+          </div>
+          <div style="flex:1">
+            <div class="flabel">Monto 2 <span style="font-weight:400;color:#999;font-size:9px">(automático)</span></div>
+            <input class="inp" id="pago-monto-2" type="number" min="0" readonly style="background:#f0f0f0">
+          </div>
+        </div>
+        <div id="pago-split-check" style="font-size:11px;margin-top:8px"></div>
+      </div>
       <div style="margin-bottom:20px">
         <div style="font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Nota <span style="font-weight:400;text-transform:none;color:#aaa">(opcional)</span></div>
         <input class="inp" id="pago-nota" placeholder="Observación adicional...">
@@ -10255,27 +10281,85 @@ function actualizarPreviewPago(){
 let pagoTotalCliente = null; // nombre del cliente cuando el modal está en modo "pagar todo"
 let pagoLoteIds = null;      // array de ids de deuda cuando el modal está en modo "pagar seleccionadas"
 // null en ambos = pago individual normal
+let pagoSplitActivo = false; // true = el usuario dividió el pago en dos métodos
+let pagoModalTotalActual = 0; // total a pagar del modal abierto — lo usa el split para autocompletar el monto 2
+
+function _opcionesMedioPago(){
+  const e  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo'])      || '11101001';
+  const t  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Transferencia'])  || '11102006';
+  const mp = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['MercadoPago'])    || '11102006';
+  const ch = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cheque'])         || '11302001';
+  return `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option><option value="${ch}">Cheque (Valores al cobro)</option>`;
+}
 
 // Puebla el <select> de medio de pago una sola vez (se reusa en los 3 modos
 // de apertura del modal: individual, "pagar todo" y "pagar seleccionadas").
 function _poblarMedioPagoSiVacio(){
   const med = document.getElementById('pago-medio');
-  if(med && !med.options.length){
-    const e  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo'])      || '11101001';
-    const t  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Transferencia'])  || '11102006';
-    const mp = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['MercadoPago'])    || '11102006';
-    const ch = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cheque'])         || '11302001';
-    med.innerHTML = `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option><option value="${ch}">Cheque (Valores al cobro)</option>`;
+  if(med && !med.options.length) med.innerHTML = _opcionesMedioPago();
+}
+function _poblarSelectMedioSiVacio(id){
+  const sel = document.getElementById(id);
+  if(sel && !sel.options.length) sel.innerHTML = _opcionesMedioPago();
+}
+
+// Reinicia el bloque de "dividir en dos métodos" a su estado apagado —
+// se llama cada vez que se abre el modal, en cualquier modo.
+function _resetPagoSplit(){
+  pagoSplitActivo = false;
+  const toggle = document.getElementById('pago-split-toggle');
+  const wrap = document.getElementById('pago-split-wrap');
+  if(toggle) toggle.classList.remove('on');
+  if(wrap) wrap.style.display = 'none';
+  const m1 = document.getElementById('pago-monto-1'); if(m1) m1.value = '';
+  const m2 = document.getElementById('pago-monto-2'); if(m2) m2.value = '';
+  const chk = document.getElementById('pago-split-check'); if(chk) chk.innerHTML = '';
+}
+
+function togglePagoSplit(){
+  pagoSplitActivo = !pagoSplitActivo;
+  const toggle = document.getElementById('pago-split-toggle');
+  const wrap = document.getElementById('pago-split-wrap');
+  if(toggle) toggle.classList.toggle('on', pagoSplitActivo);
+  if(wrap) wrap.style.display = pagoSplitActivo ? 'block' : 'none';
+  if(pagoSplitActivo){
+    _poblarSelectMedioSiVacio('pago-medio-1');
+    _poblarSelectMedioSiVacio('pago-medio-2');
+    actualizarPagoSplitResto();
+  }
+}
+
+// Autocompleta Monto 2 = total − Monto 1, y avisa si algo no cierra.
+function actualizarPagoSplitResto(){
+  const monto1 = parseFloat(document.getElementById('pago-monto-1')?.value) || 0;
+  const resto = Math.round((pagoModalTotalActual - monto1)*100)/100;
+  const monto2El = document.getElementById('pago-monto-2');
+  if(monto2El) monto2El.value = resto >= 0 ? resto : 0;
+  const checkEl = document.getElementById('pago-split-check');
+  if(!checkEl) return;
+  if(monto1 <= 0){
+    checkEl.innerHTML = `<span style="color:#999">Ingresá cuánto se paga con el método 1</span>`;
+  } else if(resto < 0){
+    checkEl.innerHTML = `<span style="color:#c94040">⚠️ El monto 1 supera el total a pagar ($${pagoModalTotalActual.toLocaleString('es-AR')})</span>`;
+  } else {
+    checkEl.innerHTML = `<span style="color:#1a5c38">✅ Método 2 completa el resto: $${resto.toLocaleString('es-AR')}</span>`;
   }
 }
 
 function abrirModalPago(id, nombre, saldo){
   pagoTotalCliente = null;
   pagoLoteIds = null;
+  pagoModalTotalActual = Number(saldo)||0;
   const montoWrap = document.getElementById('pago-monto-wrap');
   const resumen = document.getElementById('pago-total-resumen');
   if(montoWrap) montoWrap.style.display = 'block';
   if(resumen) resumen.style.display = 'none';
+  // El split de método solo tiene sentido cuando el total a pagar es fijo
+  // (pagar todo / pagar seleccionadas) — acá el monto es libre y editable,
+  // así que no se ofrece dividir para no mezclar dos formas de definir el total.
+  const splitToggleWrap = document.getElementById('pago-split-toggle-wrap');
+  if(splitToggleWrap) splitToggleWrap.style.display = 'none';
+  _resetPagoSplit();
   document.getElementById('pago-deuda-id').value = id;
   document.getElementById('pago-deuda-nombre').textContent = nombre;
   document.getElementById('pago-saldo').textContent = '$'+Number(saldo).toLocaleString('es-AR');
@@ -10289,7 +10373,8 @@ function abrirModalPago(id, nombre, saldo){
 // mismo cliente. Reusa el mismo modal, pero en modo lectura (el monto ya
 // no se edita: siempre es el total). Cada deuda se paga por su saldo
 // completo, generando su propio pagos_deuda — exactamente lo mismo que
-// pasaría si tocaras "💰" en cada una por separado, una por una.
+// pasaría si tocaras "💰" en cada una por separado, una por una. Admite
+// dividir el total entre dos métodos de pago (ver _repartirPagoEnTramos).
 function abrirModalPagoTotal(nombreCliente){
   const items = deudas.filter(d => d.estado!=='pagado' && d.tipo!=='proveedor' && d.tipo!=='gasto'
     && (d.nombre_cliente||'').trim().toLowerCase() === nombreCliente.trim().toLowerCase());
@@ -10298,6 +10383,7 @@ function abrirModalPagoTotal(nombreCliente){
 
   pagoTotalCliente = nombreCliente;
   pagoLoteIds = null;
+  pagoModalTotalActual = total;
   document.getElementById('pago-deuda-id').value = '';
   document.getElementById('pago-deuda-nombre').textContent = `TODAS las deudas de ${nombreCliente} (${items.length})`;
   document.getElementById('pago-saldo').textContent = '$'+total.toLocaleString('es-AR');
@@ -10306,14 +10392,17 @@ function abrirModalPagoTotal(nombreCliente){
   const resumen = document.getElementById('pago-total-resumen');
   if(montoWrap) montoWrap.style.display = 'none';
   if(resumen) resumen.style.display = 'block';
+  const splitToggleWrap = document.getElementById('pago-split-toggle-wrap');
+  if(splitToggleWrap) splitToggleWrap.style.display = 'block';
+  _resetPagoSplit();
   _poblarMedioPagoSiVacio();
   openModal('ov-registrar-pago');
 }
 
 // "Pagar seleccionadas" — para proveedores con muchas facturas, elegís con
-// checkbox cuáles pagar juntas (no necesariamente todas) y un solo medio
-// de pago para el lote. Lee los checkboxes tildados de ESE proveedor
-// puntual (identificado por provKey) directo del DOM.
+// checkbox cuáles pagar juntas (no necesariamente todas), y opcionalmente
+// dividís ese total entre dos métodos de pago. Lee los checkboxes tildados
+// de ESE proveedor puntual (identificado por provKey) directo del DOM.
 function abrirModalPagoLote(provKey){
   const checks = document.querySelectorAll(`.chk-pago-lote[data-provkey="${provKey}"]:checked`);
   if(!checks.length){ showToast('Seleccioná al menos una factura','err'); return; }
@@ -10324,6 +10413,7 @@ function abrirModalPagoLote(provKey){
 
   pagoLoteIds = ids;
   pagoTotalCliente = null;
+  pagoModalTotalActual = total;
   document.getElementById('pago-deuda-id').value = '';
   document.getElementById('pago-deuda-nombre').textContent = `${items.length} factura(s) seleccionada(s) de ${nombreProv}`;
   document.getElementById('pago-saldo').textContent = '$'+total.toLocaleString('es-AR');
@@ -10332,8 +10422,35 @@ function abrirModalPagoLote(provKey){
   const resumen = document.getElementById('pago-total-resumen');
   if(montoWrap) montoWrap.style.display = 'none';
   if(resumen) resumen.style.display = 'block';
+  const splitToggleWrap = document.getElementById('pago-split-toggle-wrap');
+  if(splitToggleWrap) splitToggleWrap.style.display = 'block';
+  _resetPagoSplit();
   _poblarMedioPagoSiVacio();
   openModal('ov-registrar-pago');
+}
+
+// Reparte una lista de deudas (cada una con su saldo) entre uno o dos
+// "tramos" de pago (un tramo = un método + un monto). Recorre las deudas
+// EN ORDEN y va llenando el tramo actual hasta agotarlo antes de pasar al
+// siguiente — así, como mucho UNA deuda queda partida justo en el límite
+// entre los dos métodos; todas las demás quedan enteras en un solo tramo.
+// Función pura (no toca DOM ni base) para poder testearla aislada.
+function _repartirPagoEnTramos(items, tramos){
+  const aplicaciones = [];
+  let idx = 0, restante = tramos[0] ? tramos[0].monto : 0;
+  for(const deuda of items){
+    let falta = Math.round((deuda.monto||0)*100)/100;
+    while(falta > 0.004 && idx < tramos.length){
+      const aportar = Math.round(Math.min(falta, restante)*100)/100;
+      if(aportar > 0.004){
+        aplicaciones.push({ deudaId: deuda.id, medioPago: tramos[idx].medioPago, cuentaMedio: tramos[idx].cuentaMedio, monto: aportar });
+        falta = Math.round((falta-aportar)*100)/100;
+        restante = Math.round((restante-aportar)*100)/100;
+      }
+      if(restante <= 0.004){ idx++; if(idx<tramos.length) restante = tramos[idx].monto; else break; }
+    }
+  }
+  return aplicaciones;
 }
 
 // Motor único de pago en lote: recibe una lista explícita de ids de deuda
@@ -10342,7 +10459,9 @@ function abrirModalPagoLote(provKey){
 // exactamente cuáles quedaron pagadas y cuáles no). Reporta honestamente
 // si algo falló, nunca dice "listo" si quedó algo pendiente. Tanto
 // "Pagar todo" (por cliente) como "Pagar seleccionadas" (por checkbox)
-// terminan acá — un solo lugar que hace el UPDATE + INSERT real.
+// terminan acá — un solo lugar que hace el UPDATE + INSERT real. Si el
+// usuario activó "Dividir en dos métodos", arma dos tramos y reparte con
+// _repartirPagoEnTramos; si no, se comporta exactamente igual que antes.
 async function _guardarPagoLote(ids, etiqueta){
   const items = ids.map(id => deudas.find(d=>d.id===id)).filter(Boolean);
   if(!items.length){
@@ -10352,24 +10471,63 @@ async function _guardarPagoLote(ids, etiqueta){
     return;
   }
 
-  const medSel = document.getElementById('pago-medio');
-  const cuentaMedio = medSel ? medSel.value : '11101001';
-  const medioPago   = medSel ? medSel.options[medSel.selectedIndex]?.text : 'Efectivo';
   const nota = document.getElementById('pago-nota').value.trim();
   const fechaHoy = fechaHoyLocal();
   const totalAPagar = items.reduce((s,d)=>s+(d.monto||0),0);
 
+  let tramos;
+  if(pagoSplitActivo){
+    const med1Sel = document.getElementById('pago-medio-1');
+    const med2Sel = document.getElementById('pago-medio-2');
+    const monto1 = Math.round((parseFloat(document.getElementById('pago-monto-1').value)||0)*100)/100;
+    const monto2 = Math.round((parseFloat(document.getElementById('pago-monto-2').value)||0)*100)/100;
+    if(monto1<=0 || monto2<=0){
+      showToast('⚠️ Ingresá un monto mayor a $0 en los dos métodos (si es uno solo, apagá "Dividir")','err');
+      return;
+    }
+    if(Math.abs((monto1+monto2) - totalAPagar) > 0.01){
+      showToast('⚠️ La suma de los dos métodos no coincide con el total a pagar','err');
+      return;
+    }
+    tramos = [
+      { medioPago: med1Sel.options[med1Sel.selectedIndex]?.text, cuentaMedio: med1Sel.value, monto: monto1 },
+      { medioPago: med2Sel.options[med2Sel.selectedIndex]?.text, cuentaMedio: med2Sel.value, monto: monto2 },
+    ];
+  } else {
+    const medSel = document.getElementById('pago-medio');
+    tramos = [{
+      medioPago: medSel ? medSel.options[medSel.selectedIndex]?.text : 'Efectivo',
+      cuentaMedio: medSel ? medSel.value : '11101001',
+      monto: totalAPagar,
+    }];
+  }
+
+  const aplicaciones = _repartirPagoEnTramos(items, tramos);
+  const porDeuda = {};
+  aplicaciones.forEach(a => { (porDeuda[a.deudaId] = porDeuda[a.deudaId] || []).push(a); });
+
+  // Un solo id compartido por todos los pagos_deuda que salgan de ESTA
+  // acción — así después se puede imprimir un único recibo que cubra
+  // todas las facturas pagadas juntas, en vez de uno por factura.
+  const loteId = crypto.randomUUID();
+
   let pagadas = 0, fallidas = 0;
   for(const deuda of items){
+    const apps = porDeuda[deuda.id] || [];
     try{
-      const monto = deuda.monto;
       const montoOriginal = deuda.monto_original || deuda.monto;
+      let acumulado = 0;
+      for(const a of apps){
+        acumulado = Math.round((acumulado + a.monto)*100)/100;
+        const saldoRestante = Math.max(0, Math.round((deuda.monto - acumulado)*100)/100);
+        const pago = await sbInsert('pagos_deuda', {
+          deuda_id: deuda.id, monto_abonado: a.monto, saldo_restante: saldoRestante,
+          nota: nota || null, medio_pago: a.medioPago, cuenta_medio: a.cuentaMedio, fecha: fechaHoy,
+          lote_id: loteId
+        });
+        pagosDeuda.unshift(pago);
+      }
       await SB.from('deudas').update({ monto: 0, estado: 'pagado', monto_original: montoOriginal }).eq('id', deuda.id);
-      const pago = await sbInsert('pagos_deuda', {
-        deuda_id: deuda.id, monto_abonado: monto, saldo_restante: 0,
-        nota: nota || null, medio_pago: medioPago, cuenta_medio: cuentaMedio, fecha: fechaHoy
-      });
-      pagosDeuda.unshift(pago);
       deuda.monto = 0;
       deuda.estado = 'pagado';
       deuda.monto_original = montoOriginal;
@@ -10388,6 +10546,7 @@ async function _guardarPagoLote(ids, etiqueta){
   const etq = etiqueta || `${pagadas} pago(s)`;
   if(fallidas === 0){
     showToast(`🎉 Se registró ${etq} — total $${totalAPagar.toLocaleString('es-AR')}`, 'ok');
+    imprimirReciboPago(loteId);
   } else {
     showToast(`⚠️ Se pagaron ${pagadas} de ${items.length} facturas. ${fallidas} fallaron — revisá antes de darlo por cerrado.`, 'err');
   }
@@ -10438,7 +10597,8 @@ async function guardarPago(){
       nota: nota || null,
       medio_pago: medioPago,
       cuenta_medio: cuentaMedio,
-      fecha: fechaHoy
+      fecha: fechaHoy,
+      lote_id: crypto.randomUUID()
     });
     pagosDeuda.unshift(pago);
     // Actualizar local
@@ -10502,11 +10662,59 @@ async function verHistorialPagos(deudaId, nombre){
               <div style="font-size:10px;color:#999;margin-top:4px;font-family:'DM Mono',monospace">Saldo→ $${Number(p.saldo_restante).toLocaleString('es-AR')}</div>
             </div>
           </div>
+          ${p.lote_id?`<div style="text-align:right;margin-top:8px"><button onclick="imprimirReciboPago('${p.lote_id}')" style="padding:4px 10px;border-radius:7px;border:1px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:10px;cursor:pointer">🖨️ Recibo</button></div>`:''}
         </div>`;
       }).join('');
     }
     openModal('ov-historial-pagos');
   }catch(e){ showToast('❌ Error al cargar historial','err'); }
+}
+
+// Recibo imprimible de un pago — cubre TODOS los pagos_deuda que comparten
+// el mismo lote_id, así una sola impresión documenta las N facturas que se
+// pagaron juntas en una misma acción (mismo patrón que exportarMinutaPDF:
+// ventana nueva + auto-print). Si el pago es viejo y no tiene lote_id
+// (de antes de esta función), no hay nada que buscar — se avisa y listo.
+function imprimirReciboPago(loteId){
+  if(!loteId){ showToast('Este pago no tiene recibo disponible','err'); return; }
+  const pagos = (pagosDeuda||[]).filter(p => p.lote_id === loteId);
+  if(!pagos.length){ showToast('No encontré ese pago para imprimir','err'); return; }
+
+  const filas = pagos.map(p=>{
+    const d = (deudas||[]).find(x=>x.id===p.deuda_id);
+    return {
+      desc: d?.descripcion || 'Deuda',
+      monto: Number(p.monto_abonado)||0,
+      medio: p.medio_pago || '',
+      nombre: d?.nombre_cliente || p.nombre_cliente || '',
+    };
+  });
+
+  const nombre = filas.find(f=>f.nombre)?.nombre || '—';
+  const total = filas.reduce((s,f)=>s+f.monto,0);
+  const fecha = pagos[0].fecha || fechaHoyLocal();
+  const fmt = (n)=> '$'+(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  const porMedio = {};
+  filas.forEach(f=>{ porMedio[f.medio] = (porMedio[f.medio]||0) + f.monto; });
+  const mediosHTML = Object.entries(porMedio).map(([m,t])=>`<div>${esc(m)}: <b>${fmt(t)}</b></div>`).join('');
+  const filasHTML = filas.map(f=>`<tr><td>${esc(f.desc)}</td><td style="text-align:right">${fmt(f.monto)}</td><td>${esc(f.medio)}</td></tr>`).join('');
+
+  const win = window.open('', '_blank');
+  if(!win){ showToast('Permití las ventanas emergentes para el recibo','err'); return; }
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Recibo de pago</title>'
+    +'<style>body{font-family:Arial,sans-serif;padding:32px;color:#222}h1{font-size:18px;margin:0}'
+    +'table{width:100%;border-collapse:collapse;margin-top:14px}th,td{border:1px solid #ccc;padding:6px 8px;font-size:13px}'
+    +'.head{display:flex;justify-content:space-between;border-bottom:2px solid #333;padding-bottom:10px;margin-bottom:14px}</style></head><body>'
+    +'<div class="head"><div><h1>RECIBO DE PAGO</h1><div>'+((typeof STORE!=='undefined'&&STORE)?esc(STORE.name||''):'')+'</div></div>'
+    +'<div style="text-align:right"><div style="font-size:12px;color:#666">'+esc(fecha)+'</div></div></div>'
+    +'<p><b>'+(filas.length>1?'Facturas pagadas a':'Pagado a')+':</b> '+esc(nombre)+'</p>'
+    +'<table><thead><tr><th>Concepto</th><th>Monto</th><th>Medio</th></tr></thead><tbody>'+filasHTML+'</tbody></table>'
+    +'<div style="margin-top:14px">'+mediosHTML+'</div>'
+    +'<h2 style="font-size:16px;margin-top:14px">Total: '+fmt(total)+'</h2>'
+    +'<p style="margin-top:50px">Firma: _______________________</p></body></html>');
+  win.document.close();
+  setTimeout(()=>{ try{ win.focus(); win.print(); }catch(e){} }, 300);
 }
 
 // ══ USUARIOS ══
