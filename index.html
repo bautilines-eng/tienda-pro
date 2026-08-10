@@ -2469,29 +2469,47 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="ht">Finanzas</div>
       <div class="hs">Ingresos, egresos y balance real</div>
     </div>
-    <div style="display:flex;gap:6px;padding:14px 20px 0;overflow-x:auto;scrollbar-width:none">
-      <div class="ps on" onclick="setFinPer('mes',this)">Este mes</div>
-      <div class="ps" onclick="setFinPer('semana',this)">Esta semana</div>
-      <div class="ps" onclick="setFinPer('todo',this)">Todo</div>
+    <!-- FILTROS DE PERÍODO -->
+    <div style="padding:14px 20px 0">
+      <div style="display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px" id="fin-periodos">
+        <div class="ps" data-modo="hoy" onclick="setFinRango('hoy',this)">Hoy</div>
+        <div class="ps" data-modo="ayer" onclick="setFinRango('ayer',this)">Ayer</div>
+        <div class="ps" data-modo="7d" onclick="setFinRango('7d',this)">Últ. 7 días</div>
+        <div class="ps" data-modo="30d" onclick="setFinRango('30d',this)">Últ. 30 días</div>
+        <div class="ps" data-modo="esta_semana" onclick="setFinRango('esta_semana',this)">Esta semana</div>
+        <div class="ps" data-modo="semana_anterior" onclick="setFinRango('semana_anterior',this)">Semana ant.</div>
+        <div class="ps on" data-modo="mes" onclick="setFinRango('mes',this)">Este mes</div>
+        <div class="ps" data-modo="mes_anterior" onclick="setFinRango('mes_anterior',this)">Mes anterior</div>
+        <div class="ps" data-modo="anio" onclick="setFinRango('anio',this)">Este año</div>
+        <div class="ps" data-modo="todo" onclick="setFinRango('todo',this)">Todo</div>
+        <div class="ps" data-modo="custom" onclick="setFinRango('custom',this)">📅 Personalizado</div>
+      </div>
+      <div id="fin-custom-range" style="display:none;gap:8px;margin-top:10px;align-items:flex-end">
+        <div style="flex:1"><div class="flabel">Desde</div><input type="date" id="fin-desde" class="inp" style="font-size:12px"></div>
+        <div style="flex:1"><div class="flabel">Hasta</div><input type="date" id="fin-hasta" class="inp" style="font-size:12px"></div>
+        <button onclick="aplicarFinCustom()" style="padding:10px 16px;border-radius:9px;border:none;background:var(--ink);color:var(--paper);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Aplicar</button>
+      </div>
+      <div class="ps" id="fin-comparar-btn" onclick="toggleFinComparar(this)" style="display:inline-block;margin-top:10px">🔁 Comparar con período anterior</div>
     </div>
 
-    <!-- BALANCE PRINCIPAL -->
+    <!-- BALANCE PRINCIPAL (ganancia neta del período — devengado) -->
     <div style="margin:14px 20px 0;background:var(--ink);border-radius:14px;padding:20px;position:relative;overflow:hidden">
       <div style="position:absolute;right:-10px;top:50%;transform:translateY(-50%);font-family:Instrument Serif,serif;font-size:80px;color:rgba(255,255,255,.04);pointer-events:none">$</div>
       <div style="font-family:DM Mono,monospace;font-size:9px;color:rgba(245,240,232,.3);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px" id="fin-periodo-label">Este mes</div>
-      <div style="font-family:Instrument Serif,serif;font-size:42px;line-height:1;margin-bottom:4px" id="fin-balance" style="color:var(--paper)">$0</div>
-      <div style="font-size:12px;color:rgba(245,240,232,.4)" id="fin-balance-label">Balance neto</div>
+      <div style="font-family:Instrument Serif,serif;font-size:42px;line-height:1;margin-bottom:2px;color:var(--paper)" id="fin-balance">$0</div>
+      <div style="font-size:12px;color:rgba(245,240,232,.4)" id="fin-balance-label">Ganancia neta</div>
+      <div id="fin-balance-delta" style="font-size:11.5px;margin-top:4px;display:none"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:16px">
         <div style="background:rgba(30,92,56,.4);border:1px solid rgba(30,92,56,.6);border-radius:10px;padding:10px;text-align:center">
-          <div style="font-size:9px;color:rgba(245,240,232,.4);margin-bottom:4px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:.5px">Ingresos</div>
+          <div style="font-size:9px;color:rgba(245,240,232,.4);margin-bottom:4px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:.5px">Ventas</div>
           <div style="font-family:DM Mono,monospace;font-size:14px;font-weight:500;color:#6fcf97" id="fin-ingresos">$0</div>
         </div>
         <div style="background:rgba(196,68,28,.25);border:1px solid rgba(196,68,28,.4);border-radius:10px;padding:10px;text-align:center">
-          <div style="font-size:9px;color:rgba(245,240,232,.4);margin-bottom:4px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:.5px">Egresos</div>
+          <div style="font-size:9px;color:rgba(245,240,232,.4);margin-bottom:4px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:.5px">Costo + Gastos</div>
           <div style="font-family:DM Mono,monospace;font-size:14px;font-weight:500;color:#eb5757" id="fin-egresos">$0</div>
         </div>
         <div style="background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.3);border-radius:10px;padding:10px;text-align:center">
-          <div style="font-size:9px;color:rgba(245,240,232,.4);margin-bottom:4px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:.5px">Margen</div>
+          <div style="font-size:9px;color:rgba(245,240,232,.4);margin-bottom:4px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:.5px">Margen neto</div>
           <div style="font-family:DM Mono,monospace;font-size:14px;font-weight:500;color:#f2c94c" id="fin-margen">0%</div>
         </div>
       </div>
@@ -2503,8 +2521,11 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <!-- AVISO COSTO -->
     <div id="fin-aviso-costo" style="display:none;margin:14px 20px 0;background:#fef3c7;border:1.5px solid #fbbf24;border-radius:12px;padding:14px 16px;gap:12px;align-items:flex-start"></div>
 
-    <!-- GANANCIA REAL -->
+    <!-- RESULTADO (devengado: ventas − costo mercadería − gastos) -->
     <div style="margin:14px 20px 0;background:#fff;border:1.5px solid #e0e0e0;border-radius:14px;padding:16px" id="fin-ganancia-real"></div>
+
+    <!-- FLUJO DE CAJA (dinero real cobrado y pagado en el período) -->
+    <div style="margin:14px 20px 0;background:#fff;border:1.5px solid #e0e0e0;border-radius:14px;padding:16px" id="fin-flujo-caja"></div>
 
     <!-- KPIs -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 20px 0">
@@ -2512,19 +2533,22 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div style="font-size:10px;color:var(--muted);margin-bottom:5px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:1px">Ventas totales</div>
         <div style="font-family:Instrument Serif,serif;font-size:28px;color:var(--pine)" id="fin-ventas-total">0</div>
         <div style="font-size:11px;color:var(--muted);margin-top:3px" id="fin-ventas-count">transacciones</div>
+        <div style="font-size:10px;margin-top:3px" id="fin-ventas-delta"></div>
+        <div style="font-size:10px" id="fin-operaciones-delta"></div>
       </div>
       <div class="card">
         <div style="font-size:10px;color:var(--muted);margin-bottom:5px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:1px">Ticket promedio</div>
         <div style="font-family:Instrument Serif,serif;font-size:28px;color:var(--sky)" id="fin-ticket-prom">$0</div>
         <div style="font-size:11px;color:var(--muted);margin-top:3px">por venta</div>
+        <div style="font-size:10px;margin-top:3px" id="fin-ticket-delta"></div>
       </div>
       <div class="card">
-        <div style="font-size:10px;color:var(--muted);margin-bottom:5px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:1px">Compras / Egresos</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:5px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:1px">Compras de mercadería</div>
         <div style="font-family:Instrument Serif,serif;font-size:28px;color:var(--red)" id="fin-compras-total">$0</div>
         <div style="font-size:11px;color:var(--muted);margin-top:3px" id="fin-compras-count">registradas</div>
       </div>
       <div class="card">
-        <div style="font-size:10px;color:var(--muted);margin-bottom:5px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:1px">Deudas pendientes</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:5px;font-family:DM Mono,monospace;text-transform:uppercase;letter-spacing:1px">Cuentas por cobrar</div>
         <div style="font-family:Instrument Serif,serif;font-size:28px;color:var(--amber)" id="fin-deudas-total">$0</div>
         <div style="font-size:11px;color:var(--muted);margin-top:3px" id="fin-deudas-count">sin cobrar</div>
       </div>
@@ -12980,96 +13004,260 @@ async function compartirWhatsApp(){
 }
 
 // ══ FINANZAS ══
-let finPeriodo = 'mes';
+// Fuente única de verdad para el rango de fechas de todo el módulo.
+let FIN_RANGO = { modo:'mes', desde:null, hasta:null };
+let FIN_COMPARAR = false;
 
-function setFinPer(p, el){
-  finPeriodo = p;
-  document.querySelectorAll('#pfin .ps').forEach(b=>b.classList.remove('on'));
-  el.classList.add('on');
+function _finParseFecha(str){
+  const [y,m,d] = String(str).split('-').map(Number);
+  return new Date(y, (m||1)-1, d||1);
+}
+function _finSumarDias(str, n){
+  const dt = _finParseFecha(str);
+  dt.setDate(dt.getDate()+n);
+  return fechaHoyLocal(dt);
+}
+
+// Calcula {desde,hasta,label} para cada período rápido. Única función que
+// sabe traducir un "modo" a fechas — todo lo demás en Finanzas consume
+// FIN_RANGO.desde/hasta, nunca recalcula esto por su cuenta.
+function finRangoFechas(modo){
+  const hoy = fechaHoyLocal();
+  const hoyDt = _finParseFecha(hoy);
+  const diaSemana = (hoyDt.getDay()+6)%7; // 0=lunes...6=domingo
+  switch(modo){
+    case 'hoy': return {desde:hoy, hasta:hoy, label:'HOY'};
+    case 'ayer': { const a=_finSumarDias(hoy,-1); return {desde:a,hasta:a,label:'AYER'}; }
+    case '7d': return {desde:_finSumarDias(hoy,-6), hasta:hoy, label:'ÚLTIMOS 7 DÍAS'};
+    case '30d': return {desde:_finSumarDias(hoy,-29), hasta:hoy, label:'ÚLTIMOS 30 DÍAS'};
+    case 'esta_semana': { const lunes=_finSumarDias(hoy,-diaSemana); return {desde:lunes,hasta:hoy,label:'ESTA SEMANA'}; }
+    case 'semana_anterior': {
+      const lunesEsta=_finSumarDias(hoy,-diaSemana);
+      const domingoAnt=_finSumarDias(lunesEsta,-1);
+      const lunesAnt=_finSumarDias(domingoAnt,-6);
+      return {desde:lunesAnt,hasta:domingoAnt,label:'SEMANA ANTERIOR'};
+    }
+    case 'mes': {
+      const primero=fechaHoyLocal(new Date(hoyDt.getFullYear(),hoyDt.getMonth(),1));
+      return {desde:primero,hasta:hoy,label:hoyDt.toLocaleDateString('es-AR',{month:'long',year:'numeric'}).toUpperCase()};
+    }
+    case 'mes_anterior': {
+      const ultimoAnt=new Date(hoyDt.getFullYear(),hoyDt.getMonth(),0);
+      const primeroAnt=new Date(ultimoAnt.getFullYear(),ultimoAnt.getMonth(),1);
+      return {desde:fechaHoyLocal(primeroAnt),hasta:fechaHoyLocal(ultimoAnt),label:ultimoAnt.toLocaleDateString('es-AR',{month:'long',year:'numeric'}).toUpperCase()};
+    }
+    case 'anio': { const primero=fechaHoyLocal(new Date(hoyDt.getFullYear(),0,1)); return {desde:primero,hasta:hoy,label:'AÑO '+hoyDt.getFullYear()}; }
+    case 'todo': return {desde:'2000-01-01',hasta:hoy,label:'TODO EL TIEMPO'};
+    default: return {desde:hoy,hasta:hoy,label:'HOY'};
+  }
+}
+
+// Rango anterior de igual duración, inmediatamente antes de "desde".
+// Genérico: sirve para cualquier modo (incluido personalizado) sin
+// duplicar una fórmula distinta por cada tipo de período.
+function finRangoAnterior(desde,hasta){
+  const dias = Math.round((_finParseFecha(hasta)-_finParseFecha(desde))/86400000)+1;
+  const hastaAnt = _finSumarDias(desde,-1);
+  const desdeAnt = _finSumarDias(hastaAnt,-(dias-1));
+  return {desde:desdeAnt, hasta:hastaAnt};
+}
+
+function setFinRango(modo, el){
+  document.querySelectorAll('#fin-periodos .ps').forEach(b=>b.classList.remove('on'));
+  if(el) el.classList.add('on');
+  const customEl = document.getElementById('fin-custom-range');
+  if(modo==='custom'){
+    if(customEl) customEl.style.display='flex';
+    return; // espera a que toquen "Aplicar"
+  }
+  if(customEl) customEl.style.display='none';
+  const r = finRangoFechas(modo);
+  FIN_RANGO = { modo, desde:r.desde, hasta:r.hasta };
   renderFinanzas();
 }
 
-function renderFinanzas(){
-  const now = new Date();
-  let cutoff;
-  if(finPeriodo === 'mes'){
-    cutoff = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-    document.getElementById('fin-periodo-label').textContent = now.toLocaleDateString('es-AR',{month:'long',year:'numeric'}).toUpperCase();
-  } else if(finPeriodo === 'semana'){
-    cutoff = new Date(Date.now()-7*86400000).toISOString().split('T')[0];
-    document.getElementById('fin-periodo-label').textContent = 'ÚLTIMOS 7 DÍAS';
-  } else {
-    cutoff = '2000-01-01';
-    document.getElementById('fin-periodo-label').textContent = 'TODO EL TIEMPO';
-  }
+function aplicarFinCustom(){
+  const d = document.getElementById('fin-desde')?.value;
+  const h = document.getElementById('fin-hasta')?.value;
+  if(!d || !h){ showToast('Elegí ambas fechas','err'); return; }
+  if(d > h){ showToast('"Desde" no puede ser posterior a "Hasta"','err'); return; }
+  FIN_RANGO = { modo:'custom', desde:d, hasta:h };
+  renderFinanzas();
+}
 
-  // Ventas filtradas
-  const ventasFilt = finPeriodo==='todo' ? sales : sales.filter(s=>s.fecha>=cutoff);
-  const totalIngresos = ventasFilt.reduce((s,v)=>s+(v.total||0),0);
-  const countVentas = ventasFilt.length;
-  const ticketProm = countVentas ? Math.round(totalIngresos/countVentas) : 0;
+function toggleFinComparar(el){
+  FIN_COMPARAR = !FIN_COMPARAR;
+  if(el) el.classList.toggle('on', FIN_COMPARAR);
+  renderFinanzas();
+}
 
-  // Costo real de productos vendidos (usando costo de cada producto)
-  let costoVentas = 0;
-  let gananciaVentas = 0;
-  let ventasConCosto = 0;
-  ventasFilt.forEach(v => {
-    const items = typeof v.items === 'string' ? JSON.parse(v.items||'[]') : (v.items||[]);
-    items.forEach(item => {
-      const prod = prods.find(p => p.id === item.id || p.nombre === item.nombre);
-      const costo = prod?.costo || 0;
-      const cantidad = item.cantidad || 1;
-      const precioVenta = (item.precio || 0) * cantidad;
-      const costoTotal = costo * cantidad;
-      costoVentas += costoTotal;
-      gananciaVentas += precioVenta - costoTotal;
-      if(costo > 0) ventasConCosto++;
+// Costo y ganancia bruta de un conjunto de ventas ya filtradas — misma
+// lógica que ya usaba Finanzas, solo extraída a helper para reutilizarla
+// en el período actual Y en el anterior sin duplicar código.
+function _finCostoYGanancia(ventasFilt){
+  let costo=0, ganancia=0, tieneCosto=false;
+  ventasFilt.forEach(v=>{
+    const items = typeof v.items==='string' ? JSON.parse(v.items||'[]') : (v.items||[]);
+    items.forEach(item=>{
+      const prod = prods.find(p=>p.id===item.id || p.nombre===item.nombre);
+      const c = prod?.costo || 0;
+      const cant = item.cantidad || 1;
+      const precioVenta = (item.precio||0)*cant;
+      costo += c*cant;
+      ganancia += precioVenta - c*cant;
+      if(c>0) tieneCosto=true;
     });
   });
+  return {costo, ganancia, tieneCosto};
+}
 
-  // Compras filtradas (egresos de reposición de stock) — excluye traspasos
-  // internos: no hubo plata real que salió de la empresa por esa mercadería.
-  const comprasFilt = (finPeriodo==='todo' ? compras : compras.filter(c=>c.fecha>=cutoff)).filter(c=>!c.anulada && !c.es_traspaso_interno);
-  const totalCompras = comprasFilt.reduce((s,c)=>s+(c.precio_unitario||0)*(c.cantidad||0),0);
+// Dinero que efectivamente ENTRÓ en el período: ventas cobradas (soporta
+// pago dividido vía _debitosVenta, ya usado por el motor contable) más
+// cobros de deudas de clientes/consumo personal. Excluye a propósito la
+// parte de cada venta que quedó en Cuenta Corriente: eso es Resultado
+// (ya vendiste), no Caja (todavía no cobraste).
+function _finCobrosCaja(ventasFilt, pagosDeudaFilt){
+  let cobros=0;
+  ventasFilt.forEach(v=>{
+    _debitosVenta(v).forEach(d=>{ if(d.metodo!=='Cuenta Corriente') cobros += (d.importe||0); });
+  });
+  pagosDeudaFilt.forEach(p=>{
+    const deuda=(deudas||[]).find(x=>x.id===p.deuda_id);
+    const tipo = deuda?.tipo || 'cliente';
+    if(tipo!=='proveedor' && tipo!=='gasto') cobros += (p.monto_abonado||0);
+  });
+  return cobros;
+}
+
+// Dinero que efectivamente SALIÓ: compras de mercadería pagadas al
+// contado (forma_pago ≠ Cuenta Corriente — las que quedaron a crédito con
+// el proveedor no son salida de caja todavía), gastos pagados directo
+// (medio_pago ≠ Cuenta Corriente), y pagos de deudas a proveedores/gastos.
+function _finEgresosCaja(comprasFilt, gastosFilt, pagosDeudaFilt){
+  let egresos=0;
+  comprasFilt.forEach(c=>{ if((c.forma_pago||'')!=='Cuenta Corriente') egresos += (c.precio_unitario||0)*(c.cantidad||0); });
+  gastosFilt.forEach(g=>{ if((g.medio_pago||'')!=='Cuenta Corriente') egresos += (g.monto||0); });
+  pagosDeudaFilt.forEach(p=>{
+    const deuda=(deudas||[]).find(x=>x.id===p.deuda_id);
+    const tipo = deuda?.tipo || 'cliente';
+    if(tipo==='proveedor' || tipo==='gasto') egresos += (p.monto_abonado||0);
+  });
+  return egresos;
+}
+
+// Cálculo puro de todos los indicadores de un rango — no toca el DOM. Se
+// llama dos veces (período actual y anterior) para la comparación, así
+// la lógica de negocio vive en un solo lugar.
+function finCalcularPeriodo(desde, hasta){
+  const ventasFilt = sales.filter(s=>s.fecha>=desde && s.fecha<=hasta);
+  const comprasFilt = compras.filter(c=>c.fecha>=desde && c.fecha<=hasta && !c.anulada && !c.es_traspaso_interno);
+  const gastosFilt = gastos.filter(g=>g.fecha>=desde && g.fecha<=hasta);
+  const pagosDeudaFilt = (pagosDeuda||[]).filter(p=>p.fecha>=desde && p.fecha<=hasta);
+
+  const ventasTotal = ventasFilt.reduce((s,v)=>s+(v.total||0),0);
+  const countVentas = ventasFilt.length;
+  const ticketProm = countVentas ? ventasTotal/countVentas : 0;
+
+  const {costo:costoMercaderia, ganancia:gananciaBruta, tieneCosto} = _finCostoYGanancia(ventasFilt);
+  const margenBruto = ventasTotal ? (gananciaBruta/ventasTotal*100) : 0;
+
+  const gastosTotal = gastosFilt.reduce((s,g)=>s+(g.monto||0),0);
+  const gananciaNeta = gananciaBruta - gastosTotal;
+  const margenNeto = ventasTotal ? (gananciaNeta/ventasTotal*100) : 0;
+
+  const comprasTotal = comprasFilt.reduce((s,c)=>s+(c.precio_unitario||0)*(c.cantidad||0),0);
   const countCompras = comprasFilt.length;
 
-  // Egresos totales = costo de lo vendido + compras de reposición
-  const totalEgresos = costoVentas + totalCompras;
+  const cobros = _finCobrosCaja(ventasFilt, pagosDeudaFilt);
+  const egresosCaja = _finEgresosCaja(comprasFilt, gastosFilt, pagosDeudaFilt);
+  const movimientoCaja = cobros - egresosCaja;
 
-  // Gastos eventuales del período
-  const gastosFilt = finPeriodo==='todo' ? gastos : gastos.filter(g => g.fecha >= cutoff);
-  const totalGastos = gastosFilt.reduce((s,g) => s+(g.monto||0), 0);
+  return {
+    desde, hasta, ventasFilt, comprasFilt, gastosFilt, pagosDeudaFilt,
+    ventasTotal, countVentas, ticketProm,
+    costoMercaderia, gananciaBruta, margenBruto, tieneCosto,
+    gastosTotal, gananciaNeta, margenNeto,
+    comprasTotal, countCompras,
+    cobros, egresosCaja, movimientoCaja,
+  };
+}
 
-  // Deudas pendientes
-  // Solo lo que te deben A VOS (clientes/consumo personal) — no lo que vos
-  // le debés a proveedores/gastos, que es plata que sale, no que entra.
-  // Mismo criterio que ya usa checkAlertaFacturasPendientes/Deudores.
+// Variación % entre dos valores, con manejo explícito de "período anterior
+// en cero" (no divide por cero, no muestra NaN/Infinity). invertido=true
+// para métricas donde bajar es la mejora (ej. Gastos).
+function _finDeltaHTML(actual, anterior, invertido){
+  if(!anterior){
+    if(!actual) return '<span style="color:var(--muted)">⚪ sin cambios</span>';
+    return `<span style="color:${invertido?'#c94040':'#1a5c38'}">${invertido?'⚠️':'🟢'} nuevo</span>`;
+  }
+  const pct = (actual-anterior)/Math.abs(anterior)*100;
+  let color, icon;
+  if(Math.abs(pct) < 0.05){ color='var(--muted)'; icon='⚪'; }
+  else if(pct > 0){ color = invertido?'#c94040':'#1a5c38'; icon = invertido?'🔴':'🟢'; }
+  else { color = invertido?'#1a5c38':'#c94040'; icon = invertido?'🟢':'🔴'; }
+  const signo = pct>0?'+':'';
+  return `<span style="color:${color}">${icon} ${signo}${pct.toFixed(1)}%</span>`;
+}
+
+function renderFinanzas(){
+  if(!FIN_RANGO.desde || !FIN_RANGO.hasta){
+    const r0 = finRangoFechas(FIN_RANGO.modo || 'mes');
+    FIN_RANGO = { modo: FIN_RANGO.modo||'mes', desde:r0.desde, hasta:r0.hasta };
+  }
+  const { desde, hasta } = FIN_RANGO;
+  const labelPeriodo = FIN_RANGO.modo==='custom'
+    ? `${desde.split('-').reverse().join('/')} — ${hasta.split('-').reverse().join('/')}`
+    : finRangoFechas(FIN_RANGO.modo).label;
+  document.getElementById('fin-periodo-label').textContent = labelPeriodo;
+
+  const P = finCalcularPeriodo(desde, hasta);
+  let ANT = null;
+  if(FIN_COMPARAR && FIN_RANGO.modo !== 'todo'){
+    const rAnt = finRangoAnterior(desde, hasta);
+    ANT = finCalcularPeriodo(rAnt.desde, rAnt.hasta);
+  }
+
+  // Deudas pendientes: foto de HOY (saldo, no un movimiento del rango).
   const deudasPend = deudas.filter(d=>d.estado!=='pagado' && d.tipo!=='proveedor' && d.tipo!=='gasto');
   const totalDeudas = deudasPend.reduce((s,d)=>s+(d.monto||0),0);
+  // Si hay costo cargado en ALGÚN producto del catálogo (no solo en los
+  // vendidos este período) — controla el aviso general, no el margen.
+  const tieneCostoGlobal = prods.some(p=>p.costo>0);
 
-  // Balance y margen reales
-  const balance = gananciaVentas - totalCompras - totalGastos;
-  const margen = totalIngresos ? Math.round(gananciaVentas/totalIngresos*100) : 0;
-  const tieneCosto = prods.some(p => p.costo > 0);
-
-  // Update UI
+  // ── Hero: ganancia neta del período ──
   const balEl = document.getElementById('fin-balance');
-  balEl.textContent = `$${balance.toLocaleString('es-AR')}`;
-  balEl.style.color = balance >= 0 ? '#6fcf97' : '#eb5757';
-  document.getElementById('fin-balance-label').textContent = balance >= 0 ? '✅ Ganancia neta' : '⚠️ Pérdida neta';
-  document.getElementById('fin-ingresos').textContent = `$${totalIngresos.toLocaleString('es-AR')}`;
-  document.getElementById('fin-egresos').textContent = `$${costoVentas.toLocaleString('es-AR')}`;
-  document.getElementById('fin-margen').textContent = tieneCosto ? `${margen}%` : '—';
-  document.getElementById('fin-ventas-total').textContent = `$${totalIngresos.toLocaleString('es-AR')}`;
-  document.getElementById('fin-ventas-count').textContent = `${countVentas} transacciones`;
-  document.getElementById('fin-ticket-prom').textContent = `$${ticketProm.toLocaleString('es-AR')}`;
-  document.getElementById('fin-compras-total').textContent = `$${totalCompras.toLocaleString('es-AR')}`;
-  document.getElementById('fin-compras-count').textContent = `${countCompras} compras registradas`;
+  balEl.textContent = `$${Math.round(P.gananciaNeta).toLocaleString('es-AR')}`;
+  balEl.style.color = P.gananciaNeta >= 0 ? '#6fcf97' : '#eb5757';
+  document.getElementById('fin-balance-label').textContent = P.gananciaNeta >= 0 ? '✅ Ganancia neta' : '⚠️ Pérdida neta';
+  document.getElementById('fin-ingresos').textContent = `$${Math.round(P.ventasTotal).toLocaleString('es-AR')}`;
+  document.getElementById('fin-egresos').textContent = `$${Math.round(P.costoMercaderia+P.gastosTotal).toLocaleString('es-AR')}`;
+  document.getElementById('fin-margen').textContent = P.tieneCosto ? `${P.margenNeto.toFixed(1)}%` : '—';
+
+  const deltaEl = document.getElementById('fin-balance-delta');
+  if(deltaEl){
+    if(ANT){ deltaEl.style.display='block'; deltaEl.innerHTML = 'vs período anterior: ' + _finDeltaHTML(P.gananciaNeta, ANT.gananciaNeta, false); }
+    else deltaEl.style.display='none';
+  }
+
+  document.getElementById('fin-ventas-total').textContent = `$${Math.round(P.ventasTotal).toLocaleString('es-AR')}`;
+  document.getElementById('fin-ventas-count').textContent = `${P.countVentas} transacciones`;
+  document.getElementById('fin-ticket-prom').textContent = `$${Math.round(P.ticketProm).toLocaleString('es-AR')}`;
+  document.getElementById('fin-compras-total').textContent = `$${Math.round(P.comprasTotal).toLocaleString('es-AR')}`;
+  document.getElementById('fin-compras-count').textContent = `${P.countCompras} compras registradas`;
+  document.getElementById('fin-deudas-total').textContent = `$${totalDeudas.toLocaleString('es-AR')}`;
+  document.getElementById('fin-deudas-count').textContent = `${deudasPend.length} sin cobrar`;
+
+  const ventasDeltaEl = document.getElementById('fin-ventas-delta');
+  if(ventasDeltaEl) ventasDeltaEl.innerHTML = ANT ? ('Ventas: '+_finDeltaHTML(P.ventasTotal, ANT.ventasTotal, false)) : '';
+  const opsDeltaEl = document.getElementById('fin-operaciones-delta');
+  if(opsDeltaEl) opsDeltaEl.innerHTML = ANT ? ('Operaciones: '+_finDeltaHTML(P.countVentas, ANT.countVentas, false)) : '';
+  const ticketDeltaEl = document.getElementById('fin-ticket-delta');
+  if(ticketDeltaEl) ticketDeltaEl.innerHTML = ANT ? _finDeltaHTML(P.ticketProm, ANT.ticketProm, false) : '';
 
   // Aviso si los productos no tienen costo cargado
   const avisoEl = document.getElementById('fin-aviso-costo');
-  if(avisoEl) {
-    if(!tieneCosto) {
+  if(avisoEl){
+    if(!tieneCostoGlobal){
       avisoEl.style.display = 'flex';
       avisoEl.innerHTML = `<span style="font-size:16px">⚠️</span><div><div style="font-weight:600;font-size:13px">Los productos no tienen costo cargado</div><div style="font-size:11px;color:#92400e;margin-top:2px">Andá a Stock → editá cada producto → ingresá el costo de compra para ver la ganancia real.</div></div>`;
     } else {
@@ -13077,39 +13265,70 @@ function renderFinanzas(){
     }
   }
 
-  // Panel ganancia real
+  // ── RESULTADO (devengado): lo que ganaste, no lo que cobraste ──
   const ganEl = document.getElementById('fin-ganancia-real');
-  if(ganEl) {
+  if(ganEl){
     ganEl.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div style="font-size:13px;font-weight:600">Ganancia real del período</div>
-        <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:${gananciaVentas>=0?'#1a5c38':'#c94040'}">$${gananciaVentas.toLocaleString('es-AR')}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-size:13px;font-weight:700">📊 Resultado del período</div>
+        <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:${P.gananciaNeta>=0?'#1a5c38':'#c94040'}">$${Math.round(P.gananciaNeta).toLocaleString('es-AR')}</div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-        <div style="background:#f8f8f8;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Ingresos</div>
-          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#1a5c38">$${totalIngresos.toLocaleString('es-AR')}</div>
+      <div style="font-size:10.5px;color:#999;margin-bottom:10px">Ventas − costo de mercadería − gastos. No es dinero en caja, es lo que ganaste.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div style="background:#f8f8f8;border-radius:8px;padding:10px">
+          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Ventas</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#1a5c38">$${Math.round(P.ventasTotal).toLocaleString('es-AR')}</div>
+          ${ANT?`<div style="font-size:9.5px;margin-top:2px">${_finDeltaHTML(P.ventasTotal,ANT.ventasTotal,false)}</div>`:''}
         </div>
-        <div style="background:#f8f8f8;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Costo vendido</div>
-          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#c94040">$${costoVentas.toLocaleString('es-AR')}</div>
+        <div style="background:#f8f8f8;border-radius:8px;padding:10px">
+          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Costo mercadería</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#c94040">$${Math.round(P.costoMercaderia).toLocaleString('es-AR')}</div>
         </div>
-        <div style="background:${margen>=30?'#eaf5ee':margen>=10?'#fff8e1':'#fdeaea'};border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Margen</div>
-          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:${margen>=30?'#1a5c38':margen>=10?'#e65100':'#c94040'}">${tieneCosto?margen+'%':'Sin costo'}</div>
+        <div style="background:${P.margenBruto>=30?'#eaf5ee':P.margenBruto>=10?'#fff8e1':'#fdeaea'};border-radius:8px;padding:10px">
+          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Ganancia bruta</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:${P.margenBruto>=30?'#1a5c38':P.margenBruto>=10?'#e65100':'#c94040'}">${P.tieneCosto?'$'+Math.round(P.gananciaBruta).toLocaleString('es-AR'):'Sin costo'}</div>
+          <div style="font-size:9.5px;color:#999;margin-top:2px">${P.tieneCosto?P.margenBruto.toFixed(1)+'% margen':''}</div>
+          ${ANT&&P.tieneCosto?`<div style="font-size:9.5px;margin-top:2px">${_finDeltaHTML(P.gananciaBruta,ANT.gananciaBruta,false)}</div>`:''}
+        </div>
+        <div style="background:#f8f8f8;border-radius:8px;padding:10px">
+          <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Gastos</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#c94040">$${Math.round(P.gastosTotal).toLocaleString('es-AR')}</div>
+          ${ANT?`<div style="font-size:9.5px;margin-top:2px">${_finDeltaHTML(P.gastosTotal,ANT.gastosTotal,true)}</div>`:''}
         </div>
       </div>`;
   }
-  document.getElementById('fin-deudas-total').textContent = `$${totalDeudas.toLocaleString('es-AR')}`;
-  document.getElementById('fin-deudas-count').textContent = `${deudasPend.length} sin cobrar`;
 
-  // Métodos de pago
+  // ── FLUJO DE CAJA: lo que realmente entró y salió del cajón/banco ──
+  const flujoEl = document.getElementById('fin-flujo-caja');
+  if(flujoEl){
+    flujoEl.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-size:13px;font-weight:700">💵 Flujo de caja del período</div>
+        <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:${P.movimientoCaja>=0?'#1a5c38':'#c94040'}">$${Math.round(P.movimientoCaja).toLocaleString('es-AR')}</div>
+      </div>
+      <div style="font-size:10.5px;color:#999;margin-bottom:10px">Cobros − egresos de caja. No incluye ventas a Cta.Cte. todavía sin cobrar.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div style="background:#eaf5ee;border-radius:8px;padding:10px">
+          <div style="font-size:10px;color:#1a5c38;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Cobros</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#1a5c38">$${Math.round(P.cobros).toLocaleString('es-AR')}</div>
+          ${ANT?`<div style="font-size:9.5px;margin-top:2px">${_finDeltaHTML(P.cobros,ANT.cobros,false)}</div>`:''}
+        </div>
+        <div style="background:#fdeaea;border-radius:8px;padding:10px">
+          <div style="font-size:10px;color:#c94040;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Egresos de caja</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:#c94040">$${Math.round(P.egresosCaja).toLocaleString('es-AR')}</div>
+        </div>
+      </div>`;
+  }
+
+  // Métodos de pago — split-aware vía _debitosVenta, respeta el rango elegido
   const byM = {};
-  ventasFilt.forEach(s=>{ if(s.metodo_pago) byM[s.metodo_pago]=(byM[s.metodo_pago]||0)+(s.total||0); });
+  P.ventasFilt.forEach(v=>{
+    _debitosVenta(v).forEach(d=>{ byM[d.metodo] = (byM[d.metodo]||0) + (d.importe||0); });
+  });
   const metEl = document.getElementById('fin-metodos');
-  const metIcos = {Efectivo:'💵',Transferencia:'🏦',Tarjeta:'💳'};
+  const metIcos = {Efectivo:'💵',Transferencia:'🏦',Tarjeta:'💳',MercadoPago:'🔵','Cuenta Corriente':'📒'};
   metEl.innerHTML = Object.entries(byM).sort((a,b)=>b[1]-a[1]).map(([m,t])=>{
-    const pct = totalIngresos ? Math.round(t/totalIngresos*100) : 0;
+    const pct = P.ventasTotal ? Math.round(t/P.ventasTotal*100) : 0;
     return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(18,16,14,.06)">
       <span style="font-size:18px">${metIcos[m]||'💰'}</span>
       <div style="flex:1">
@@ -13117,15 +13336,15 @@ function renderFinanzas(){
         <div style="height:5px;background:var(--cream);border-radius:3px"><div style="height:5px;border-radius:3px;background:var(--pine);width:${pct}%"></div></div>
       </div>
       <div style="text-align:right">
-        <div style="font-family:DM Mono,monospace;font-size:12px;font-weight:600">$${t.toLocaleString('es-AR')}</div>
+        <div style="font-family:DM Mono,monospace;font-size:12px;font-weight:600">$${Math.round(t).toLocaleString('es-AR')}</div>
         <div style="font-size:10px;color:var(--muted)">${pct}%</div>
       </div>
     </div>`;
   }).join('') || '<div class="empty" style="padding:12px 0">Sin ventas en este período</div>';
 
-  // Top productos
+  // Top productos (misma lógica de siempre, ahora sobre el rango elegido)
   const ps = {};
-  ventasFilt.forEach(s=>{
+  P.ventasFilt.forEach(s=>{
     const items = typeof s.items==='string'?JSON.parse(s.items||'[]'):s.items||[];
     items.forEach(i=>{ if(!ps[i.nombre])ps[i.nombre]={qty:0,total:0,em:i.emoji||'📦'}; ps[i.nombre].qty+=i.cantidad; ps[i.nombre].total+=(i.subtotal||i.precio*i.cantidad); });
   });
@@ -13145,20 +13364,30 @@ function renderFinanzas(){
       </div>
     </div>`).join('') : '<div class="empty" style="padding:12px 0">Sin ventas en este período</div>';
 
-  // Chart últimos 7 días
-  const days = 7;
-  const dayData = Array(days).fill(0);
-  const dayLabels = [];
-  for(let i=0;i<days;i++){
-    const d = new Date(Date.now()-(days-1-i)*86400000);
-    dayLabels.push(d.toLocaleDateString('es-AR',{weekday:'short'}).slice(0,2).toUpperCase());
-    const dStr = d.toISOString().split('T')[0];
-    dayData[i] = sales.filter(s=>s.fecha===dStr).reduce((s,v)=>s+(v.total||0),0);
+  // Evolución dentro del rango elegido: día a día si son ≤31 días,
+  // agrupado por semana si el rango es más largo (para que no se amontone).
+  const diasRango = Math.round((_finParseFecha(hasta)-_finParseFecha(desde))/86400000)+1;
+  let dayLabels = [], dayData = [];
+  if(diasRango <= 31){
+    for(let i=0;i<diasRango;i++){
+      const dStr = _finSumarDias(desde, i);
+      const d = _finParseFecha(dStr);
+      dayLabels.push(d.toLocaleDateString('es-AR',{weekday:'short'}).slice(0,2).toUpperCase());
+      dayData.push(P.ventasFilt.filter(s=>s.fecha===dStr).reduce((s,v)=>s+(v.total||0),0));
+    }
+  } else {
+    let cursor = desde;
+    while(cursor <= hasta){
+      const finSemana = _finSumarDias(cursor,6) > hasta ? hasta : _finSumarDias(cursor,6);
+      dayLabels.push(cursor.slice(8,10)+'/'+cursor.slice(5,7));
+      dayData.push(P.ventasFilt.filter(s=>s.fecha>=cursor && s.fecha<=finSemana).reduce((s,v)=>s+(v.total||0),0));
+      cursor = _finSumarDias(finSemana,1);
+    }
   }
   const maxD = Math.max(...dayData,1);
   document.getElementById('fin-chart').innerHTML = dayData.map((v,i)=>{
     const h = Math.round(v/maxD*100);
-    const isT = i===days-1;
+    const isT = i===dayData.length-1;
     return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
       <div style="width:100%;border-radius:3px 3px 0 0;min-height:3px;height:${Math.max(h,3)}%;background:${isT?'var(--rust)':v>0?'var(--pine)':'var(--cream)'}"></div>
     </div>`;
@@ -13166,14 +13395,14 @@ function renderFinanzas(){
   document.getElementById('fin-chart-labels').innerHTML = dayLabels.map(l=>`<span>${l}</span>`).join('');
 
   // Resumen textual
-  const dias = finPeriodo==='mes'?new Date().getDate():finPeriodo==='semana'?7:365;
-  const promDia = dias ? Math.round(totalIngresos/dias) : 0;
+  const promDia = diasRango ? P.ventasTotal/diasRango : 0;
+  const metodoTop = Object.entries(byM).sort((a,b)=>b[1]-a[1])[0];
   document.getElementById('fin-resumen').innerHTML = `
-    En este período registraste <strong>${countVentas} ventas</strong> por un total de <strong>$${totalIngresos.toLocaleString('es-AR')}</strong>.<br>
-    Tus compras y egresos fueron de <strong>$${totalEgresos.toLocaleString('es-AR')}</strong>, dejando una <strong>${balance>=0?'ganancia':'pérdida'} neta de $${Math.abs(balance).toLocaleString('es-AR')}</strong>.<br>
+    En este período registraste <strong>${P.countVentas} ventas</strong> por un total de <strong>$${Math.round(P.ventasTotal).toLocaleString('es-AR')}</strong>.<br>
+    El costo de la mercadería vendida fue <strong>$${Math.round(P.costoMercaderia).toLocaleString('es-AR')}</strong> y los gastos <strong>$${Math.round(P.gastosTotal).toLocaleString('es-AR')}</strong>, dejando una <strong>${P.gananciaNeta>=0?'ganancia':'pérdida'} neta de $${Math.abs(Math.round(P.gananciaNeta)).toLocaleString('es-AR')}</strong>.<br>
     ${totalDeudas>0?`Tenés <strong>$${totalDeudas.toLocaleString('es-AR')} pendientes de cobro</strong> en deudas.<br>`:''}
-    Tu método de pago más usado fue <strong>${Object.entries(byM).sort((a,b)=>b[1]-a[1])[0]?.[0]||'—'}</strong> con ${Object.entries(byM).sort((a,b)=>b[1]-a[1])[0]?Math.round(Object.entries(byM).sort((a,b)=>b[1]-a[1])[0][1]/totalIngresos*100):0}% del total.<br>
-    Promedio diario de ingresos: <strong>$${promDia.toLocaleString('es-AR')}</strong>.
+    Tu método de pago más usado fue <strong>${metodoTop?.[0]||'—'}</strong> con ${metodoTop&&P.ventasTotal?Math.round(metodoTop[1]/P.ventasTotal*100):0}% del total.<br>
+    Promedio diario de ventas: <strong>$${Math.round(promDia).toLocaleString('es-AR')}</strong>.
   `;
 }
 
