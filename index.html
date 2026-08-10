@@ -2934,6 +2934,24 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<!-- MODAL EDITAR CONCEPTO DE MINUTA -->
+<div class="overlay" id="ov-editar-concepto-minuta">
+  <div class="modal" style="position:relative">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-editar-concepto-minuta')">✕</button>
+    <div class="modal-title">✏️ Corregir concepto</div>
+    <div id="ecm-resumen" style="font-size:12.5px;color:#666;margin-bottom:14px;padding:10px 12px;background:#f8f8f8;border-radius:8px"></div>
+    <div class="fgroup"><div class="flabel">Concepto correcto</div>
+      <select id="ecm-concepto" class="inp" onchange="onEcmConceptoChange()"></select>
+    </div>
+    <div class="fgroup" id="ecm-otra-wrap" style="display:none"><div class="flabel">Cuenta del plan</div>
+      <select id="ecm-otra-cuenta" class="inp"></select>
+    </div>
+    <input type="hidden" id="ecm-minuta-id">
+    <button class="btn btn-ink btn-full" onclick="guardarEditarConceptoMinuta()">Guardar corrección</button>
+  </div>
+</div>
+
 <!-- MODAL NUEVA TIENDA (ADMIN) -->
 <div class="overlay" id="ov-nueva-tienda">
   <div class="modal" style="position:relative">
@@ -4155,12 +4173,10 @@ function _ctaFondosARendir(){
   return {cod, nombre};
 }
 
-function _populateMinutaConceptos(){
-  const sel = document.getElementById('min-concepto');
-  if(!sel) return;
+function _opcionesConceptoMinuta(tipo){
   const fr = _ctaFondosARendir();
   let opts;
-  if(minutaTipo==='E'){
+  if(tipo==='E'){
     opts = [`<option value="${fr.cod}">💰 ${fr.nombre} (retiro de caja para rendir)</option>`]
       .concat(Object.entries(GASTO_CUENTA||{}).map(([k,v])=>`<option value="${v}">${k}</option>`));
   } else {
@@ -4169,7 +4185,13 @@ function _populateMinutaConceptos(){
       `<option value="${fr.cod}">💰 Devolución de ${fr.nombre}</option>`,
     ];
   }
-  sel.innerHTML = opts.join('') + '<option value="__otra__">— Otra cuenta del plan —</option>';
+  return opts.join('') + '<option value="__otra__">— Otra cuenta del plan —</option>';
+}
+
+function _populateMinutaConceptos(){
+  const sel = document.getElementById('min-concepto');
+  if(!sel) return;
+  sel.innerHTML = _opcionesConceptoMinuta(minutaTipo);
   onMinutaConceptoChange();
 }
 
@@ -4255,6 +4277,7 @@ function renderMinutas(){
         <div style="font-size:14px;font-weight:700;color:${esE?'#c0392b':'#1a5c38'}">${esE?'-':'+'}$${(m.monto||0).toLocaleString('es-AR')}</div>
         <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end">
           <button onclick="exportarMinutaPDF('${m.id}')" style="padding:4px 10px;border-radius:7px;border:1px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:11px;cursor:pointer">📄 PDF</button>
+          <button onclick="abrirEditarConceptoMinuta('${m.id}')" style="padding:4px 10px;border-radius:7px;border:1px solid #8a5a1a;background:#fdf5ea;color:#8a5a1a;font-size:11px;cursor:pointer">✏️</button>
           <button onclick="eliminarMinuta('${m.id}')" style="padding:4px 10px;border-radius:7px;border:1px solid #c0392b;background:#fdeaea;color:#c0392b;font-size:11px;cursor:pointer">🗑️</button>
         </div>
       </div>
@@ -4291,6 +4314,87 @@ async function eliminarMinuta(id) {
   } catch(e) {
     showToast('❌ Error al eliminar: ' + (e?.message || 'desconocido'), 'err');
     console.error('eliminarMinuta error:', e);
+  }
+}
+
+// Corrige el concepto (y su cuenta contable) de una minuta ya cargada — ej.
+// una que se guardó como "Aporte de capital" y en realidad era la
+// devolución de un fondo a rendir. No toca monto/medio/fecha, solo
+// concepto+cuenta_concepto. Como asientoMinuta() arma el asiento en vivo a
+// partir de estos mismos campos, el Mayor y el Balance quedan corregidos
+// solos la próxima vez que se rendericen — no hace falta tocar nada más.
+function abrirEditarConceptoMinuta(id){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden corregir minutas','err'); return; }
+  const m = (minutas||[]).find(x=>x.id===id);
+  if(!m){ showToast('No encontré esa minuta','err'); return; }
+
+  document.getElementById('ecm-minuta-id').value = id;
+  document.getElementById('ecm-resumen').innerHTML =
+    `<b>${esc(m.numero)}</b> · ${m.tipo==='E'?'Egreso':'Ingreso'} · $${(m.monto||0).toLocaleString('es-AR')}<br>
+     ${esc(m.fecha)}${m.detalle?' · '+esc(m.detalle):''}<br>
+     Concepto actual: <b>${esc(m.concepto)}</b>`;
+
+  const sel = document.getElementById('ecm-concepto');
+  sel.innerHTML = _opcionesConceptoMinuta(m.tipo);
+  // Preseleccionar la opción que coincide con la cuenta actual; si la cuenta
+  // actual no está en la lista estándar, usar el modo "otra cuenta".
+  const matchOpt = Array.from(sel.options).find(o => o.value === m.cuenta_concepto);
+  sel.value = matchOpt ? m.cuenta_concepto : '__otra__';
+
+  const oc = document.getElementById('ecm-otra-cuenta');
+  if(oc && !oc.options.length){
+    oc.innerHTML = '<option value="">— Elegí una cuenta —</option>' +
+      PLAN_CUENTAS.slice().sort((a,b)=>(a.orden||0)-(b.orden||0))
+        .map(c=>`<option value="${c.codigo}">${c.codigo} — ${esc(c.nombre)}</option>`).join('');
+  }
+  if(!matchOpt && oc) oc.value = m.cuenta_concepto;
+
+  onEcmConceptoChange();
+  openModal('ov-editar-concepto-minuta');
+}
+
+function onEcmConceptoChange(){
+  const sel = document.getElementById('ecm-concepto');
+  const wrap = document.getElementById('ecm-otra-wrap');
+  if(wrap) wrap.style.display = (sel && sel.value==='__otra__') ? 'block' : 'none';
+}
+
+async function guardarEditarConceptoMinuta(){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden corregir minutas','err'); return; }
+  const id = document.getElementById('ecm-minuta-id').value;
+  const m = (minutas||[]).find(x=>x.id===id);
+  if(!m){ showToast('No encontré esa minuta','err'); return; }
+
+  const sel = document.getElementById('ecm-concepto');
+  let cuenta_concepto, concepto;
+  if(sel.value === '__otra__'){
+    cuenta_concepto = document.getElementById('ecm-otra-cuenta').value;
+    if(!cuenta_concepto){ showToast('Elegí una cuenta del plan','err'); return; }
+    concepto = (PLAN_CUENTAS.find(x=>x.codigo===cuenta_concepto)?.nombre) || cuenta_concepto;
+  } else {
+    cuenta_concepto = sel.value;
+    concepto = sel.options[sel.selectedIndex].text;
+  }
+
+  try{
+    const { data, error } = await SB.from('minutas')
+      .update({ concepto, cuenta_concepto })
+      .eq('id', id)
+      .select();
+    if(error) throw error;
+    if(!data || data.length===0){
+      showToast('❌ No se pudo corregir (permiso denegado por la base) — avisale a Bautista con este mensaje','err');
+      console.error('guardarEditarConceptoMinuta: UPDATE no afectó ninguna fila. id=', id);
+      return;
+    }
+    m.concepto = concepto;
+    m.cuenta_concepto = cuenta_concepto;
+    closeModal('ov-editar-concepto-minuta');
+    renderMinutas();
+    showToast(`✅ ${m.numero} corregida: ahora es "${concepto}"`, 'ok');
+  }catch(e){
+    showToast('❌ Error al corregir: '+(e?.message||'desconocido'), 'err');
+    console.error('guardarEditarConceptoMinuta error:', e);
   }
 }
 
