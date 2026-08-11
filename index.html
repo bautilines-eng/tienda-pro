@@ -3076,9 +3076,20 @@ function exportarCierrePDF(cierreGuardado) {
 
   const ventasDelDia = (sales||[]).filter(v=>v.fecha===fechaCierre)
     .sort((a,b)=>String(a.nro_comprobante||'').localeCompare(String(b.nro_comprobante||'')));
-  // Neto de NC del día (mismo helper que renderCaja y prepararCierre).
+  // Neto de NC del día (mismo helper que renderCaja y prepararCierre) —
+  // se usa para "Desglose por método de pago" y el total cobrado, donde
+  // sí tiene sentido mostrar lo neto.
   const { ef, tr, td, mp, cc } = _ventasNetasDeNC(fechaCierre);
   const totalCobrado = ef+tr+td+mp;
+
+  // Para el ARQUEO, en cambio, se necesita la venta BRUTA en efectivo (sin
+  // netear la NC), porque la reversión de la NC YA aparece como su propia
+  // línea en "Egresos en efectivo del día" (viene de _movimientosCuenta,
+  // que no sabe de neteos). Si acá también se usara el neto, la NC se
+  // restaría dos veces en el desglose visible — el total final daba bien
+  // igual porque se cancelaba por dentro, pero las líneas que se ven no
+  // sumaban lo mismo que el total, y eso es lo que generaba la confusión.
+  const efArqueo = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
 
   const otrosIngresosEf = movsHoy.filter(m=>m.debe>0 && m.origen!=='Venta').sort((a,b)=>b.debe-a.debe);
   const egresosEf = movsHoy.filter(m=>m.haber>0).sort((a,b)=>b.haber-a.haber);
@@ -3204,7 +3215,7 @@ body{touch-action:manipulation}
   <div class="section">
     <div class="section-title">Arqueo de caja</div>
     ${fila('Saldo inicial (antes de hoy)', money(saldoInicial))}
-    ${fila('+ Efectivo vendido hoy', '+'+money(ef))}
+    ${fila('+ Efectivo vendido hoy', '+'+money(efArqueo))}
     ${otrosIngresosEf.length?fila('+ Otras entradas de efectivo hoy', '+'+money(otrosIngresosEf.reduce((s,m)=>s+m.debe,0))):''}
     ${egresosEf.length?fila('− Egresos en efectivo hoy', '-'+money(salidasCaja)):''}
     ${fila('Efectivo esperado en caja', money(saldoAcumuladoFinal), 'style="font-weight:700"')}
