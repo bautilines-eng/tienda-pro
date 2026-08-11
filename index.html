@@ -887,7 +887,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div style="padding:14px 20px 0">
       <div style="display:flex;gap:8px;margin-bottom:0">
         <button class="btn btn-ink btn-full" onclick="abrirAltaProducto()">+ Agregar producto</button>
-        <button onclick="openModal('ov-add-combo')"
+        <button onclick="abrirModalCombo()"
           style="padding:13px 16px;border-radius:10px;border:1.5px solid #1a5ec9;background:#eaf0fd;color:#1a5ec9;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
           🎁 Combo
         </button>
@@ -13665,6 +13665,27 @@ function checkVencimientos() {
 let combos = [];
 let comboItems = [];
 
+// Abre el modal de "Nuevo Combo" y puebla el selector de productos — antes
+// el botón llamaba directo a openModal() sin pasar por acá, así que el
+// <select> se quedaba con la única opción fija del HTML ("Seleccionar...")
+// y nunca se podía elegir nada. Los combos ya creados quedan afuera de la
+// lista (no se puede meter un combo dentro de otro combo).
+function abrirModalCombo(){
+  comboItems = [];
+  document.getElementById('combo-nombre').value = '';
+  document.getElementById('combo-precio').value = '';
+  const qtyEl = document.getElementById('combo-prod-qty'); if(qtyEl) qtyEl.value = '1';
+  const sel = document.getElementById('combo-prod-sel');
+  if(sel){
+    const disponibles = (prods||[]).filter(p => !p.es_combo)
+      .slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+    sel.innerHTML = '<option value="">Seleccionar...</option>' +
+      disponibles.map(p=>`<option value="${p.id}">${esc(p.nombre)}${p.stock!=null?' (stock: '+p.stock+')':''}</option>`).join('');
+  }
+  renderComboItems();
+  openModal('ov-add-combo');
+}
+
 async function loadCombos() {
   try {
     const {data} = await SB.from('combos').select('*').eq('tienda_id', STORE.id);
@@ -13715,17 +13736,25 @@ async function guardarCombo() {
   if(!nombre) { showToast('Ingresá un nombre', 'err'); return; }
   if(!precio || precio <= 0) { showToast('Ingresá el precio del combo', 'err'); return; }
   if(comboItems.length < 2) { showToast('Un combo necesita al menos 2 productos', 'err'); return; }
+  // Costo real del combo = suma de costo×cantidad de cada componente. Antes
+  // el combo se guardaba sin costo, así que Finanzas lo veía con margen
+  // 100% falso en cualquier reporte de rentabilidad por producto.
+  const costoTotal = comboItems.reduce((s,i)=>{
+    const prod = prods.find(p=>p.id===i.id);
+    return s + (prod?.costo||0) * i.cantidad;
+  }, 0);
   try {
     const combo = await sbInsert('combos', {
       tienda_id: STORE.id,
       nombre,
       precio,
+      costo: Math.round(costoTotal*100)/100,
       items: JSON.stringify(comboItems),
       activo: true,
     });
     combos.unshift(combo);
     // Add to products list as virtual product
-    prods.unshift({...combo, id: combo.id, es_combo: true, stock: 999, categoria: 'Combo', barcode: null, codigo_proveedor: null});
+    prods.unshift({...combo, id: combo.id, es_combo: true, stock: 999, costo: combo.costo, categoria: 'Combo', barcode: null, codigo_proveedor: null});
     closeModal('ov-add-combo');
     comboItems = [];
     document.getElementById('combo-nombre').value = '';
@@ -13736,7 +13765,22 @@ async function guardarCombo() {
   } catch(e) { showToast('❌ Error al guardar combo', 'err'); console.error(e); }
 }
 
-// Hook registerSale to discount combo items from stock
+// ⚠️ PENDIENTE — NO RESUELTO TODAVÍA (marcado explícitamente para no
+// perderlo de vista). Esta función NUNCA se llama desde ningún lado del
+// código — un combo vendido hoy NO descuenta stock de sus componentes
+// reales. Además, aunque se llamara, tiene dos problemas más:
+// (1) modifica prod.stock solo en memoria, nunca lo guarda en Supabase
+//     (se pierde al refrescar la página);
+// (2) no pasa por mover_stock_con_kardex, así que no queda auditado en
+//     el Kardex ni protegido contra sobreventa.
+// El motivo por el que no se conectó todavía: procesar_venta_atomica
+// (el RPC que registra la venta) hace mover_stock_con_kardex por cada
+// producto vendido usando su producto_id — pero el "producto" de un
+// combo tiene un id de la tabla combos, no de productos, así que
+// mandarlo tal cual al RPC probablemente rechaza la venta entera antes
+// de llegar a esta función. Falta ver la definición real del RPC (o del
+// tipo_mov válido para un movimiento de stock disparado por venta) para
+// resolverlo bien, sin adivinar sobre una tabla en producción.
 const _origRegisterComboStock = async (venta, sel) => {
   for(const p of sel) {
     if(p.es_combo) {
@@ -13745,9 +13789,7 @@ const _origRegisterComboStock = async (venta, sel) => {
         const prod = prods.find(x => x.id === item.id);
         if(prod) {
           const newStock = Math.max(0, prod.stock - item.cantidad * (qtys[p.id]||1));
-          // Stock via GRN ya maneja mover_stock_con_kardex — este update no debería existir
-// Se mantiene como fallback solo si el RPC falla
-console.warn('KARDEX WARNING: Direct stock update bypassed Kardex for product', prod.id);
+          console.warn('KARDEX WARNING: Direct stock update bypassed Kardex for product', prod.id);
           prod.stock = newStock;
         }
       }
