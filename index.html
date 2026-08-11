@@ -7715,6 +7715,10 @@ function renderSaldoProveedores(filtroNombre) {
                 style="padding:4px 10px;border-radius:6px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:10px;font-weight:600;cursor:pointer">
                 Pagar
               </button>
+              <button onclick="eliminarDeuda('${d.id}')" title="Eliminar esta factura"
+                style="padding:4px 8px;border-radius:6px;border:1.5px solid #c94040;background:#fdeaea;color:#c94040;font-size:10px;cursor:pointer">
+                🗑️
+              </button>
             </div>
           </div>`;
         }).join('')}
@@ -10272,13 +10276,26 @@ async function marcarPagado(id){
 }
 
 async function eliminarDeuda(id){
-  if(!confirm('¿Eliminar esta deuda?')) return;
+  const d = (deudas||[]).find(x=>x.id===id);
+  const detalle = d
+    ? `${d.nombre_cliente||'Sin nombre'} — ${d.descripcion||'sin descripción'} — $${(d.monto||0).toLocaleString('es-AR')}`
+    : 'esta deuda';
+  if(!confirm(`¿Eliminar ${detalle}?\n\nEsta acción no se puede deshacer.`)) return;
   try{
-    await SB.from('deudas').delete().eq('id',id);
+    const { data, error } = await SB.from('deudas').delete().eq('id',id).select();
+    if(error) throw error;
+    if(!data || data.length===0){
+      showToast('❌ No se pudo borrar (permiso denegado por la base) — avisale a Bautista con este mensaje','err');
+      console.error('eliminarDeuda: DELETE no afectó ninguna fila. Posible bloqueo por RLS. id=', id);
+      return;
+    }
     deudas = deudas.filter(x=>x.id!=id);
     renderDeudas();
     showToast('✅ Deuda eliminada','ok');
-  }catch(e){ showToast('❌ Error','err'); }
+  }catch(e){
+    showToast('❌ Error al eliminar: '+(e?.message||'desconocido'),'err');
+    console.error('eliminarDeuda error:', e);
+  }
 }
 
 // ══ PAGOS PARCIALES ══
@@ -10365,6 +10382,20 @@ function togglePagoSplit(){
   const wrap = document.getElementById('pago-split-wrap');
   if(toggle) toggle.classList.toggle('on', pagoSplitActivo);
   if(wrap) wrap.style.display = pagoSplitActivo ? 'block' : 'none';
+
+  // En el pago INDIVIDUAL el monto es libre (podés abonar parcial). Al
+  // activar "dividir en dos métodos" se pasa a pagar el saldo COMPLETO de
+  // esa deuda entre los dos métodos — mismo criterio que "Pagar todo" y
+  // "Pagar seleccionadas", así el split siempre significa lo mismo en
+  // los 3 modos. Si se apaga, vuelve a mostrarse el monto libre editable.
+  const esIndividual = !pagoTotalCliente && !pagoLoteIds;
+  if(esIndividual){
+    const montoWrap = document.getElementById('pago-monto-wrap');
+    const resumen = document.getElementById('pago-total-resumen');
+    if(montoWrap) montoWrap.style.display = pagoSplitActivo ? 'none' : 'block';
+    if(resumen) resumen.style.display = pagoSplitActivo ? 'block' : 'none';
+  }
+
   if(pagoSplitActivo){
     _poblarSelectMedioSiVacio('pago-medio-1');
     _poblarSelectMedioSiVacio('pago-medio-2');
@@ -10401,11 +10432,11 @@ function abrirModalPago(id, nombre, saldo){
   const resumen = document.getElementById('pago-total-resumen');
   if(montoWrap) montoWrap.style.display = 'block';
   if(resumen) resumen.style.display = 'none';
-  // El split de método solo tiene sentido cuando el total a pagar es fijo
-  // (pagar todo / pagar seleccionadas) — acá el monto es libre y editable,
-  // así que no se ofrece dividir para no mezclar dos formas de definir el total.
+  // El split ahora también está disponible en el pago individual (una
+  // sola factura) — ver togglePagoSplit para cómo cambia el monto de
+  // libre/editable a "saldo completo a dividir" al activarlo.
   const splitToggleWrap = document.getElementById('pago-split-toggle-wrap');
-  if(splitToggleWrap) splitToggleWrap.style.display = 'none';
+  if(splitToggleWrap) splitToggleWrap.style.display = 'block';
   _resetPagoSplit();
   document.getElementById('pago-deuda-id').value = id;
   document.getElementById('pago-deuda-nombre').textContent = nombre;
@@ -10619,6 +10650,17 @@ async function _guardarPagoTotalCliente(){
 async function guardarPago(){
   if(pagoLoteIds && pagoLoteIds.length){ return await _guardarPagoLote(pagoLoteIds); }
   if(pagoTotalCliente){ return await _guardarPagoTotalCliente(); }
+  if(pagoSplitActivo){
+    // Pago individual con "dividir en dos métodos": se paga el saldo
+    // COMPLETO de esta única deuda, repartido entre los dos métodos —
+    // reusa el mismo motor que "Pagar todo"/"Pagar seleccionadas" con
+    // una lista de un solo id, en vez de duplicar la lógica de reparto.
+    const idSplit = document.getElementById('pago-deuda-id').value;
+    if(!idSplit){ showToast('❌ No se encontró la deuda','err'); return; }
+    const deudaSplit = (deudas||[]).find(d=>d.id===idSplit);
+    const etq = deudaSplit ? `el pago a ${deudaSplit.nombre_cliente||'esta deuda'}` : undefined;
+    return await _guardarPagoLote([idSplit], etq);
+  }
   const id = document.getElementById('pago-deuda-id').value;
   const monto = parseFloat(document.getElementById('pago-monto').value);
   const nota = document.getElementById('pago-nota').value.trim();
