@@ -10298,24 +10298,34 @@ let pagoLoteIds = null;      // array de ids de deuda cuando el modal está en m
 // null en ambos = pago individual normal
 let pagoSplitActivo = false; // true = el usuario dividió el pago en dos métodos
 let pagoModalTotalActual = 0; // total a pagar del modal abierto — lo usa el split para autocompletar el monto 2
+let pagoEsCobro = true; // true = le estás cobrando a un cliente, false = le estás pagando a un proveedor/gasto
 
-function _opcionesMedioPago(){
+// "Cheque" no es una sola cuenta: si TE pagan con un cheque (cobro a un
+// cliente), es un activo — Valores al Cobro (11302001). Si VOS pagás con
+// un cheque a un proveedor, es un pasivo — Cheques Diferidos (21101003),
+// porque todavía no salió de tu banco. El resto de los métodos no cambia
+// según la dirección.
+function _opcionesMedioPago(esCobro){
   const e  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo'])      || '11101001';
   const t  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Transferencia'])  || '11102006';
   const mp = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['MercadoPago'])    || '11102006';
-  const ch = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cheque'])         || '11302001';
-  return `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option><option value="${ch}">Cheque (Valores al cobro)</option>`;
+  const chCobro = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Cheque'])         || '11302001';
+  const chPago  = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['ChequeDiferido'])  || '21101003';
+  const ch = esCobro ? chCobro : chPago;
+  const chLabel = esCobro ? 'Cheque (Valores al cobro)' : 'Cheque (Cheques diferidos)';
+  return `<option value="${e}">Efectivo (Caja)</option><option value="${t}">Transferencia (Banco)</option><option value="${mp}">MercadoPago</option><option value="${ch}">${chLabel}</option>`;
 }
 
-// Puebla el <select> de medio de pago una sola vez (se reusa en los 3 modos
-// de apertura del modal: individual, "pagar todo" y "pagar seleccionadas").
+// Siempre repuebla (antes solo la primera vez — eso dejaba pegada la
+// cuenta de Cheque de la dirección anterior si abrías el modal para
+// cobrar y después para pagar, o viceversa, en la misma sesión).
 function _poblarMedioPagoSiVacio(){
   const med = document.getElementById('pago-medio');
-  if(med && !med.options.length) med.innerHTML = _opcionesMedioPago();
+  if(med) med.innerHTML = _opcionesMedioPago(pagoEsCobro);
 }
 function _poblarSelectMedioSiVacio(id){
   const sel = document.getElementById(id);
-  if(sel && !sel.options.length) sel.innerHTML = _opcionesMedioPago();
+  if(sel) sel.innerHTML = _opcionesMedioPago(pagoEsCobro);
 }
 
 // Reinicia el bloque de "dividir en dos métodos" a su estado apagado —
@@ -10365,6 +10375,10 @@ function abrirModalPago(id, nombre, saldo){
   pagoTotalCliente = null;
   pagoLoteIds = null;
   pagoModalTotalActual = Number(saldo)||0;
+  // Un pago individual puede ser tanto un cobro (deuda de cliente) como un
+  // pago (deuda de proveedor/gasto) — depende de CUÁL deuda es esta.
+  const deudaRef = (deudas||[]).find(d=>d.id===id);
+  pagoEsCobro = !deudaRef || (deudaRef.tipo!=='proveedor' && deudaRef.tipo!=='gasto');
   const montoWrap = document.getElementById('pago-monto-wrap');
   const resumen = document.getElementById('pago-total-resumen');
   if(montoWrap) montoWrap.style.display = 'block';
@@ -10390,6 +10404,7 @@ function abrirModalPago(id, nombre, saldo){
 // completo, generando su propio pagos_deuda — exactamente lo mismo que
 // pasaría si tocaras "💰" en cada una por separado, una por una. Admite
 // dividir el total entre dos métodos de pago (ver _repartirPagoEnTramos).
+// Siempre es un COBRO (solo se usa para deudas de clientes).
 function abrirModalPagoTotal(nombreCliente){
   const items = deudas.filter(d => d.estado!=='pagado' && d.tipo!=='proveedor' && d.tipo!=='gasto'
     && (d.nombre_cliente||'').trim().toLowerCase() === nombreCliente.trim().toLowerCase());
@@ -10399,6 +10414,7 @@ function abrirModalPagoTotal(nombreCliente){
   pagoTotalCliente = nombreCliente;
   pagoLoteIds = null;
   pagoModalTotalActual = total;
+  pagoEsCobro = true;
   document.getElementById('pago-deuda-id').value = '';
   document.getElementById('pago-deuda-nombre').textContent = `TODAS las deudas de ${nombreCliente} (${items.length})`;
   document.getElementById('pago-saldo').textContent = '$'+total.toLocaleString('es-AR');
@@ -10418,6 +10434,7 @@ function abrirModalPagoTotal(nombreCliente){
 // checkbox cuáles pagar juntas (no necesariamente todas), y opcionalmente
 // dividís ese total entre dos métodos de pago. Lee los checkboxes tildados
 // de ESE proveedor puntual (identificado por provKey) directo del DOM.
+// Siempre es un PAGO (solo se usa desde la pestaña Saldos de proveedores).
 function abrirModalPagoLote(provKey){
   const checks = document.querySelectorAll(`.chk-pago-lote[data-provkey="${provKey}"]:checked`);
   if(!checks.length){ showToast('Seleccioná al menos una factura','err'); return; }
@@ -10429,6 +10446,7 @@ function abrirModalPagoLote(provKey){
   pagoLoteIds = ids;
   pagoTotalCliente = null;
   pagoModalTotalActual = total;
+  pagoEsCobro = false;
   document.getElementById('pago-deuda-id').value = '';
   document.getElementById('pago-deuda-nombre').textContent = `${items.length} factura(s) seleccionada(s) de ${nombreProv}`;
   document.getElementById('pago-saldo').textContent = '$'+total.toLocaleString('es-AR');
