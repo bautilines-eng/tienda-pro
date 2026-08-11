@@ -3053,50 +3053,67 @@ let stockFilter='all', histFilter='all';
 // ══════════════════════════════════
 function exportarCierrePDF(cierreGuardado) {
   // Acepta un cierre ya guardado (desde "Cierres anteriores") o, si no se
-  // pasa nada, usa window._cierreData (el preview antes de confirmar,
-  // comportamiento original de este botón dentro del modal de cierre).
+  // pasa nada, usa window._cierreData (el preview antes de confirmar).
   const d = cierreGuardado || window._cierreData;
   if (!d) { showToast('⚠️ Primero generá el cierre', 'err'); return; }
   const tienda = STORE?.nombre || 'Tienda Pro';
   const fechaCierre = d.fecha;
   const fecha = new Date(fechaCierre + 'T12:00:00').toLocaleDateString('es-AR', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
-  // Todo se recalcula en vivo desde las tablas crudas (mismo motor que el
-  // Mayor: _movimientosCuenta) usando fechaCierre como ancla — así el
-  // impreso es preciso incluso reimprimiendo un cierre viejo, y no depende
-  // de un snapshot que puede haber quedado desactualizado (ej. si después
-  // se cargó una NC contra una venta de ese día).
-  const ctaEf = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
-  const movsAntes = _movimientosCuenta(ctaEf, f => !!f && f < fechaCierre);
-  const saldoInicial = movsAntes.reduce((s,m)=>s+(m.debe||0)-(m.haber||0), 0);
-  const movsHoy = _movimientosCuenta(ctaEf, f => f === fechaCierre);
-  const entradasCaja = movsHoy.reduce((s,m)=>s+(m.debe||0),0);
-  const salidasCaja  = movsHoy.reduce((s,m)=>s+(m.haber||0),0);
-  const saldoAcumuladoFinal = saldoInicial + entradasCaja - salidasCaja;
+  // A partir de esta versión, el arqueo queda CONGELADO en el momento de
+  // cerrar (ver prepararCierre → _calcularArqueoDia) y acá simplemente se
+  // lee tal cual quedó guardado — nunca más se recalcula, así que cargar
+  // algo con fecha pasada después NO le cambia un solo número a un cierre
+  // ya confirmado (pedido explícito de Bautista, 11/08).
+  //
+  // Los cierres guardados ANTES de esta actualización no tienen este
+  // detalle congelado (columnas nuevas = null) — para esos, como
+  // excepción, se recalcula en vivo con el motor de siempre, porque no
+  // hay otra forma de reconstruirlos retroactivamente.
+  const tieneCongelado = d.efectivo_esperado != null && d.saldo_inicial != null;
 
-  const ventasDelDia = (sales||[]).filter(v=>v.fecha===fechaCierre)
-    .sort((a,b)=>String(a.nro_comprobante||'').localeCompare(String(b.nro_comprobante||'')));
+  let saldoInicial, saldoAcumuladoFinal, efArqueo, salidasCaja, ventasDelDia, egresosEf, otrosIngresosEf;
+
+  if (tieneCongelado) {
+    saldoInicial = d.saldo_inicial;
+    saldoAcumuladoFinal = d.efectivo_esperado;
+    efArqueo = d.efectivo_vendido_bruto || 0;
+    salidasCaja = d.salidas_efectivo_dia || 0;
+    ventasDelDia = (d.ventas_detalle || []).map(v => ({
+      comprobante: v.comprobante, cliente: v.cliente, metodo: v.metodo, total: v.total,
+    }));
+    egresosEf = (d.egresos_detalle || []).map(e => ({ origen: e.origen, desc: e.desc, haber: e.monto }));
+    otrosIngresosEf = (d.otros_ingresos_detalle || []).map(e => ({ origen: e.origen, desc: e.desc, debe: e.monto }));
+  } else {
+    // ── Respaldo para cierres viejos (antes de esta actualización) ──
+    const ctaEf = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
+    const movsAntes = _movimientosCuenta(ctaEf, f => !!f && f < fechaCierre);
+    saldoInicial = movsAntes.reduce((s,m)=>s+(m.debe||0)-(m.haber||0), 0);
+    const movsHoy = _movimientosCuenta(ctaEf, f => f === fechaCierre);
+    const entradasCaja = movsHoy.reduce((s,m)=>s+(m.debe||0),0);
+    salidasCaja  = movsHoy.reduce((s,m)=>s+(m.haber||0),0);
+    saldoAcumuladoFinal = saldoInicial + entradasCaja - salidasCaja;
+
+    const ventasCrudo = (sales||[]).filter(v=>v.fecha===fechaCierre)
+      .sort((a,b)=>String(a.nro_comprobante||'').localeCompare(String(b.nro_comprobante||'')));
+    ventasDelDia = ventasCrudo.map(v=>({
+      comprobante: esc(_labelCbte(v.tipo_cbte)) + (v.nro_comprobante?' '+esc(v.nro_comprobante):''),
+      cliente: v.cliente||'Consumidor final', metodo: v.metodo_pago||'Mixto', total: v.total,
+    }));
+    efArqueo = ventasCrudo.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
+    otrosIngresosEf = movsHoy.filter(m=>m.debe>0 && m.origen!=='Venta').sort((a,b)=>b.debe-a.debe);
+    egresosEf = movsHoy.filter(m=>m.haber>0).sort((a,b)=>b.haber-a.haber);
+  }
+
   // Neto de NC del día (mismo helper que renderCaja y prepararCierre) —
   // se usa para "Desglose por método de pago" y el total cobrado, donde
-  // sí tiene sentido mostrar lo neto.
+  // sí tiene sentido mostrar lo neto. Esto siempre puede recalcularse en
+  // vivo sin problema: es solo cómo se DESGLOSA lo que ya se cobró ese
+  // día, no afecta el arqueo/diferencia congelados.
   const { ef, tr, td, mp, cc } = _ventasNetasDeNC(fechaCierre);
   const totalCobrado = ef+tr+td+mp;
 
-  // Para el ARQUEO, en cambio, se necesita la venta BRUTA en efectivo (sin
-  // netear la NC), porque la reversión de la NC YA aparece como su propia
-  // línea en "Egresos en efectivo del día" (viene de _movimientosCuenta,
-  // que no sabe de neteos). Si acá también se usara el neto, la NC se
-  // restaría dos veces en el desglose visible — el total final daba bien
-  // igual porque se cancelaba por dentro, pero las líneas que se ven no
-  // sumaban lo mismo que el total, y eso es lo que generaba la confusión.
-  const efArqueo = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
-
-  const otrosIngresosEf = movsHoy.filter(m=>m.debe>0 && m.origen!=='Venta').sort((a,b)=>b.debe-a.debe);
-  const egresosEf = movsHoy.filter(m=>m.haber>0).sort((a,b)=>b.haber-a.haber);
-
   const efCaja = d.efectivo_caja||0;
-  // Diferencia real = contra el saldo ACUMULADO (nunca se vacía el cajón),
-  // no contra el neto de este día solo.
   const dif = efCaja - saldoAcumuladoFinal;
 
   const fila = (label,val,extra='') => `<div class="row"><span class="row-label">${label}</span><span class="row-value" ${extra}>${val}</span></div>`;
@@ -3107,9 +3124,9 @@ function exportarCierrePDF(cierreGuardado) {
       <thead><tr><th>Comprobante</th><th>Cliente</th><th>Método</th><th style="text-align:right">Total</th></tr></thead>
       <tbody>
         ${ventasDelDia.map(v => `<tr>
-            <td>${esc(_labelCbte(v.tipo_cbte))}${v.nro_comprobante?' '+esc(v.nro_comprobante):''}</td>
-            <td>${esc(v.cliente||'Consumidor final')}</td>
-            <td>${esc(v.metodo_pago||'Mixto')}</td>
+            <td>${esc(v.comprobante)}</td>
+            <td>${esc(v.cliente)}</td>
+            <td>${esc(v.metodo)}</td>
             <td style="text-align:right">${money(v.total)}</td>
           </tr>`).join('')}
       </tbody>
@@ -12414,6 +12431,50 @@ function _efectivoEsperadoHoy(){
   return { esperado: entradas - salidas, entradas, salidas, movs, movsHoy, entradasHoy, salidasHoy };
 }
 
+// Calcula TODO lo necesario para el arqueo de un día puntual — saldo
+// acumulado previo, ventas del día, egresos/otras entradas de efectivo,
+// y la diferencia contra lo contado. Se llama UNA sola vez, al confirmar
+// el cierre (prepararCierre), y el resultado se guarda entero en
+// cierres_caja — así el cierre queda CONGELADO para siempre: si después
+// cargás algo con fecha pasada, no le cambia un solo número a un cierre
+// ya confirmado. Antes esto se recalculaba en vivo cada vez que se
+// reimprimía, y eso generaba confusión (ver conversación con Bautista del
+// 11/08 — el PDF podía mostrar una diferencia distinta a la guardada).
+function _calcularArqueoDia(fecha, efCaja){
+  const ctaEf = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
+  const movsAntes = _movimientosCuenta(ctaEf, f => !!f && f < fecha);
+  const saldoInicial = movsAntes.reduce((s,m)=>s+(m.debe||0)-(m.haber||0), 0);
+  const movsHoy = _movimientosCuenta(ctaEf, f => f === fecha);
+  const entradasCaja = movsHoy.reduce((s,m)=>s+(m.debe||0),0);
+  const salidasCaja  = movsHoy.reduce((s,m)=>s+(m.haber||0),0);
+  const efectivoEsperado = saldoInicial + entradasCaja - salidasCaja;
+
+  const ventasDelDia = (sales||[]).filter(v=>v.fecha===fecha)
+    .sort((a,b)=>String(a.nro_comprobante||'').localeCompare(String(b.nro_comprobante||'')));
+  const ventasDetalle = ventasDelDia.map(v=>({
+    comprobante: (typeof _labelCbte==='function'?_labelCbte(v.tipo_cbte):'') + (v.nro_comprobante?' '+v.nro_comprobante:''),
+    cliente: v.cliente || 'Consumidor final',
+    metodo: v.metodo_pago || 'Mixto',
+    total: v.total || 0,
+  }));
+
+  // Bruta (sin netear NC) — la reversión de la NC ya aparece como su
+  // propia línea en egresosEf, así que acá no se resta dos veces.
+  const efectivoVendidoBruto = ventasDelDia.reduce((s,v)=>s+_ventaSumaMetodo(v,'Efectivo'),0);
+
+  const otrosIngresosDetalle = movsHoy.filter(m=>m.debe>0 && m.origen!=='Venta').sort((a,b)=>b.debe-a.debe)
+    .map(m=>({origen:m.origen, desc:m.desc, monto:Math.round((m.debe||0)*100)/100}));
+  const egresosDetalle = movsHoy.filter(m=>m.haber>0).sort((a,b)=>b.haber-a.haber)
+    .map(m=>({origen:m.origen, desc:m.desc, monto:Math.round((m.haber||0)*100)/100}));
+
+  const dif = (efCaja||0) - efectivoEsperado;
+
+  return {
+    saldoInicial, efectivoEsperado, salidasEfectivoDia: salidasCaja, efectivoVendidoBruto,
+    ventasDetalle, egresosDetalle, otrosIngresosDetalle, dif,
+  };
+}
+
 function renderCaja(){
   const today=fechaHoyLocal();
   const todaySales=sales.filter(s=>s.fecha===today);
@@ -12561,9 +12622,12 @@ function prepararCierre(){
   const total=ef+tr+td+mp;
   const efCaja=parseFloat(document.getElementById('arq-ef').value)||0;
   // Diferencia real = contra el saldo ACUMULADO de Caja (nunca se vacía el
-  // cajón, confirmado con Bautista), no solo contra el neto de hoy.
-  const { esperado: efEsperado, salidasHoy } = _efectivoEsperadoHoy();
-  const dif=efCaja-efEsperado;
+  // cajón, confirmado con Bautista), no solo contra el neto de hoy. Este
+  // cálculo se hace UNA sola vez acá y se guarda entero — el cierre queda
+  // congelado, no se recalcula distinto si después cargás algo con fecha
+  // pasada (ver conversación 11/08).
+  const arqueo = _calcularArqueoDia(today, efCaja);
+  const dif = arqueo.dif;
   const obs=document.getElementById('arq-obs').value;
   const gastosHoyCierre = gastos.filter(g => g.fecha === today); // declarado ANTES de usarse (evita TDZ)
 
@@ -12577,16 +12641,28 @@ function prepararCierre(){
       <div class="hc-dr"><span>Tarjeta</span><span>$${td.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>MercadoPago</span><span>$${mp.toLocaleString('es-AR')}</span></div>
       ${cc>0?`<div class="hc-dr" style="color:#9a5b12"><span>📒 Cuenta Corriente (no cobrado, no suma)</span><span>$${cc.toLocaleString('es-AR')}</span></div>`:''}
-      ${salidasHoy>0?`<div class="hc-dr" style="border-top:1px solid #ddd;margin-top:6px;padding-top:6px"><span style="color:#c94040;font-weight:600">Gastos y retiros en efectivo hoy</span><span style="color:#c94040;font-weight:700">-$${Math.round(salidasHoy).toLocaleString('es-AR')}</span></div>`:''}
-      <div class="hc-dr"><span style="font-weight:600">Efectivo esperado en caja <span style="font-weight:400;opacity:.6">(acumulado)</span></span><span style="font-weight:700">$${Math.round(efEsperado).toLocaleString('es-AR')}</span></div>
+      ${arqueo.salidasEfectivoDia>0?`<div class="hc-dr" style="border-top:1px solid #ddd;margin-top:6px;padding-top:6px"><span style="color:#c94040;font-weight:600">Gastos y retiros en efectivo hoy</span><span style="color:#c94040;font-weight:700">-$${Math.round(arqueo.salidasEfectivoDia).toLocaleString('es-AR')}</span></div>`:''}
+      <div class="hc-dr"><span style="font-weight:600">Efectivo esperado en caja <span style="font-weight:400;opacity:.6">(acumulado)</span></span><span style="font-weight:700">$${Math.round(arqueo.efectivoEsperado).toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>Efectivo contado en caja</span><span>$${efCaja.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span style="font-weight:600">Diferencia</span><span style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${Math.round(dif).toLocaleString('es-AR')}</span></div>
       ${obs?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${esc(obs)}</div>`:''}
     </div>
     <div style="font-size:13px;color:var(--red);font-weight:500">⚠️ Esta acción registrará el cierre oficial del día. No se puede deshacer.</div>`;
 
-  // Store cierre data for confirm
-  window._cierreData={fecha:today,total,ventas_count:todaySales.length,efectivo:ef,transferencia:tr,tarjeta:td,mercadopago:mp,cuenta_corriente:cc,efectivo_caja:efCaja,diferencia:dif,observaciones:obs,gastos_dia:gastosHoyCierre};
+  // Store cierre data for confirm — incluye el arqueo YA congelado, así
+  // exportarCierrePDF nunca más tiene que recalcularlo.
+  window._cierreData={
+    fecha:today,total,ventas_count:todaySales.length,
+    efectivo:ef,transferencia:tr,tarjeta:td,mercadopago:mp,cuenta_corriente:cc,
+    efectivo_caja:efCaja,diferencia:dif,observaciones:obs,gastos_dia:gastosHoyCierre,
+    saldo_inicial: arqueo.saldoInicial,
+    efectivo_esperado: arqueo.efectivoEsperado,
+    salidas_efectivo_dia: arqueo.salidasEfectivoDia,
+    efectivo_vendido_bruto: arqueo.efectivoVendidoBruto,
+    ventas_detalle: arqueo.ventasDetalle,
+    egresos_detalle: arqueo.egresosDetalle,
+    otros_ingresos_detalle: arqueo.otrosIngresosDetalle,
+  };
   openModal('ov-cierre');
 }
 
