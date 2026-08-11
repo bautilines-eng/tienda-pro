@@ -2921,6 +2921,17 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 
     <div id="ncp-lineas"></div>
 
+    <!-- Percepciones (igual que en la carga de factura normal) -->
+    <div class="frow" style="margin-top:10px">
+      <div style="flex:1">
+        <div class="flabel">Percepción IVA (RG2408/5329) <span style="font-weight:400;color:#999;font-size:9px">(opcional)</span></div>
+        <div style="position:relative">
+          <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;font-weight:600">$</div>
+          <input class="inp" id="ncp-perc-iva" type="number" step="0.01" placeholder="0" style="padding-left:24px;font-family:'DM Mono',monospace" oninput="recalcNCPTotales()">
+        </div>
+      </div>
+    </div>
+
     <!-- Pie de totales tipo comprobante -->
     <div id="ncp-totales"></div>
 
@@ -4720,11 +4731,16 @@ function asientoNotaCreditoProveedor(ncp){
   const cuentaMerc = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES['mercaderias']) || '11501008';
   const cuentaIVA  = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES['iva_credito'])  || '11403005';
   const cuentaProv = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES['proveedores'])  || '21101001';
+  // Percepción IVA RG2408/5329 que la empresa sufre en compras — cuenta
+  // que tu propio código ya tenía prevista (ver comentario en asientoVenta)
+  // pero nunca conectada a ningún asiento hasta ahora.
+  const cuentaPercIva = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES['perc_iva_compras']) || '11403018';
   const lineas = [
     { debe:true,  cuenta:cuentaProv, nombre:'Proveedores',        importe:ncp.total, detalle:'NC '+(ncp.nro_nota||'')+' — '+(ncp.proveedor||'Proveedor') },
     { debe:false, cuenta:cuentaMerc, nombre:'Mercaderías',        importe:ncp.neto,  detalle:'Devolución mercadería — '+(ncp.nro_nota||'') },
   ];
   if(ncp.iva>0) lineas.push({ debe:false, cuenta:cuentaIVA, nombre:'IVA Crédito Fiscal', importe:ncp.iva, detalle:'Reversión CF — '+(ncp.nro_nota||'') });
+  if(ncp.perc_iva>0) lineas.push({ debe:false, cuenta:cuentaPercIva, nombre:'Percepción IVA RG2408/5329', importe:ncp.perc_iva, detalle:'Reversión percepción — '+(ncp.nro_nota||'') });
   return {
     nro: getNroAsiento(), fecha: ncp.fecha,
     tipo: 'NC PROVEEDOR',
@@ -5657,7 +5673,7 @@ function abrirModalNCProveedor(){
     sel.innerHTML = '<option value="">Elegí...</option>' + (proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
   }
   const f = document.getElementById('ncp-fecha'); if(f) f.value = fechaHoyLocal();
-  ['ncp-nro','ncp-factura','ncp-motivo'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  ['ncp-nro','ncp-factura','ncp-motivo','ncp-perc-iva'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
   const s = document.getElementById('ncp-add-search'); if(s) s.value='';
   onNCPProveedorChange();
   renderNCPLineas();
@@ -5788,13 +5804,14 @@ function _totalesNCP(){
   const lineas = _leerLineasNCP();
   const neto = lineas.reduce((s,l)=>s+l.neto,0);
   const iva  = lineas.reduce((s,l)=>s+l.iva,0);
-  const total = Math.round((neto+iva)*100)/100;
-  return { lineas, neto, iva, total };
+  const percIva = parseFloat(document.getElementById('ncp-perc-iva')?.value) || 0;
+  const total = Math.round((neto+iva+percIva)*100)/100;
+  return { lineas, neto, iva, percIva, total };
 }
 
 function recalcNCPTotales(){
   const el = document.getElementById('ncp-totales'); if(!el) return;
-  const { neto, iva, total } = _totalesNCP();
+  const { neto, iva, percIva, total } = _totalesNCP();
   const deudaId = document.getElementById('ncp-deuda')?.value;
   const deuda = deudaId ? (deudas||[]).find(d=>d.id===deudaId) : null;
 
@@ -5819,6 +5836,7 @@ function recalcNCPTotales(){
     <div style="background:#fafafa;border-radius:12px;padding:12px 14px;margin-top:4px">
       <div style="display:flex;justify-content:space-between;font-size:12px;color:#666"><span>Neto</span><span>${_money2(neto)}</span></div>
       <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-top:3px"><span>IVA</span><span>${_money2(iva)}</span></div>
+      ${percIva>0?`<div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-top:3px"><span>Percepción IVA</span><span>${_money2(percIva)}</span></div>`:''}
       <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;color:#1a1a1a;margin-top:6px;padding-top:6px;border-top:1px solid #e5e5e5"><span>TOTAL</span><span>${_money2(total)}</span></div>
       ${aplicacionHTML}
     </div>`;
@@ -5837,7 +5855,7 @@ async function guardarNCProveedor(){
   if(!fecha){ showToast('Elegí la fecha','err'); return; }
   if(!ncpLineas.length){ showToast('Agregá al menos un producto devuelto','err'); return; }
 
-  const { lineas, neto, iva, total } = _totalesNCP();
+  const { lineas, neto, iva, percIva, total } = _totalesNCP();
   if(lineas.some(l=>!l.cantidad || l.cantidad<=0)){ showToast('Revisá las cantidades — no pueden ser 0','err'); return; }
   if(total<=0){ showToast('El total tiene que ser mayor a 0 — revisá los costos','err'); return; }
 
@@ -5903,7 +5921,7 @@ async function guardarNCProveedor(){
       nro_nota: nro || null, factura_relacionada: facturaRel || null,
       fecha, motivo: motivo || null,
       items: lineas.map(l=>({ producto_id:l.prodId, producto_nombre:l.nombre, cantidad:l.cantidad, costo_unitario:l.costoUnit, alicuota:l.alicuota })),
-      neto: Math.round(neto*100)/100, iva: Math.round(iva*100)/100, total: Math.round(total*100)/100,
+      neto: Math.round(neto*100)/100, iva: Math.round(iva*100)/100, perc_iva: Math.round(percIva*100)/100, total: Math.round(total*100)/100,
       deuda_id: cubreTotal ? deudaId : null,
       monto_aplicado_deuda: montoAplicado, saldo_sin_aplicar: saldoSinAplicar,
       contabilizada,
