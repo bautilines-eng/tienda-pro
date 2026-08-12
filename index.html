@@ -659,8 +659,16 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
     </div>
     <div style="padding:10px 20px 0;display:flex;gap:10px">
-      <div id="v-desc-wrap" style="flex:1"><div class="flabel" style="margin-bottom:5px">Descuento %</div><input class="inp" id="v-desc" type="number" min="0" max="100" placeholder="0" oninput="updateCart()"></div>
+      <div id="v-desc-wrap" style="flex:1"><div class="flabel" style="margin-bottom:5px">Descuento %</div><input class="inp" id="v-desc" type="number" min="0" max="100" placeholder="0" oninput="_limpiarPromoUI(); updateCart()"></div>
       <div style="flex:1"><div class="flabel" style="margin-bottom:5px">Nota</div><input class="inp" id="v-nota" type="text" placeholder="Opcional"></div>
+    </div>
+    <div style="padding:10px 20px 0">
+      <div class="flabel" style="margin-bottom:5px">Código de promoción <span style="font-weight:400;color:#999">(opcional)</span></div>
+      <div style="display:flex;gap:8px">
+        <input class="inp" id="v-promo-codigo" type="text" placeholder="Ej: MIERCOLES10" style="flex:1;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter'){event.preventDefault();aplicarCodigoPromo();}">
+        <button onclick="aplicarCodigoPromo()" style="padding:0 16px;border-radius:9px;background:#1a5ec9;color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">Aplicar</button>
+      </div>
+      <div id="v-promo-feedback" style="font-size:11px;margin-top:6px"></div>
     </div>
     <div class="search-wrap">
       <span class="search-ico">🔍</span>
@@ -2089,6 +2097,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="hs">Margen por proveedor y ajustes por categoría</div>
     </div>
     <div style="padding:14px 20px 0">
+      <button onclick="abrirPromociones()" style="width:100%;padding:13px;border-radius:10px;border:1.5px solid #1a5ec9;background:#eaf0fd;color:#1a5ec9;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">
+        🏷️ Promociones — códigos de descuento por día
+      </button>
       <div class="card">
         <div class="flabel">Proveedor</div>
         <select class="inp" id="prec-prov" style="cursor:pointer" onchange="selectPrecioProv(this.value)">
@@ -2992,6 +3003,65 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <input type="hidden" id="ecm-minuta-id">
     <button class="btn btn-ink btn-full" onclick="guardarEditarConceptoMinuta()">Guardar corrección</button>
+  </div>
+</div>
+
+<!-- MODAL LISTA DE PROMOCIONES -->
+<div class="overlay" id="ov-promociones">
+  <div class="modal" style="position:relative">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-promociones')">✕</button>
+    <div class="modal-title">🏷️ Promociones</div>
+    <button class="btn btn-ink btn-full" style="margin-bottom:14px" onclick="abrirModalPromo()">+ Nueva promoción</button>
+    <div id="promociones-list"></div>
+  </div>
+</div>
+
+<!-- MODAL CREAR/EDITAR PROMOCIÓN -->
+<div class="overlay" id="ov-promo-editar">
+  <div class="modal" style="position:relative">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-promo-editar')">✕</button>
+    <div class="modal-title" id="promo-editar-titulo">🏷️ Nueva promoción</div>
+    <input type="hidden" id="promo-id">
+    <div class="fgroup">
+      <div class="flabel">Código <span style="font-weight:400;color:#999">(lo escribe el vendedor en Ventas)</span></div>
+      <input class="inp" id="promo-codigo" placeholder="Ej: MIERCOLES10" style="text-transform:uppercase;font-family:'DM Mono',monospace" oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <div class="fgroup">
+      <div class="flabel">Descripción <span style="font-weight:400;color:#999">(opcional)</span></div>
+      <input class="inp" id="promo-descripcion" placeholder="Ej: 10% los miércoles">
+    </div>
+    <div class="fgroup">
+      <div class="flabel">Porcentaje de descuento</div>
+      <div style="position:relative">
+        <input class="inp" id="promo-porcentaje" type="number" min="1" max="100" placeholder="10" style="padding-right:30px">
+        <div style="position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:14px;font-weight:700;color:#1a5ec9">%</div>
+      </div>
+    </div>
+    <div class="fgroup">
+      <div class="flabel">Días de la semana <span style="font-weight:400;color:#999">(ninguno tildado = todos los días)</span></div>
+      <div id="promo-dias" style="display:flex;gap:6px;flex-wrap:wrap">
+        <label class="ps" data-dia="1" onclick="event.preventDefault();this.classList.toggle('on')">Lun</label>
+        <label class="ps" data-dia="2" onclick="event.preventDefault();this.classList.toggle('on')">Mar</label>
+        <label class="ps" data-dia="3" onclick="event.preventDefault();this.classList.toggle('on')">Mié</label>
+        <label class="ps" data-dia="4" onclick="event.preventDefault();this.classList.toggle('on')">Jue</label>
+        <label class="ps" data-dia="5" onclick="event.preventDefault();this.classList.toggle('on')">Vie</label>
+        <label class="ps" data-dia="6" onclick="event.preventDefault();this.classList.toggle('on')">Sáb</label>
+        <label class="ps" data-dia="0" onclick="event.preventDefault();this.classList.toggle('on')">Dom</label>
+      </div>
+    </div>
+    <div class="frow">
+      <div style="flex:1">
+        <div class="flabel">Desde <span style="font-weight:400;color:#999">(opcional)</span></div>
+        <input class="inp" id="promo-fecha-desde" type="date">
+      </div>
+      <div style="flex:1">
+        <div class="flabel">Hasta <span style="font-weight:400;color:#999">(opcional)</span></div>
+        <input class="inp" id="promo-fecha-hasta" type="date">
+      </div>
+    </div>
+    <button class="btn btn-ink btn-full" style="margin-top:16px" onclick="guardarPromocion()">Guardar promoción</button>
   </div>
 </div>
 
@@ -9919,6 +9989,7 @@ async function initApp(){
     loadConsumos(),
     loadGastos(),
     loadCombos(),
+    loadPromociones(),
     loadFacturas(),
     loadRecepciones(),
   ]);
@@ -11121,10 +11192,196 @@ function chQ(id,d){
 
 // ══ METHOD ══
 let splitActivo = false;
+
+// ══ PROMOCIONES ══
+let promociones = [];
+let promoAplicada = null; // la promo activa en el carrito actual, o null
+
+async function loadPromociones(){
+  try{ promociones = await sbGet('promociones'); }catch(e){ promociones = []; }
+}
+
+// Un código es válido HOY si: está activo, o bien no tiene días
+// restringidos o hoy es uno de ellos, y si tiene ventana de fechas, hoy
+// cae adentro. Se usa tanto al aplicar el código como de nuevo al
+// confirmar la venta (por si pasó el tiempo o cambió el día en el medio).
+function _promoEsValidaHoy(promo){
+  if(!promo || !promo.activo) return { ok:false, motivo:'Ese código está desactivado' };
+  const hoy = fechaHoyLocal();
+  const dow = new Date(hoy+'T12:00:00').getDay(); // 0=domingo...6=sábado
+  const NOMBRES_DIA = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  const dias = promo.dias_semana || [];
+  if(dias.length && !dias.includes(dow)){
+    const diasTexto = dias.slice().sort().map(d=>NOMBRES_DIA[d]).join(', ');
+    return { ok:false, motivo:`Válido solo: ${diasTexto} — hoy es ${NOMBRES_DIA[dow]}` };
+  }
+  if(promo.fecha_desde && hoy < promo.fecha_desde) return { ok:false, motivo:`Todavía no empezó (válido desde ${promo.fecha_desde})` };
+  if(promo.fecha_hasta && hoy > promo.fecha_hasta) return { ok:false, motivo:`Ya venció (era válido hasta ${promo.fecha_hasta})` };
+  return { ok:true, motivo:'' };
+}
+
+// Descuento % efectivo a aplicar — un código de promoción válido tiene
+// prioridad y funciona para CUALQUIER rol (es una promo ya aprobada, no
+// una decisión del vendedor). Sin promo, se usa el campo manual de
+// siempre, que sigue bloqueado para Vendedor. Un solo lugar para esta
+// lógica — la usan el carrito, la venta, el consumo personal y el
+// presupuesto, así el código de promoción funciona igual en todos lados.
+function _descuentoEfectivo(){
+  if(promoAplicada && _promoEsValidaHoy(promoAplicada).ok) return promoAplicada.porcentaje;
+  const esVendedorActual = window.NO_PUEDE_DESCONTAR || ['vendedor','empleado'].includes((USER_ROL||'').toLowerCase());
+  return esVendedorActual ? 0 : (parseFloat(document.getElementById('v-desc')?.value)||0);
+}
+
+function _limpiarPromoUI(){
+  promoAplicada = null;
+  const ci = document.getElementById('v-promo-codigo'); if(ci) ci.value = '';
+  const fb = document.getElementById('v-promo-feedback'); if(fb) fb.innerHTML = '';
+}
+
+function aplicarCodigoPromo(){
+  const codigoInput = (document.getElementById('v-promo-codigo')?.value||'').trim().toUpperCase();
+  const feedbackEl = document.getElementById('v-promo-feedback');
+  if(!codigoInput){ promoAplicada = null; if(feedbackEl) feedbackEl.innerHTML=''; updateCart(); return; }
+
+  const promo = (promociones||[]).find(p => (p.codigo||'').toUpperCase() === codigoInput);
+  if(!promo){
+    promoAplicada = null;
+    if(feedbackEl) feedbackEl.innerHTML = '<span style="color:#c94040">❌ No existe ese código</span>';
+    updateCart();
+    return;
+  }
+  const check = _promoEsValidaHoy(promo);
+  if(!check.ok){
+    promoAplicada = null;
+    if(feedbackEl) feedbackEl.innerHTML = `<span style="color:#c94040">❌ ${esc(check.motivo)}</span>`;
+    updateCart();
+    return;
+  }
+  // Válido — se aplica y se limpia el descuento manual (no se combinan,
+  // para no mezclar una promo aprobada con una decisión discrecional).
+  promoAplicada = promo;
+  const descManual = document.getElementById('v-desc');
+  if(descManual) descManual.value = '';
+  if(feedbackEl) feedbackEl.innerHTML = `<span style="color:#1a5c38">✅ ${esc(promo.descripcion||promo.codigo)} — ${promo.porcentaje}% OFF aplicado</span>`;
+  updateCart();
+}
+
+function quitarPromoAplicada(){
+  _limpiarPromoUI();
+  updateCart();
+}
+
+// ── Administración de promociones (Precios → 🏷️ Promociones) ──
+function abrirPromociones(){
+  renderPromociones();
+  openModal('ov-promociones');
+}
+
+function renderPromociones(){
+  const el = document.getElementById('promociones-list');
+  if(!el) return;
+  if(!promociones.length){
+    el.innerHTML = '<div class="empty" style="margin-top:10px">Todavía no creaste ninguna promoción</div>';
+    return;
+  }
+  const NOMBRES_DIA_CORTO = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  el.innerHTML = promociones.map(p=>{
+    const diasTxt = (p.dias_semana&&p.dias_semana.length) ? p.dias_semana.slice().sort().map(d=>NOMBRES_DIA_CORTO[d]).join(', ') : 'Todos los días';
+    const fechasTxt = (p.fecha_desde||p.fecha_hasta) ? ` · ${p.fecha_desde||'…'} a ${p.fecha_hasta||'…'}` : '';
+    return `<div class="card" style="margin-bottom:8px;opacity:${p.activo?1:.5}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-family:'DM Mono',monospace;font-weight:700;font-size:14px">${esc(p.codigo)}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">${esc(p.descripcion||'')}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">${diasTxt}${fechasTxt}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-weight:700;color:#1a5ec9">${p.porcentaje}% OFF</div>
+          <div style="font-size:10px;margin-top:2px;color:${p.activo?'#1a5c38':'#c94040'}">${p.activo?'✅ Activa':'⏸️ Desactivada'}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button onclick="abrirModalPromo('${p.id}')" style="flex:1;padding:6px;border-radius:7px;border:1px solid #ddd;background:#fff;font-size:11px;cursor:pointer">✏️ Editar</button>
+        <button onclick="toggleActivoPromo('${p.id}')" style="flex:1;padding:6px;border-radius:7px;border:1px solid #ddd;background:#fff;font-size:11px;cursor:pointer">${p.activo?'⏸️ Desactivar':'▶️ Activar'}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function abrirModalPromo(id){
+  const promo = id ? promociones.find(p=>p.id===id) : null;
+  document.getElementById('promo-editar-titulo').textContent = promo ? '✏️ Editar promoción' : '🏷️ Nueva promoción';
+  document.getElementById('promo-id').value = promo?.id || '';
+  document.getElementById('promo-codigo').value = promo?.codigo || '';
+  document.getElementById('promo-descripcion').value = promo?.descripcion || '';
+  document.getElementById('promo-porcentaje').value = promo?.porcentaje || '';
+  document.getElementById('promo-fecha-desde').value = promo?.fecha_desde || '';
+  document.getElementById('promo-fecha-hasta').value = promo?.fecha_hasta || '';
+  const diasSel = new Set(promo?.dias_semana || []);
+  document.querySelectorAll('#promo-dias .ps').forEach(el=>{
+    el.classList.toggle('on', diasSel.has(parseInt(el.dataset.dia)));
+  });
+  closeModal('ov-promociones');
+  openModal('ov-promo-editar');
+}
+
+async function guardarPromocion(){
+  const id = document.getElementById('promo-id').value;
+  const codigo = document.getElementById('promo-codigo').value.trim().toUpperCase();
+  const descripcion = document.getElementById('promo-descripcion').value.trim();
+  const porcentaje = parseFloat(document.getElementById('promo-porcentaje').value);
+  const fecha_desde = document.getElementById('promo-fecha-desde').value || null;
+  const fecha_hasta = document.getElementById('promo-fecha-hasta').value || null;
+  const dias_semana = Array.from(document.querySelectorAll('#promo-dias .ps.on')).map(el=>parseInt(el.dataset.dia));
+
+  if(!codigo){ showToast('Ingresá un código', 'err'); return; }
+  if(!porcentaje || porcentaje<=0 || porcentaje>100){ showToast('Ingresá un porcentaje válido (1-100)', 'err'); return; }
+  if(fecha_desde && fecha_hasta && fecha_desde > fecha_hasta){ showToast('La fecha "desde" no puede ser posterior a "hasta"', 'err'); return; }
+  const yaExiste = promociones.find(p=>p.id!==id && (p.codigo||'').toUpperCase()===codigo);
+  if(yaExiste){ showToast('Ya existe una promoción con ese código', 'err'); return; }
+
+  const payload = { codigo, descripcion: descripcion||null, porcentaje, dias_semana, fecha_desde, fecha_hasta };
+  try{
+    if(id){
+      const { data, error } = await SB.from('promociones').update(payload).eq('id', id).select();
+      if(error) throw error;
+      if(!data || !data.length){ showToast('❌ No se pudo guardar (permiso denegado)','err'); return; }
+      const idx = promociones.findIndex(p=>p.id===id);
+      if(idx>=0) promociones[idx] = data[0];
+      showToast('✅ Promoción actualizada','ok');
+    } else {
+      const nueva = await sbInsert('promociones', { ...payload, activo:true, created_by: USER?.email||null });
+      promociones.unshift(nueva);
+      showToast(`✅ Promoción "${esc(codigo)}" creada`,'ok');
+    }
+    closeModal('ov-promo-editar');
+    renderPromociones();
+  }catch(e){
+    showToast('❌ Error al guardar: '+(e?.message||'desconocido'),'err');
+    console.error('guardarPromocion error:', e);
+  }
+}
+
+async function toggleActivoPromo(id){
+  const promo = promociones.find(p=>p.id===id);
+  if(!promo) return;
+  try{
+    const { data, error } = await SB.from('promociones').update({ activo: !promo.activo }).eq('id', id).select();
+    if(error) throw error;
+    if(!data || !data.length){ showToast('❌ No se pudo actualizar (permiso denegado)','err'); return; }
+    promo.activo = data[0].activo;
+    renderPromociones();
+    showToast(promo.activo?'▶️ Promoción activada':'⏸️ Promoción desactivada','ok');
+  }catch(e){
+    showToast('❌ Error: '+(e?.message||'desconocido'),'err');
+    console.error('toggleActivoPromo error:', e);
+  }
+}
+
 function _totalActualVenta(){
   const sel=prods.filter(p=>(qtys[p.id]||0)>0);
   const sub=sel.reduce((s,p)=>s+(p.precio||0)*(qtys[p.id]||0),0);
-  const desc=parseFloat(document.getElementById('v-desc')?.value)||0;
+  const desc=_descuentoEfectivo();
   return Math.round(sub*(1-desc/100));
 }
 function toggleSplit(){
@@ -11171,11 +11428,12 @@ function updateCart(){
   if(!sel.length){cart.classList.remove('show');return;}
   cart.classList.add('show');
   const sub=sel.reduce((s,p)=>s+p.precio*(qtys[p.id]||0),0);
-  const desc=parseFloat(document.getElementById('v-desc').value)||0;
+  const desc=_descuentoEfectivo();
   const total=sub*(1-desc/100);
   document.getElementById('c-chips').innerHTML=sel.map(p=>`<div class="chip">${getEm(p.categoria)} ${esc(p.nombre.split(' ')[0])} ×${qtys[p.id]}</div>`).join('');
   document.getElementById('c-total').textContent=`$${Math.round(total).toLocaleString('es-AR')}`;
-  document.getElementById('c-method-l').textContent=`${splitActivo?'Pago dividido':method}${desc>0?` · ${desc}% desc`:''}`;
+  const descLabel = (promoAplicada && _promoEsValidaHoy(promoAplicada).ok) ? `${desc}% ${promoAplicada.codigo}` : (desc>0?`${desc}% desc`:'');
+  document.getElementById('c-method-l').textContent=`${splitActivo?'Pago dividido':method}${descLabel?` · ${descLabel}`:''}`;
   if(typeof updateSplit==='function') updateSplit();
 }
 
@@ -11422,6 +11680,7 @@ function cancelarVenta(){
     const a1=document.getElementById('split-a1'), a2=document.getElementById('split-a2'); if(a1)a1.value=''; if(a2)a2.value='';
     const ms=document.querySelector('.msel'); if(ms){ ms.style.opacity=''; ms.style.pointerEvents=''; } }
   const vd=document.getElementById('v-desc'); if(vd) vd.value='';
+  _limpiarPromoUI();
   const vn=document.getElementById('v-nota'); if(vn) vn.value='';
   const cuitInput=document.getElementById('cuit-cte-input'); if(cuitInput) cuitInput.value='';
   const razonInput=document.getElementById('razon-social-input'); if(razonInput) razonInput.value='';
@@ -11459,11 +11718,15 @@ async function registerSale(){
 
   try{
     const sub=sel.reduce((s,p)=>s+p.precio*(qtys[p.id]||0),0);
-    // El Vendedor no puede aplicar descuentos — se fuerza a 0 acá aunque el
-    // campo esté oculto, para no depender solo del DOM (mismo criterio que
-    // el guard de "Administrativo no puede vender" de arriba).
+    // El Vendedor no puede aplicar descuentos manuales — se fuerza a 0 acá
+    // aunque el campo esté oculto, para no depender solo del DOM (mismo
+    // criterio que el guard de "Administrativo no puede vender" de arriba).
+    // Un código de promoción válido SÍ funciona para cualquier rol — se
+    // revalida acá mismo (no alcanza con lo chequeado al escribirlo, por
+    // si cambió el día o venció en el medio de armar el carrito).
+    const promoValidaAhora = (promoAplicada && _promoEsValidaHoy(promoAplicada).ok) ? promoAplicada : null;
     const esVendedorActual = window.NO_PUEDE_DESCONTAR || ['vendedor','empleado'].includes((USER_ROL||'').toLowerCase());
-    const desc = esVendedorActual ? 0 : (parseFloat(document.getElementById('v-desc').value)||0);
+    const desc = promoValidaAhora ? promoValidaAhora.porcentaje : (esVendedorActual ? 0 : (parseFloat(document.getElementById('v-desc').value)||0));
     const total=Math.round(sub*(1-desc/100));
 
     // ── Pago dividido (dos métodos) ──
@@ -11481,7 +11744,8 @@ async function registerSale(){
     }
     const clienteEl=document.getElementById('v-cliente');
     const clienteNom=clienteEl.value?(clienteEl.options[clienteEl.selectedIndex]?.text||''):'';
-    const nota=document.getElementById('v-nota').value;
+    let nota=document.getElementById('v-nota').value;
+    if(promoValidaAhora) nota = (nota?nota+' ':'') + `[Promo: ${promoValidaAhora.codigo}]`;
     const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota),impuesto_interno_unitario:(p.impuesto_interno_unitario||0)}));
 
     const tipoCbte    = document.querySelector('.cbte-btn.active')?.dataset.cbte || 'B';
@@ -11621,6 +11885,16 @@ async function registerSale(){
       cae_vto:         result.cae_vto || null,
     };
     sales.unshift(venta);
+
+    // Guarda qué código de promoción se usó, para poder reportarlo después
+    // (ej. "cuántas ventas usaron MIERCOLES10 este mes"). Es un dato extra,
+    // no crítico — si falla no debe tocar el flujo de la venta, que ya se
+    // registró bien.
+    if(promoValidaAhora && venta.id){
+      try{ await SB.from('ventas').update({ promo_codigo: promoValidaAhora.codigo }).eq('id', venta.id); venta.promo_codigo = promoValidaAhora.codigo; }
+      catch(e){ console.warn('No se pudo guardar promo_codigo en la venta', e); }
+    }
+    _limpiarPromoUI();
 
     // Actualizar stock local (la función ya lo descontó en la base)
     for(const p of sel){
@@ -12088,8 +12362,7 @@ function toggleOpcionesAvanzadas(){
 async function solicitarConsumoPersonal(){
   const sel = prods.filter(p => (qtys[p.id]||0) > 0);
   if(!sel.length){ showToast('Agregá productos al carrito para el consumo','err'); return; }
-  const desc = (window.NO_PUEDE_DESCONTAR || ['vendedor','empleado'].includes((USER_ROL||'').toLowerCase()))
-    ? 0 : (parseFloat(document.getElementById('v-desc')?.value)||0);
+  const desc = _descuentoEfectivo();
   const sub = sel.reduce((s,p)=>s+(p.precio||0)*(qtys[p.id]||0),0);
   const total = Math.round(sub*(1-desc/100));
   const items = sel.map(p=>({producto_id:p.id, nombre:p.nombre, cantidad:qtys[p.id]||0, precio:p.precio||0, costo:p.costo||0}));
@@ -12100,7 +12373,7 @@ async function solicitarConsumoPersonal(){
       items, total, estado:'pendiente'
     });
     if(cp) consumosPersonal.unshift(cp);
-    qtys={}; const vd=document.getElementById('v-desc'); if(vd) vd.value='';
+    qtys={}; const vd=document.getElementById('v-desc'); if(vd) vd.value=''; _limpiarPromoUI();
     if(typeof updateCart==='function') updateCart();
     showToast('📤 Consumo enviado para aprobación del administrativo','ok');
   }catch(e){ console.error('consumo', e); showToast('Error al enviar el consumo','err'); }
@@ -12109,8 +12382,7 @@ async function solicitarConsumoPersonal(){
 function generarPresupuesto(){
   const sel = prods.filter(p => (qtys[p.id]||0) > 0);
   if(!sel.length){ showToast('Agregá productos al carrito para el presupuesto','err'); return; }
-  const desc = (window.NO_PUEDE_DESCONTAR || ['vendedor','empleado'].includes((USER_ROL||'').toLowerCase()))
-    ? 0 : (parseFloat(document.getElementById('v-desc')?.value) || 0);
+  const desc = _descuentoEfectivo();
   const sub = sel.reduce((s,p)=> s + (p.precio||0)*(qtys[p.id]||0), 0);
   const total = sub*(1-desc/100);
   const hoy = new Date();
