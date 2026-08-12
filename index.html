@@ -3065,6 +3065,27 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<!-- MODAL EDITAR VENTA (medio de pago + nota) -->
+<div class="overlay" id="ov-editar-venta">
+  <div class="modal" style="position:relative">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-editar-venta')">✕</button>
+    <div class="modal-title">✏️ Corregir venta</div>
+    <div id="ev-resumen" style="font-size:12.5px;color:#666;margin-bottom:14px;padding:10px 12px;background:#f8f8f8;border-radius:8px"></div>
+    <div class="fgroup">
+      <div class="flabel">Medio de pago</div>
+      <select id="ev-medio" class="inp"></select>
+      <div id="ev-split-aviso" style="display:none;font-size:11px;color:#c97f1a;margin-top:6px">⚠️ Esta venta tenía el pago dividido en dos métodos — al guardar, se unifica en el que elijas acá.</div>
+    </div>
+    <div class="fgroup">
+      <div class="flabel">Nota <span style="font-weight:400;color:#999">(opcional)</span></div>
+      <input class="inp" id="ev-nota" placeholder="Observación...">
+    </div>
+    <input type="hidden" id="ev-venta-id">
+    <button class="btn btn-ink btn-full" onclick="guardarEditarVenta()">Guardar corrección</button>
+  </div>
+</div>
+
 <!-- MODAL NUEVA TIENDA (ADMIN) -->
 <div class="overlay" id="ov-nueva-tienda">
   <div class="modal" style="position:relative">
@@ -12507,6 +12528,7 @@ function renderHist(){
       </div>
       <div class="hc-detail">${rows}<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">
           <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();reopenTicket('${s.id}')">🖨️ Ticket</button>
+          ${s.anulada ? '' : `<button class="btn btn-sm" style="background:#fdf5ea;color:#8a5a1a;border:1.5px solid #8a5a1a" onclick="event.stopPropagation();abrirEditarVenta('${s.id}')">✏️ Editar</button>`}
           ${s.anulada
   ? `<span style="font-size:11px;color:var(--red);font-weight:700;padding:4px 8px;background:#fee2e2;border-radius:6px">❌ ANULADA${s.nota_credito_id?'':''}</span>`
   : `<button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="anularVenta('${s.id}',event)">📋 Nota de Crédito</button>`}
@@ -12515,6 +12537,78 @@ function renderHist(){
   }).join('');
 }
 function reopenTicket(id){const s=sales.find(x=>x.id==id);if(s)showTicket(s);}
+
+// Corrige el medio de pago y/o la nota de una venta YA registrada, directo
+// desde el Historial — distinto del "🔄 Reimputar medio de pago" de Caja
+// (que crea una reclasificación contable aparte por un monto suelto): acá
+// se corrige el dato de LA VENTA puntual. Como asientoVenta/_debitosVenta
+// ya recalculan en vivo desde ventas.metodo_pago, corregirlo alcanza —
+// el Mayor, el Balance y el arqueo de Caja quedan bien solos, sin
+// necesidad de un asiento aparte.
+//
+// No incluye "Cuenta Corriente" como opción: pasar una venta ya cobrada a
+// Cta. Cte. tendría que generar también una deuda nueva, y eso es un caso
+// distinto (con más implicancias) al de simplemente corregir CON QUÉ
+// medio ya cobrado se pagó. Solo se puede reimputar entre los 4 medios
+// de cobro inmediato.
+function abrirEditarVenta(id){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden corregir una venta','err'); return; }
+  const s = sales.find(x=>x.id===id);
+  if(!s){ showToast('No encontré esa venta','err'); return; }
+  if(s.anulada){ showToast('Esta venta está anulada, no se puede corregir','err'); return; }
+
+  const esSplit = _esPagoDividido(s);
+  document.getElementById('ev-venta-id').value = id;
+  document.getElementById('ev-resumen').innerHTML =
+    `<b>${esc(s.nro_comprobante||'Sin número')}</b> · $${(s.total||0).toLocaleString('es-AR')}<br>
+     ${esc(s.cliente||'Venta anónima')}<br>
+     Medio actual: <b>${esSplit ? 'Pago dividido' : esc(s.metodo_pago||'—')}</b>`;
+
+  const medSel = document.getElementById('ev-medio');
+  const MEDIOS_REIMPUTABLES = ['Efectivo','Transferencia','Tarjeta','MercadoPago'];
+  medSel.innerHTML = MEDIOS_REIMPUTABLES.map(m=>`<option value="${m}">${m}</option>`).join('');
+  medSel.value = (!esSplit && MEDIOS_REIMPUTABLES.includes(s.metodo_pago)) ? s.metodo_pago : 'Efectivo';
+
+  const avisoEl = document.getElementById('ev-split-aviso');
+  if(avisoEl) avisoEl.style.display = esSplit ? 'block' : 'none';
+
+  document.getElementById('ev-nota').value = s.nota || '';
+  openModal('ov-editar-venta');
+}
+
+async function guardarEditarVenta(){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden corregir una venta','err'); return; }
+  const id = document.getElementById('ev-venta-id').value;
+  const s = sales.find(x=>x.id===id);
+  if(!s){ showToast('No encontré esa venta','err'); return; }
+
+  const nuevoMedio = document.getElementById('ev-medio').value;
+  const nuevaNota = document.getElementById('ev-nota').value.trim();
+  const teniaSplit = _esPagoDividido(s);
+
+  try{
+    const { data, error } = await SB.from('ventas')
+      .update({ metodo_pago: nuevoMedio, nota: nuevaNota || null, pagos: null })
+      .eq('id', id)
+      .select();
+    if(error) throw error;
+    if(!data || !data.length){
+      showToast('❌ No se pudo corregir (permiso denegado por la base) — avisale a Bautista con este mensaje','err');
+      console.error('guardarEditarVenta: UPDATE no afectó ninguna fila. id=', id);
+      return;
+    }
+    s.metodo_pago = nuevoMedio;
+    s.nota = nuevaNota || null;
+    s.pagos = null;
+    closeModal('ov-editar-venta');
+    renderHist();
+    showToast(`✅ Venta corregida — ahora ${nuevoMedio}${teniaSplit?' (se unificó el pago dividido)':''}`, 'ok');
+  }catch(e){
+    showToast('❌ Error al corregir: '+(e?.message||'desconocido'), 'err');
+    console.error('guardarEditarVenta error:', e);
+  }
+}
+
 
 async function anularVenta(id, event) {
   event.stopPropagation();
