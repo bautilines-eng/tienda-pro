@@ -11525,12 +11525,27 @@ function _agruparAlicuotas(items, total, desc){
     return { alicuota: r, id_afip: ALICUOTA_AFIP_ID[r] || 5, base_imp: neto, importe: iva };
   });
 
-  // Ajuste de redondeo sobre el grupo más grande, para cerrar exacto.
+  // Ajuste de redondeo para que el total cierre exacto contra la venta.
+  // ⚠️ Bug real encontrado el 14/08 (rechazo de ARCA al comprobante 248,
+  // "Los importes informados en AlicIVA no se corresponden con los
+  // porcentajes"): antes, el residuo de redondeo se sumaba SOLO al
+  // importe de IVA del grupo más grande, sin tocar su base imponible —
+  // eso corría el % real (ej. terminaba en 21.05% en vez de 21%), y ARCA
+  // lo rechaza porque valida Importe ≈ BaseImp × Alicuota/100.
+  // Ahora el ajuste se aplica al MONTO BRUTO del grupo (base+IVA juntos)
+  // y neto/iva se recalculan desde ahí con la MISMA fórmula que el resto
+  // de los grupos — así importe sigue siendo exactamente base_imp × %,
+  // sin importar cuánto haya que ajustar.
   if(detalle.length){
     const sumaNeto = detalle.reduce((s,d) => s + d.base_imp, 0);
     const sumaIva  = detalle.reduce((s,d) => s + d.importe, 0);
     const diff = Math.round((totalObjetivo - sumaNeto - sumaIva) * 100) / 100;
-    if(diff !== 0) detalle[0].importe = Math.round((detalle[0].importe + diff) * 100) / 100;
+    if(diff !== 0){
+      const g = detalle[0];
+      const brutoAjustado = (g.base_imp + g.importe) + diff;
+      g.base_imp = Math.round((brutoAjustado / (1 + g.alicuota / 100)) * 100) / 100;
+      g.importe  = Math.round((brutoAjustado - g.base_imp) * 100) / 100;
+    }
   }
 
   const neto = Math.round(detalle.reduce((s,d) => s + d.base_imp, 0) * 100) / 100;
