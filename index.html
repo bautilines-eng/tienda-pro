@@ -13124,6 +13124,13 @@ function calcArqueo(){
 
 function prepararCierre(){
   const today=fechaHoyLocal();
+  // Ya existe un cierre para hoy -- esto es justo lo que generó los
+  // duplicados del 14 y 15/08 (doble clic o F5 en el momento justo, sin
+  // ninguna validación). No se puede cerrar dos veces el mismo día.
+  if((cierres||[]).some(c => c.fecha === today)){
+    showToast('Ya existe un cierre registrado para hoy — no se puede cerrar dos veces el mismo día', 'err');
+    return;
+  }
   const todaySales=sales.filter(s=>s.fecha===today);
   if(!todaySales.length){showToast('No hay ventas hoy para cerrar','err');return;}
   // Neto de NC del día (mismo criterio que renderCaja — un solo helper).
@@ -13177,7 +13184,23 @@ function prepararCierre(){
   openModal('ov-cierre');
 }
 
+let _cierreEnProgreso = false;
 async function confirmarCierre(){
+  // Defensa en profundidad: prepararCierre ya frena el caso normal, pero
+  // un doble clic rápido en "Confirmar" dentro del modal dispara esta
+  // función dos veces antes de que el primer insert termine y actualice
+  // `cierres` — que es justo el patrón que dejó 2 cierres idénticos el
+  // 15/08. El flag corta la segunda ejecución mientras la primera sigue
+  // en vuelo; el chequeo contra `cierres` cubre además el caso de que ya
+  // haya un cierre real guardado (ej. se reabrió el modal viejo).
+  if(_cierreEnProgreso) return;
+  const today = window._cierreData?.fecha || fechaHoyLocal();
+  if((cierres||[]).some(c => c.fecha === today)){
+    showToast('Ya existe un cierre registrado para hoy — no se puede cerrar dos veces el mismo día', 'err');
+    closeModal('ov-cierre');
+    return;
+  }
+  _cierreEnProgreso = true;
   try{
     const c=await sbInsert('cierres_caja',window._cierreData);
     cierres.unshift(c);
@@ -13190,6 +13213,8 @@ async function confirmarCierre(){
   }catch(e){
     showToast('❌ Error al registrar cierre','err');
     console.error(e);
+  }finally{
+    _cierreEnProgreso = false;
   }
 }
 
