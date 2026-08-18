@@ -3484,6 +3484,9 @@ const CONFIG_FISCAL = {
   tipo_cbte_fac_b:   '006',  // Factura B
   tipo_cbte_fac_a:   '001',  // Factura A
   tipo_cbte_fac_c:   '011',  // Factura C (no aplica RI)
+  tipo_cbte_nc_a:    '003',  // Nota de Crédito A — tabla oficial AFIP
+  tipo_cbte_nc_b:    '008',  // Nota de Crédito B — tabla oficial AFIP
+  tipo_cbte_nc_c:    '013',  // Nota de Crédito C — tabla oficial AFIP
   punto_venta:       '00001', // Se actualiza cuando AFIP asigne el número
 };
 
@@ -7000,60 +7003,140 @@ function generarIVA(tipo) {
     // nombre exacto del campo AFIP para IIBB/RG3337 en Compras no está
     // 100% confirmado contra la fuente oficial. Marcado abajo cuál es
     // cuál y con qué nivel de certeza.
+    //
+    // 18/08: se agregan acá también las Notas de Crédito de proveedor
+    // contabilizadas — antes NO se incluían (mismo hueco que tenía el
+    // Excel, corregido en la misma sesión). En este formato de ancho fijo
+    // NO hay signo negativo posible (fmtMonto usa Math.abs siempre) — la
+    // reducción del crédito fiscal se declara con el código de
+    // comprobante propio de Nota de Crédito (003/008/013 según A/B/C),
+    // no con un monto negativo.
     const tipoCbteMap = { FA: CONFIG_FISCAL.tipo_cbte_fac_a, FB: CONFIG_FISCAL.tipo_cbte_fac_b, FC: CONFIG_FISCAL.tipo_cbte_fac_c };
+    const tipoCbteNcMap = { A: CONFIG_FISCAL.tipo_cbte_nc_a, B: CONFIG_FISCAL.tipo_cbte_nc_b, C: CONFIG_FISCAL.tipo_cbte_nc_c };
     const facs = (facturas || []).filter(f =>
       !f.anulada && tipoCbteMap[f.tipo_cbte] && f.fecha >= desde && f.fecha <= hasta
-    ).sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
-    lineas = facs.map(f => {
-      const { ptoVta: ptoVtaProv, numero: numeroProv } = _splitNumeroFactura(f.numero);
-      const ptoV2   = padL(ptoVtaProv || '1', 5);
-      const nro     = padL(numeroProv || '0', 20);
-      const cuitDig = String(f.cuit_prov || '').replace(/\D/g, '');
+    );
+    const ncs = (notasCreditoProveedor || []).filter(nc =>
+      nc.contabilizada && nc.fecha >= desde && nc.fecha <= hasta
+    );
+    const registros = [
+      ...facs.map(f => ({ tipo:'factura', f })),
+      ...ncs.map(nc => ({ tipo:'nc', nc })),
+    ].sort((a,b) => ((a.f||a.nc).fecha||'').localeCompare((b.f||b.nc).fecha||''));
+
+    lineas = registros.map(r => {
+      if (r.tipo === 'factura') {
+        const f = r.f;
+        const { ptoVta: ptoVtaProv, numero: numeroProv } = _splitNumeroFactura(f.numero);
+        const ptoV2   = padL(ptoVtaProv || '1', 5);
+        const nro     = padL(numeroProv || '0', 20);
+        const cuitDig = String(f.cuit_prov || '').replace(/\D/g, '');
+        const nroDoc  = padL(cuitDig || '0', 20);
+        const denom   = padR(f.proveedor || 'PROVEEDOR', 30);
+        const total   = fmtMonto(f.total || 0);
+        const noGrav  = fmtMonto(f.no_gravado || 0);
+        const neto    = fmtMonto(f.neto_gravado || 0);
+        const iva     = fmtMonto(f.importe_iva || 0);
+        const percIva    = fmtMonto(f.perc_iva || 0);     // Perc.5329 — nombre de campo coincide, alta confianza
+        const impInternos= fmtMonto(f.imp_internos || 0); // Imp.Internos — nombre de campo coincide, alta confianza
+        const percNac    = fmtMonto((f.perc_3337||0) + (f.perc_iibb||0)); // ⚠️ sin confirmar contra fuente oficial cuál campo AFIP corresponde a IIBB/RG3337 en Compras — necesario para que Total cierre, revisar con la contadora
+        return [
+          fmtFecha(f.fecha),
+          tipoCbteMap[f.tipo_cbte],
+          ptoV2, nro, nro,                // pto_vta, nro_desde, nro_hasta — reales, parseados de f.numero
+          '80', nroDoc,                   // cod_doc CUIT, nro_doc — CUIT real del proveedor
+          denom,                          // denominacion
+          total,                          // imp_total
+          noGrav,                         // imp_tot_conc — No Gravado real
+          neto,                           // imp_neto_grav — real, no recalculado
+          padL(0,15),                     // liq_tur — no aplica
+          padL(0,15),                     // imp_int — sin uso identificado, queda en 0
+          percIva,                        // perc_iva — Perc.5329 real
+          percNac,                        // perc_nac — Perc.3337 + Perc.IIBB (⚠️ ver aviso arriba)
+          iva,                            // imp_iva — real, no recalculado
+          impInternos,                    // imp_internos — real
+          padL(0,15),                     // gratuitos
+          '1',' ','PES',padL(10000,10),
+          fmtFecha(f.fecha),
+        ].join('');
+      }
+      // NC de proveedor
+      const nc = r.nc;
+      const letra = _letraDesdeFacturaRelacionada(nc.factura_relacionada);
+      const tipoNc = tipoCbteNcMap[letra] || CONFIG_FISCAL.tipo_cbte_nc_b; // sin match: asume B (el caso más común acá)
+      const { ptoVta: ptoVtaNc, numero: numeroNc } = _splitNumeroFactura(nc.nro_nota);
+      const ptoV2   = padL(ptoVtaNc || '1', 5);
+      const nro     = padL(numeroNc || '0', 20);
+      const cuitDig = String(nc.cuit_prov || '').replace(/\D/g, '');
       const nroDoc  = padL(cuitDig || '0', 20);
-      const denom   = padR(f.proveedor || 'PROVEEDOR', 30);
-      const total   = fmtMonto(f.total || 0);
-      const noGrav  = fmtMonto(f.no_gravado || 0);
-      const neto    = fmtMonto(f.neto_gravado || 0);
-      const iva     = fmtMonto(f.importe_iva || 0);
-      const percIva    = fmtMonto(f.perc_iva || 0);     // Perc.5329 — nombre de campo coincide, alta confianza
-      const impInternos= fmtMonto(f.imp_internos || 0); // Imp.Internos — nombre de campo coincide, alta confianza
-      const percNac    = fmtMonto((f.perc_3337||0) + (f.perc_iibb||0)); // ⚠️ sin confirmar contra fuente oficial cuál campo AFIP corresponde a IIBB/RG3337 en Compras — necesario para que Total cierre, revisar con la contadora
+      const denom   = padR(nc.proveedor || 'PROVEEDOR', 30);
+      const total   = fmtMonto(nc.total || 0);
+      const neto    = fmtMonto(nc.neto || 0);
+      const iva     = fmtMonto(nc.iva || 0);
+      const percIva = fmtMonto(nc.perc_iva || 0);
       return [
-        fmtFecha(f.fecha),
-        tipoCbteMap[f.tipo_cbte],
-        ptoV2, nro, nro,                // pto_vta, nro_desde, nro_hasta — reales, parseados de f.numero
-        '80', nroDoc,                   // cod_doc CUIT, nro_doc — CUIT real del proveedor
-        denom,                          // denominacion
-        total,                          // imp_total
-        noGrav,                         // imp_tot_conc — No Gravado real
-        neto,                           // imp_neto_grav — real, no recalculado
-        padL(0,15),                     // liq_tur — no aplica
-        padL(0,15),                     // imp_int — sin uso identificado, queda en 0
-        percIva,                        // perc_iva — Perc.5329 real
-        percNac,                        // perc_nac — Perc.3337 + Perc.IIBB (⚠️ ver aviso arriba)
-        iva,                            // imp_iva — real, no recalculado
-        impInternos,                    // imp_internos — real
-        padL(0,15),                     // gratuitos
+        fmtFecha(nc.fecha),
+        tipoNc,
+        ptoV2, nro, nro,
+        '80', nroDoc,
+        denom,
+        total,
+        padL(0,15),                     // imp_tot_conc — no aplica en una NC
+        neto,
+        padL(0,15),
+        padL(0,15),
+        percIva,
+        padL(0,15),                     // perc_nac — no tracked en NC de proveedor
+        iva,
+        padL(0,15),                     // imp_internos — no tracked en NC de proveedor
+        padL(0,15),
         '1',' ','PES',padL(10000,10),
-        fmtFecha(f.fecha),
+        fmtFecha(nc.fecha),
       ].join('');
     });
 
   } else if (tipo === 'compras_alic') {
     filename = `LIBRO_IVA_DIGITAL_COMPRAS_ALICUOTAS_${periodo.replace('-','')}.txt`;
-    // Mismo criterio y misma fuente que compras_cbte arriba.
+    // Mismo criterio y misma fuente que compras_cbte arriba, incluidas
+    // las NC de proveedor (mismo agregado del 18/08).
     const tipoCbteMap = { FA: CONFIG_FISCAL.tipo_cbte_fac_a, FB: CONFIG_FISCAL.tipo_cbte_fac_b, FC: CONFIG_FISCAL.tipo_cbte_fac_c };
+    const tipoCbteNcMap = { A: CONFIG_FISCAL.tipo_cbte_nc_a, B: CONFIG_FISCAL.tipo_cbte_nc_b, C: CONFIG_FISCAL.tipo_cbte_nc_c };
     const facs = (facturas || []).filter(f =>
       !f.anulada && tipoCbteMap[f.tipo_cbte] && f.fecha >= desde && f.fecha <= hasta
-    ).sort((a,b) => (a.fecha||'').localeCompare(b.fecha||''));
-    lineas = facs.map(f => {
-      const { ptoVta: ptoVtaProv, numero: numeroProv } = _splitNumeroFactura(f.numero);
-      const ptoV2   = padL(ptoVtaProv || '1', 5);
-      const nro     = padL(numeroProv || '0', 20);
-      const neto    = fmtMonto(f.neto_gravado || 0, 15, 3);
-      const ivaLiq  = fmtMonto(f.importe_iva || 0, 15, 3);
-      const codAlic = _alicCodigoRG3685(f.alicuota_iva);
-      return [tipoCbteMap[f.tipo_cbte], ptoV2, nro, neto, codAlic, ivaLiq].join('');
+    );
+    const ncs = (notasCreditoProveedor || []).filter(nc =>
+      nc.contabilizada && nc.fecha >= desde && nc.fecha <= hasta
+    );
+    const registros = [
+      ...facs.map(f => ({ tipo:'factura', f })),
+      ...ncs.map(nc => ({ tipo:'nc', nc })),
+    ].sort((a,b) => ((a.f||a.nc).fecha||'').localeCompare((b.f||b.nc).fecha||''));
+
+    lineas = registros.map(r => {
+      if (r.tipo === 'factura') {
+        const f = r.f;
+        const { ptoVta: ptoVtaProv, numero: numeroProv } = _splitNumeroFactura(f.numero);
+        const ptoV2   = padL(ptoVtaProv || '1', 5);
+        const nro     = padL(numeroProv || '0', 20);
+        const neto    = fmtMonto(f.neto_gravado || 0, 15, 3);
+        const ivaLiq  = fmtMonto(f.importe_iva || 0, 15, 3);
+        const codAlic = _alicCodigoRG3685(f.alicuota_iva);
+        return [tipoCbteMap[f.tipo_cbte], ptoV2, nro, neto, codAlic, ivaLiq].join('');
+      }
+      const nc = r.nc;
+      const letra = _letraDesdeFacturaRelacionada(nc.factura_relacionada);
+      const tipoNc = tipoCbteNcMap[letra] || CONFIG_FISCAL.tipo_cbte_nc_b;
+      const { ptoVta: ptoVtaNc, numero: numeroNc } = _splitNumeroFactura(nc.nro_nota);
+      const ptoV2   = padL(ptoVtaNc || '1', 5);
+      const nro     = padL(numeroNc || '0', 20);
+      const neto    = fmtMonto(nc.neto || 0, 15, 3);
+      const ivaLiq  = fmtMonto(nc.iva || 0, 15, 3);
+      // La NC hereda la misma alícuota que declaraba la factura original —
+      // no se guarda un % explícito en notas_credito_proveedor, así que se
+      // deriva del propio neto/iva de la NC (misma proporción).
+      const pctDerivado = (nc.neto>0) ? Math.round((nc.iva||0)/(nc.neto||1)*100*2)/2 : 21;
+      const codAlic = _alicCodigoRG3685(pctDerivado);
+      return [tipoNc, ptoV2, nro, neto, codAlic, ivaLiq].join('');
     });
   }
 
@@ -7098,6 +7181,16 @@ function generarIVATodos() {
 function _facComprobanteLetra(tipo) {
   const map = { FA:['FC','A'], FB:['FC','B'], FC:['FC','C'], RE:['RE',''], OT:['OT','']};
   return map[tipo] || ['FC',''];
+}
+
+// Deriva la letra (A/B/C) del comprobante que una NC de proveedor cancela,
+// a partir del texto libre de "factura_relacionada" (formato real
+// verificado contra tus NC cargadas: "FACTURA A-7-916807"). Se usa tanto
+// en el Excel de IVA Compras como en los dos TXT del Libro IVA Digital,
+// para no repetir la misma extracción tres veces.
+function _letraDesdeFacturaRelacionada(texto) {
+  const m = String(texto || '').match(/FACTURA[\s-]+([ABC])[\s-]+(\d+)[\s-]+(\d+)/i);
+  return m ? m[1].toUpperCase() : null;
 }
 
 function _splitNumeroFactura(numeroStr) {
@@ -7175,14 +7268,12 @@ function generarIVAComprasExcel() {
 
   ncs.forEach(nc => {
     // La NC de proveedor no tiene un tipo_cbte propio como las facturas —
-    // se deriva letra/pto.vta/número de "factura_relacionada" (formato
-    // real usado: "FACTURA A-7-916807"). Si por algún motivo no matchea
-    // (texto libre distinto), no se descarta la NC — sale igual con esos
-    // 3 campos vacíos, para no perder el importe de la planilla.
-    const m = String(nc.factura_relacionada || '').match(/FACTURA[\s-]+([ABC])[\s-]+(\d+)[\s-]+(\d+)/i);
-    const letra = m ? m[1].toUpperCase() : '';
-    const ptoVta = m ? parseInt(m[2], 10) : '';
-    const numero = m ? parseInt(m[3], 10) : '';
+    // la letra se deriva de "factura_relacionada" (formato real usado:
+    // "FACTURA A-7-916807"), pero Pto.Vta/Número son los PROPIOS de la
+    // NC (su nro_nota), no los de la factura que cancela — mismo criterio
+    // que los dos TXT del Libro IVA Digital, para que todo cruce igual.
+    const letra = _letraDesdeFacturaRelacionada(nc.factura_relacionada) || '';
+    const { ptoVta, numero } = _splitNumeroFactura(nc.nro_nota);
     const cuitDigits = String(nc.cuit_prov || '').replace(/\D/g, '');
     const [y, mo, d] = (nc.fecha || '').split('-');
     const fechaFmt = (y && mo && d) ? `${d}/${mo}/${y}` : (nc.fecha || '');
