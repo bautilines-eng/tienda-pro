@@ -9166,6 +9166,7 @@ async function renderKardex() {
     'AJUSTE':              { icon: '⚙️', color: '#6a1b9a', label: 'Ajuste' },
     'EDICION_COMPRA':      { icon: '✏️', color: '#1565c0', label: 'Corrección de compra' },
     'ANULACION_COMPRA':    { icon: '🗑️', color: '#c94040', label: 'Anulación de compra' },
+    'CONSUMO_PERSONAL':    { icon: '🧑‍🔧', color: '#9a5b12', label: 'Consumo personal' },
     'RECEPCION':           { icon: '📥', color: '#1a5c38', label: 'Recepción' },
     'TRANSFERENCIA':       { icon: '🔄', color: '#6a1b9a', label: 'Transferencia' },
     'ROLLBACK':            { icon: '⏪', color: '#888',    label: 'Reversión' },
@@ -10275,33 +10276,67 @@ function renderConsumos(){
 
 async function aprobarConsumo(id){
   const cp=(consumosPersonal||[]).find(x=>x.id===id); if(!cp) return;
-  if(!confirm('¿Aprobar el consumo de '+(cp.solicitante_email||'personal')+' por $'+(cp.total||0).toLocaleString('es-AR')+'?\n\nSe descuenta el stock y se registra la deuda a su nombre.')) return;
+  if(!confirm('¿Aprobar el consumo de '+(cp.solicitante_email||'personal')+' por $'+(cp.total||0).toLocaleString('es-AR')+'?\n\nSolo se descuenta el stock — NO se genera ninguna deuda, lo cubre el Drugstore.')) return;
   try{
     let items=cp.items; if(typeof items==='string'){ try{items=JSON.parse(items)}catch(_){items=[]} }
-    const { data:result, error } = await SB.rpc('procesar_venta_atomica', {
-      p_tienda_id: STORE.id, p_items: items, p_metodo_pago: 'Cuenta Corriente',
-      p_total: cp.total, p_cliente: cp.solicitante_email || 'Personal',
-      p_nota: 'Consumo personal', p_tipo_cbte: 'X', p_request_id: cp.id
-    });
-    if(error) throw error;
-    if(!result || !result.exito) throw new Error(result?.error || 'No se pudo procesar');
-    // La deuda creada (CC) se marca como 'personal'
-    let deudaId=null;
-    try{
-      const { data:d } = await SB.from('deudas')
-        .update({ tipo:'personal', descripcion:'Consumo personal · '+(cp.solicitante_email||'') })
-        .eq('venta_id', result.venta_id).select('id').maybeSingle();
-      deudaId = d?.id || null;
-    }catch(_){}
+    if(!items.length) throw new Error('El consumo no tiene productos cargados');
+
+    // Chequeo previo de stock disponible para TODOS los ítems antes de
+    // descontar nada — cubre el caso más probable de falla (no alcanza
+    // el stock) sin tocar la base. Si igual falla algo en el medio del
+    // loop de abajo (ej. otra venta bajó el stock justo en el medio),
+    // se revierte automáticamente lo ya descontado con el mismo
+    // compensador que usa el resto del sistema para ventas fallidas.
+    for(const it of items){
+      const prodRef = (prods||[]).find(p=>p.id===it.producto_id);
+      const stockActual = prodRef ? (prodRef.stock||0) : 0;
+      if(stockActual < (it.cantidad||0)){
+        throw new Error('No hay stock suficiente de "'+(it.nombre||it.producto_id)+'": hay '+stockActual+' y se necesitan '+it.cantidad+'.');
+      }
+    }
+
+    // 18/08: a pedido de Bautista, el consumo personal YA NO genera venta
+    // ni deuda — antes reusaba procesar_venta_atomica (Cuenta Corriente),
+    // lo cual dejaba al empleado debiendo el importe. Ahora se llama
+    // directo a mover_stock_con_kardex por cada producto, sin pasar por
+    // ninguna venta: solo se descuenta stock, lo cubre el Drugstore.
+    // ⚠️ 'CONSUMO_PERSONAL' es un tipo_mov nuevo (no usado antes en el
+    // sistema) — si tipo_mov fuera un ENUM estricto en la base (no lo
+    // pude confirmar sin acceso directo), el primer intento de aprobar
+    // fallaría con un error claro y no tocaría nada (ver compensación
+    // abajo); avisame apenas lo prueben si da error.
+    const txId = 'consumo-'+id;
+    const stepsCompletados = [];
+    for(const it of items){
+      const params = {
+        p_tienda_id: STORE.id, p_producto_id: it.producto_id,
+        p_cantidad: -(it.cantidad||0),   // negativo = sale stock
+        p_tipo_mov: 'CONSUMO_PERSONAL', p_doc_tipo: 'CONSUMO_PERSONAL',
+        p_doc_nro: 'CP-'+String(id).slice(-8),
+        p_costo_unit: it.costo || 0, p_precio_unit: it.precio || 0,
+        p_observacion: 'Consumo personal — '+(cp.solicitante_email||''),
+      };
+      const { data:kResult, error:kErr } = await SB.rpc('mover_stock_con_kardex', params);
+      if(kErr || (kResult && kResult.exito===false)){
+        if(stepsCompletados.length){
+          CompensationLog.add(txId, stepsCompletados);
+          await CompensationLog.compensate(txId);
+        }
+        const msg = (kErr && kErr.message) || (kResult && kResult.error) || '';
+        throw new Error('No se pudo descontar "'+(it.nombre||it.producto_id)+'": '+msg+(stepsCompletados.length?' — se revirtió el resto de este consumo.':''));
+      }
+      const prodRef = (prods||[]).find(p=>p.id===it.producto_id);
+      if(prodRef && kResult && kResult.stock_nuevo!=null) prodRef.stock = kResult.stock_nuevo;
+      stepsCompletados.push({ type:'STOCK_REVERT', table:'productos', params });
+    }
+
     await SB.from('consumos_personal').update({
-      estado:'aprobado', venta_id:result.venta_id, deuda_id:deudaId,
-      aprobado_por: USER?.email, aprobado_uid: USER?.id, resuelto_at: new Date().toISOString()
+      estado:'aprobado', aprobado_por: USER?.email, aprobado_uid: USER?.id, resuelto_at: new Date().toISOString()
     }).eq('id', id);
-    await loadConsumos(); await loadDeudas();
-    try{ const _d = await sbGet('productos'); prods = _d.filter(p=>!p.is_deleted); }catch(_){}
+    await loadConsumos();
     renderConsumos(); if(typeof renderDeudas==='function') renderDeudas();
     if(typeof renderStock==='function') renderStock(typeof stockFilter!=='undefined'?stockFilter:'all');
-    showToast('✅ Consumo aprobado — stock descontado y deuda registrada','ok');
+    showToast('✅ Consumo aprobado — stock descontado, sin deuda generada','ok');
   }catch(e){ console.error('aprobar', e); showToast('❌ '+(e.message||'No se pudo aprobar'),'err'); }
 }
 
