@@ -10147,6 +10147,11 @@ async function initApp(){
     loadRecepciones(),
   ]);
   loadUsuarios();
+  // Recién acá prods y combos están cargados los dos -- mete los combos
+  // activos como productos virtuales con stock real (antes esto solo
+  // pasaba una vez, al crear el combo, en memoria; se perdía con
+  // cualquier F5).
+  _mergearCombosEnProds();
   renderAll();
   // Iniciar monitor de conexión DESPUÉS de que todo esté cargado
   setTimeout(startConnectionMonitor, 2000);
@@ -11343,6 +11348,7 @@ function filterP(){
 }
 
 function renderProds(){
+  _refrescarStockCombos();
   const el=document.getElementById('prods-el');
   if(!prods.length){el.innerHTML='<div class="empty"><div class="spin"></div>Cargando productos...</div>';return;}
   if(!filtered.length){el.innerHTML='<div class="empty">Sin productos. Agregá uno desde Stock.</div>';return;}
@@ -11643,13 +11649,13 @@ function updateCart(){
 // (sin tocar ARCA), y el flujo manual de guardarCAE() sigue disponible
 // para cualquier caso que necesite carga a mano.
 //
-// LIMITACIÓN CONOCIDA: la verificación de stock previa (Opción A) NO
-// cubre productos combo (es_combo) — se saltean del chequeo, igual
-// que ya hace el resto del código con el stock local tras la venta.
-// El riesgo residual de carrera (dos cajeros vendiendo el último
-// producto casi al mismo tiempo) sigue existiendo igual que antes
-// para combos; para productos normales, se reduce a la ventana chica
-// entre este chequeo y el pedido a ARCA.
+// La verificación de stock previa (Opción A) YA cubre combos también
+// (ver _verificarStockDisponible) desde el 18/08 — antes se salteaban
+// por completo, dejando pasar ventas de combos sin stock real de sus
+// componentes. El riesgo residual de carrera (dos cajeros vendiendo el
+// último producto casi al mismo tiempo) sigue existiendo, reducido a la
+// ventana chica entre este chequeo y el pedido a ARCA — igual que para
+// productos normales.
 // ══════════════════════════════════════════════════════════════
 
 // ── Códigos de alícuota IVA según tabla oficial ARCA (verificados contra
@@ -11672,11 +11678,12 @@ const ALICUOTA_AFIP_ID = { 0:3, 10.5:4, 21:5, 27:6, 5:8, 2.5:9 };
 // exigencia que valida ARCA y el CHECK de la tabla `facturas`.
 //
 // NOTA: los productos "es_combo" no tienen iva_alicuota propia (agrupan
-// varios productos bajo un precio único) — hoy caen al fallback 21% si
-// se vendieran. Confirmado con Bautista (22/07/2026): sin combos activos
-// por ahora, así que no es un caso real todavía. Si en el futuro se arma
-// un combo mezclando alícuotas, hay que resolver esto antes de venderlo
-// (desglosar el combo en sus líneas reales al facturar).
+// varios productos bajo un precio único). Ya NO caen al fallback 21% al
+// venderse: registerSale descompone el combo en sus componentes reales
+// (_descomponerItemsCombo) ANTES de llamar a esta función, así cada
+// componente declara su alícuota real. Esta función en sí sigue
+// asumiendo que le pasan productos reales — si algún día se la llama
+// directo con un combo sin descomponer, cae acá al 21% fallback.
 function _agruparAlicuotas(items, total, desc){
   const grupos = {};
   for(const it of items){
@@ -11740,16 +11747,43 @@ function _datosReceptorAfip(tipoCbte, cuitDigits){
 // el catch de registerSale ("Stock insuficiente").
 async function _verificarStockDisponible(sel, qtys){
   const noCombo = sel.filter(p => !p.es_combo);
-  if (!noCombo.length) return;
-  const ids = noCombo.map(p => p.id);
-  const { data, error } = await SB.from('productos').select('id,nombre,stock').in('id', ids);
+  const combosSel = sel.filter(p => p.es_combo);
+  if (!noCombo.length && !combosSel.length) return;
+
+  // Una sola consulta con TODOS los ids que hacen falta: productos
+  // sueltos + componentes reales de cualquier combo en el carrito.
+  const idsComponentes = combosSel.flatMap(c=>{
+    const items = typeof c.combo_items==='string' ? JSON.parse(c.combo_items||'[]') : (c.combo_items||[]);
+    return items.map(it=>it.id);
+  });
+  const idsTotales = [...new Set([...noCombo.map(p=>p.id), ...idsComponentes])];
+  if(!idsTotales.length) return;
+
+  const { data, error } = await SB.from('productos').select('id,nombre,stock').in('id', idsTotales);
   if (error) throw new Error('No se pudo verificar stock antes de facturar: ' + error.message);
+
   for (const p of noCombo) {
     const actual = data.find(d => d.id === p.id);
     const disponible = actual ? actual.stock : 0;
     const pedido = qtys[p.id] || 0;
     if (disponible < pedido) {
       throw new Error(`Stock insuficiente para "${p.nombre}": disponible ${disponible}, solicitado ${pedido}`);
+    }
+  }
+
+  // Combos: valida que CADA componente alcance para armar la cantidad
+  // de combos pedida — antes esto se salteaba directo, dejando pasar
+  // ventas que después fallaban (o peor, vendían de más).
+  for (const c of combosSel) {
+    const items = typeof c.combo_items==='string' ? JSON.parse(c.combo_items||'[]') : (c.combo_items||[]);
+    const pedidoCombos = qtys[c.id] || 0;
+    for (const it of items) {
+      const actual = data.find(d => d.id === it.id);
+      const disponible = actual ? actual.stock : 0;
+      const necesario = (it.cantidad||1) * pedidoCombos;
+      if (disponible < necesario) {
+        throw new Error(`Stock insuficiente para armar "${c.nombre}" (falta "${it.nombre}"): disponible ${disponible}, se necesitan ${necesario}`);
+      }
     }
   }
 }
@@ -11952,7 +11986,14 @@ async function registerSale(){
     const clienteNom=clienteEl.value?(clienteEl.options[clienteEl.selectedIndex]?.text||''):'';
     let nota=document.getElementById('v-nota').value;
     if(promoValidaAhora) nota = (nota?nota+' ':'') + `[Promo: ${promoValidaAhora.codigo}]`;
-    const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota),impuesto_interno_unitario:(p.impuesto_interno_unitario||0)}));
+    const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota),impuesto_interno_unitario:(p.impuesto_interno_unitario||0),es_combo:!!p.es_combo,combo_items:p.combo_items||null}));
+    // Versión con cualquier combo descompuesto en sus productos reales —
+    // necesaria para el desglose de IVA/ARCA y para la RPC de venta (ver
+    // _descomponerItemsCombo). El ticket sigue mostrando `items` tal cual
+    // (una sola línea por combo); si hubo algún combo, se pisa
+    // ventas.items después de guardar (más abajo) para que quede así.
+    const hayCombo = items.some(it=>it.es_combo);
+    const itemsReales = hayCombo ? _descomponerItemsCombo(items) : items;
 
     const tipoCbte    = document.querySelector('.cbte-btn.active')?.dataset.cbte || 'B';
     const cuitCte     = document.getElementById('cuit-cte-input')?.value.trim() || null;
@@ -11980,14 +12021,16 @@ async function registerSale(){
     // `ventas` para que la contabilidad (asientoVenta/Mayor/Balance) no
     // quede desconectada del resto.
     // ══════════════════════════════════════════════════════════════
-    const ivaCalc = (tipoCbte === 'X') ? null : _agruparAlicuotas(items, total, desc);
+    const ivaCalc = (tipoCbte === 'X') ? null : _agruparAlicuotas(itemsReales, total, desc);
 
     // Impuesto interno de la venta: suma el $/u de cada producto (cargado
     // en el remito, ya viene del costo del proveedor) × cantidad vendida.
     // Es puramente informativo/de divulgación (Régimen Transparencia
     // Fiscal) — no se re-calcula ni se vuelve a cobrar, solo se muestra.
+    // Usa itemsReales: un combo en sí no tiene impuesto interno propio,
+    // pero sus componentes reales sí pueden tenerlo.
     const impuestoInternoVenta = Math.round(
-      items.reduce((s,i)=> s + (i.impuesto_interno_unitario||0) * (i.cantidad||0), 0) * 100
+      itemsReales.reduce((s,i)=> s + (i.impuesto_interno_unitario||0) * (i.cantidad||0), 0) * 100
     ) / 100;
 
     // ══════════════════════════════════════════════════════════════
@@ -12019,7 +12062,7 @@ async function registerSale(){
 
     const { data: result, error } = await SB.rpc('procesar_venta_atomica', {
       p_tienda_id:   STORE.id,
-      p_items:       items,
+      p_items:       itemsReales,
       p_metodo_pago: metodoParaRPC,
       p_total:       total,
       p_cliente:     (tipoCbte === 'A' ? (razonSocial || clienteNom) : clienteNom) || null,
@@ -12049,6 +12092,17 @@ async function registerSale(){
     if (pagosSplit && result.venta_id) {
       try { await SB.from('ventas').update({ pagos: pagosSplit, metodo_pago: 'Mixto' }).eq('id', result.venta_id); }
       catch(e){ console.error('No se pudo guardar el split', e); }
+    }
+
+    // Si había algún combo, la RPC guardó `itemsReales` (descompuesto en
+    // productos reales, necesario para el stock/kardex) — se pisa acá
+    // con `items` (una sola línea por combo) para que el ticket e
+    // Historial muestren lo que realmente compró el cliente, no el
+    // desglose interno. Mismo patrón ya usado para promo_codigo: no
+    // toca la RPC, solo un UPDATE liviano después.
+    if (hayCombo && result.venta_id) {
+      try { await SB.from('ventas').update({ items: JSON.stringify(items) }).eq('id', result.venta_id); }
+      catch(e){ console.error('No se pudo restaurar la línea de combo en el ticket', e); }
     }
 
     // Construir objeto venta local con lo que devolvió la función
@@ -12102,10 +12156,19 @@ async function registerSale(){
     }
     _limpiarPromoUI();
 
-    // Actualizar stock local (la función ya lo descontó en la base)
+    // Actualizar stock local (la función ya lo descontó en la base).
+    // Para un combo, el descuento real fue en sus COMPONENTES (vía
+    // itemsReales) — hay que reflejarlo ahí, no en el combo en sí (que
+    // ahora es un valor calculado, ver _refrescarStockCombos).
     for(const p of sel){
-      if(!p.es_combo) p.stock = Math.max(0, p.stock - qtys[p.id]);
+      if(!p.es_combo){ p.stock = Math.max(0, p.stock - qtys[p.id]); continue; }
+      const comboItems = typeof p.combo_items==='string' ? JSON.parse(p.combo_items||'[]') : (p.combo_items||[]);
+      for(const ci of comboItems){
+        const prodReal = prods.find(x=>x.id===ci.id && !x.es_combo);
+        if(prodReal) prodReal.stock = Math.max(0, prodReal.stock - (ci.cantidad||1)*(qtys[p.id]||0));
+      }
     }
+    _refrescarStockCombos();
 
     // Si fue Cuenta Corriente, recargar deudas (la función ya creó la deuda)
     if(!pagosSplit && method === 'Cuenta Corriente'){
@@ -13379,6 +13442,7 @@ function exportarRecuentoExcel(){
 }
 
 function renderStock(f){
+  _refrescarStockCombos();
   let list=[...prods].sort((a,b)=>a.stock-b.stock);
   if(window.STOCK_SOLO_DISPONIBLES) list=list.filter(p=>(p.stock||0)>0); // vendedor: solo disponibles
   if(f==='out')list=list.filter(p=>p.stock===0);
@@ -14306,6 +14370,48 @@ function renderComboItems() {
   if(sugEl) sugEl.textContent = `$${Math.round(total * 0.9).toLocaleString('es-AR')}`;
 }
 
+// Mete los combos activos en `prods` como productos virtuales, con
+// stock REAL calculado (no el 999 fijo de antes). Se llama en el arranque
+// (initApp, tras loadProds+loadCombos) y de nuevo cada vez que se crea un
+// combo — así la entrada sobrevive a un refresh de página, que antes la
+// borraba por completo (era solo un unshift en memoria, nunca se
+// reconstruía). Idempotente: saca cualquier entrada virtual vieja antes
+// de agregar, para no duplicar si se llama más de una vez.
+function _mergearCombosEnProds(){
+  prods = (prods||[]).filter(p=>!p.es_combo);
+  for(const c of (combos||[])){
+    if(c.activo===false) continue;
+    const items = typeof c.items==='string' ? JSON.parse(c.items||'[]') : (c.items||[]);
+    prods.push({
+      id:c.id, nombre:c.nombre, precio:c.precio, costo:c.costo||0,
+      categoria:'Combo', barcode:null, codigo_proveedor:null,
+      es_combo:true, combo_items:items, stock_minimo:0, is_deleted:false,
+      stock:0, // se calcula abajo
+    });
+  }
+  _refrescarStockCombos();
+}
+
+// Recalcula el stock "disponible" de cada combo = cuántos combos
+// completos se pueden armar con el stock ACTUAL de sus componentes
+// (el mínimo de stock_componente ÷ cantidad_necesaria, redondeado hacia
+// abajo). Se llama en cada render de Ventas/Stock para que el número
+// esté siempre al día con cualquier venta o ajuste reciente — es una
+// cuenta barata (unos pocos combos, 2-3 componentes cada uno).
+function _refrescarStockCombos(){
+  for(const p of (prods||[])){
+    if(!p.es_combo) continue;
+    const items = typeof p.combo_items==='string' ? JSON.parse(p.combo_items||'[]') : (p.combo_items||[]);
+    if(!items.length){ p.stock = 0; continue; }
+    p.stock = Math.max(0, Math.min(...items.map(it=>{
+      const prodReal = prods.find(x=>x.id===it.id && !x.es_combo);
+      const stockReal = prodReal ? (prodReal.stock||0) : 0;
+      return Math.floor(stockReal / (it.cantidad||1));
+    })));
+  }
+}
+
+
 async function guardarCombo() {
   const nombre = document.getElementById('combo-nombre').value.trim();
   const precio = parseFloat(document.getElementById('combo-precio').value);
@@ -14329,8 +14435,11 @@ async function guardarCombo() {
       activo: true,
     });
     combos.unshift(combo);
-    // Add to products list as virtual product
-    prods.unshift({...combo, id: combo.id, es_combo: true, stock: 999, costo: combo.costo, categoria: 'Combo', barcode: null, codigo_proveedor: null});
+    // Antes: prods.unshift({...combo, stock:999, ...}) -- un placeholder
+    // falso que además desaparecía con cualquier F5 al no reconstruirse
+    // nunca. Ahora usa la misma función que corre en el arranque, con
+    // stock real calculado desde los componentes.
+    _mergearCombosEnProds();
     closeModal('ov-add-combo');
     comboItems = [];
     document.getElementById('combo-nombre').value = '';
@@ -14341,37 +14450,54 @@ async function guardarCombo() {
   } catch(e) { showToast('❌ Error al guardar combo', 'err'); console.error(e); }
 }
 
-// ⚠️ PENDIENTE — NO RESUELTO TODAVÍA (marcado explícitamente para no
-// perderlo de vista). Esta función NUNCA se llama desde ningún lado del
-// código — un combo vendido hoy NO descuenta stock de sus componentes
-// reales. Además, aunque se llamara, tiene dos problemas más:
-// (1) modifica prod.stock solo en memoria, nunca lo guarda en Supabase
-//     (se pierde al refrescar la página);
-// (2) no pasa por mover_stock_con_kardex, así que no queda auditado en
-//     el Kardex ni protegido contra sobreventa.
-// El motivo por el que no se conectó todavía: procesar_venta_atomica
-// (el RPC que registra la venta) hace mover_stock_con_kardex por cada
-// producto vendido usando su producto_id — pero el "producto" de un
-// combo tiene un id de la tabla combos, no de productos, así que
-// mandarlo tal cual al RPC probablemente rechaza la venta entera antes
-// de llegar a esta función. Falta ver la definición real del RPC (o del
-// tipo_mov válido para un movimiento de stock disparado por venta) para
-// resolverlo bien, sin adivinar sobre una tabla en producción.
-const _origRegisterComboStock = async (venta, sel) => {
-  for(const p of sel) {
-    if(p.es_combo) {
-      const items = typeof p.items === 'string' ? JSON.parse(p.items) : (p.items||[]);
-      for(const item of items) {
-        const prod = prods.find(x => x.id === item.id);
-        if(prod) {
-          const newStock = Math.max(0, prod.stock - item.cantidad * (qtys[p.id]||1));
-          console.warn('KARDEX WARNING: Direct stock update bypassed Kardex for product', prod.id);
-          prod.stock = newStock;
-        }
-      }
+// ✅ RESUELTO 18/08 — descompone un combo en sus productos reales para
+// dos usos que necesitan ids/alícuotas reales (un combo no es un
+// producto real, no existe en la tabla `productos`):
+// (1) _agruparAlicuotas (declaración de IVA a ARCA) — un combo con
+//     componentes de distinta alícuota no puede declararse como una
+//     sola línea al 21% fallback, ARCA lo rechazaría (mismo tipo de
+//     error que el bug de AlicIVA del 14/08, ya corregido);
+// (2) p_items de procesar_venta_atomica — hace mover_stock_con_kardex
+//     por cada ítem usando su producto_id; el id de un combo es de la
+//     tabla combos, no de productos, así que sin descomponer la venta
+//     nunca deducía stock real de sus componentes (el bug que reportó
+//     Bautista: "COMBO...: disponible <NULL>").
+// El carrito y el ticket siguen mostrando el combo como una sola línea
+// (decisión confirmada con Bautista) — esta función es solo para el
+// cálculo interno; después de la venta, se pisa items en `ventas` con
+// la versión de una sola línea (ver registerSale).
+// El precio real del combo se prorratea entre sus componentes según el
+// peso de cada uno en el precio de catálogo, para que la suma cierre
+// exacto contra lo efectivamente cobrado (no la suma de precios de
+// lista, que sería más alta que lo que paga el cliente).
+function _descomponerItemsCombo(items){
+  const resultado = [];
+  for(const it of items){
+    if(!it.es_combo){ resultado.push(it); continue; }
+    const comboItems = typeof it.combo_items==='string' ? JSON.parse(it.combo_items||'[]') : (it.combo_items||[]);
+    const cantCombos = it.cantidad||1;
+    const catalogoTotal = comboItems.reduce((s,ci)=>{
+      const prodReal = prods.find(p=>p.id===ci.id && !p.es_combo);
+      return s + (prodReal?.precio||0) * (ci.cantidad||1);
+    }, 0);
+    const precioRealCombo = (it.precio||0) * cantCombos;
+    for(const ci of comboItems){
+      const prodReal = prods.find(p=>p.id===ci.id && !p.es_combo);
+      if(!prodReal) continue; // producto borrado del catálogo -- no debería pasar, no revienta la venta
+      const cantidadReal = (ci.cantidad||1) * cantCombos;
+      const pesoComponente = catalogoTotal>0 ? ((prodReal.precio||0)*(ci.cantidad||1)) / catalogoTotal : (1/comboItems.length);
+      const subtotalProrrateado = Math.round(precioRealCombo * pesoComponente * 100)/100;
+      resultado.push({
+        producto_id: prodReal.id, nombre: prodReal.nombre, cantidad: cantidadReal,
+        precio: cantidadReal>0 ? Math.round((subtotalProrrateado/cantidadReal)*100)/100 : (prodReal.precio||0),
+        subtotal: subtotalProrrateado, costo: prodReal.costo||0, emoji: getEm(prodReal.categoria),
+        iva_alicuota: (prodReal.iva_alicuota==null?21:+prodReal.iva_alicuota),
+        impuesto_interno_unitario: prodReal.impuesto_interno_unitario||0,
+      });
     }
   }
-};
+  return resultado;
+}
 
 // ══════════════════════════════════
 // PROYECCIONES SEMANALES
