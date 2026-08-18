@@ -7127,7 +7127,16 @@ function generarIVAComprasExcel() {
     .filter(f => !f.anulada && f.fecha >= desde && f.fecha <= hasta)
     .sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
 
-  if (!facs.length) { showToast('Sin facturas de proveedor para el período seleccionado', 'err'); return; }
+  // Notas de Crédito de Proveedor contabilizadas del período — reducen el
+  // crédito fiscal, van como filas NEGATIVAS. Solo las contabilizadas
+  // (con factura relacionada elegida) generan asiento real — las que
+  // quedaron pendientes de contabilizar no se incluyen acá tampoco,
+  // mismo criterio que usa asientoNotaCreditoProveedor.
+  const ncs = (notasCreditoProveedor || [])
+    .filter(nc => nc.contabilizada && nc.fecha >= desde && nc.fecha <= hasta)
+    .sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
+
+  if (!facs.length && !ncs.length) { showToast('Sin facturas ni notas de crédito de proveedor para el período seleccionado', 'err'); return; }
 
   const header = ['Comprobante','Letra','Pto.Vta','Número','Fecha','Proveedor','CUIT',
     'Neto Gravado','I.V.A.','No Gravado','Perc.3337','Perc.5329','Perc.IIBB','Imp.Internos','Perc.Municipales','Total'];
@@ -7164,6 +7173,36 @@ function generarIVAComprasExcel() {
     ]);
   });
 
+  ncs.forEach(nc => {
+    // La NC de proveedor no tiene un tipo_cbte propio como las facturas —
+    // se deriva letra/pto.vta/número de "factura_relacionada" (formato
+    // real usado: "FACTURA A-7-916807"). Si por algún motivo no matchea
+    // (texto libre distinto), no se descarta la NC — sale igual con esos
+    // 3 campos vacíos, para no perder el importe de la planilla.
+    const m = String(nc.factura_relacionada || '').match(/FACTURA[\s-]+([ABC])[\s-]+(\d+)[\s-]+(\d+)/i);
+    const letra = m ? m[1].toUpperCase() : '';
+    const ptoVta = m ? parseInt(m[2], 10) : '';
+    const numero = m ? parseInt(m[3], 10) : '';
+    const cuitDigits = String(nc.cuit_prov || '').replace(/\D/g, '');
+    const [y, mo, d] = (nc.fecha || '').split('-');
+    const fechaFmt = (y && mo && d) ? `${d}/${mo}/${y}` : (nc.fecha || '');
+
+    const neto   = -(+nc.neto || 0);
+    const iva    = -(+nc.iva  || 0);
+    const p5329  = -(+nc.perc_iva || 0);
+    const total  = -(+nc.total || 0);
+
+    T.neto+=neto; T.iva+=iva; T.p5329+=p5329; T.total+=total;
+
+    aoa.push([
+      'NC', letra, ptoVta, numero, fechaFmt, nc.proveedor || '',
+      cuitDigits ? +cuitDigits : '',
+      Math.round(neto*100)/100, Math.round(iva*100)/100, 0,
+      0, Math.round(p5329*100)/100, 0,
+      0, 0, Math.round(total*100)/100
+    ]);
+  });
+
   aoa.push([]);
   aoa.push(['TOTALES','','','','','','',
     Math.round(T.neto*100)/100, Math.round(T.iva*100)/100, Math.round(T.noGrav*100)/100,
@@ -7180,9 +7219,9 @@ function generarIVAComprasExcel() {
 
   document.getElementById('iva-preview').innerHTML =
     `<div style="background:#eaf5ee;border:1.5px solid #a5d6a7;border-radius:8px;padding:10px 14px;font-size:12px;color:#1a5c38;margin-top:8px">
-      ✅ <b>IVA_Compras_${year}${month}.xlsx</b> — ${facs.length} factura${facs.length!==1?'s':''} · Perc.Municipales no se captura aún (queda en 0) · no incluye NC/ND de proveedores
+      ✅ <b>IVA_Compras_${year}${month}.xlsx</b> — ${facs.length} factura${facs.length!==1?'s':''}${ncs.length?` + ${ncs.length} NC de proveedor (en negativo)`:''} · Perc.Municipales no se captura aún (queda en 0)
     </div>`;
-  showToast(`✅ Excel IVA Compras descargado (${facs.length} facturas)`, 'ok');
+  showToast(`✅ Excel IVA Compras descargado (${facs.length} facturas${ncs.length?` + ${ncs.length} NC`:''})`, 'ok');
 }
 
 // ══════════════════════════════════════════
