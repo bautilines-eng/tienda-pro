@@ -9166,7 +9166,6 @@ async function renderKardex() {
     'AJUSTE':              { icon: '⚙️', color: '#6a1b9a', label: 'Ajuste' },
     'EDICION_COMPRA':      { icon: '✏️', color: '#1565c0', label: 'Corrección de compra' },
     'ANULACION_COMPRA':    { icon: '🗑️', color: '#c94040', label: 'Anulación de compra' },
-    'CONSUMO_PERSONAL':    { icon: '🧑‍🔧', color: '#9a5b12', label: 'Consumo personal' },
     'RECEPCION':           { icon: '📥', color: '#1a5c38', label: 'Recepción' },
     'TRANSFERENCIA':       { icon: '🔄', color: '#6a1b9a', label: 'Transferencia' },
     'ROLLBACK':            { icon: '⏪', color: '#888',    label: 'Reversión' },
@@ -9216,7 +9215,9 @@ async function renderKardex() {
   // ── TIMELINE de movimientos ──
   html += '<div style="display:flex;flex-direction:column;gap:8px">';
   for (const m of movs) {
-    const cfg = tipoConfig[m.tipo_movimiento] || { icon: '•', color: '#888', label: m.tipo_movimiento };
+    const cfg = m.documento_tipo === 'CONSUMO_PERSONAL'
+      ? { icon: '🧑‍🔧', color: '#9a5b12', label: 'Consumo personal' }
+      : (tipoConfig[m.tipo_movimiento] || { icon: '•', color: '#888', label: m.tipo_movimiento });
     const fecha = new Date(m.fecha_hora);
     const fechaStr = fecha.toLocaleDateString('es-AR') + ' ' + fecha.toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
     const signo = m.cantidad > 0 ? '+' : '';
@@ -10300,18 +10301,22 @@ async function aprobarConsumo(id){
     // lo cual dejaba al empleado debiendo el importe. Ahora se llama
     // directo a mover_stock_con_kardex por cada producto, sin pasar por
     // ninguna venta: solo se descuenta stock, lo cubre el Drugstore.
-    // ⚠️ 'CONSUMO_PERSONAL' es un tipo_mov nuevo (no usado antes en el
-    // sistema) — si tipo_mov fuera un ENUM estricto en la base (no lo
-    // pude confirmar sin acceso directo), el primer intento de aprobar
-    // fallaría con un error claro y no tocaría nada (ver compensación
-    // abajo); avisame apenas lo prueben si da error.
     const txId = 'consumo-'+id;
     const stepsCompletados = [];
     for(const it of items){
       const params = {
         p_tienda_id: STORE.id, p_producto_id: it.producto_id,
         p_cantidad: -(it.cantidad||0),   // negativo = sale stock
-        p_tipo_mov: 'CONSUMO_PERSONAL', p_doc_tipo: 'CONSUMO_PERSONAL',
+        // 'CONSUMO_PERSONAL' no es válido -- kardex_tipo_movimiento_check
+        // solo permite: VENTA, COMPRA, DEVOLUCION_CLIENTE,
+        // DEVOLUCION_PROVEEDOR, AJUSTE_ENTRADA, AJUSTE_SALIDA,
+        // TRANSFERENCIA, INVENTARIO_INICIAL, ANULACION_COMPRA,
+        // ANULACION_VENTA (confirmado 18/08 contra el constraint real en
+        // Supabase, tras el primer intento fallido). AJUSTE_SALIDA es el
+        // que corresponde semánticamente. doc_tipo sí queda libre, así
+        // que el kardex lo sigue identificando como consumo personal
+        // (ver tipoConfig en renderKardex, más la observación de abajo).
+        p_tipo_mov: 'AJUSTE_SALIDA', p_doc_tipo: 'CONSUMO_PERSONAL',
         p_doc_nro: 'CP-'+String(id).slice(-8),
         p_costo_unit: it.costo || 0, p_precio_unit: it.precio || 0,
         p_observacion: 'Consumo personal — '+(cp.solicitante_email||''),
