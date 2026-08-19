@@ -11365,6 +11365,25 @@ function chQ(id,d){
   updateCart();
 }
 
+// Saca un producto puntual del carrito (el ✕ de cada chip) — antes la
+// única forma de sacar un ítem que el cliente ya no se lleva era el
+// botón rojo grande que vacía TODA la venta y obliga a re-escanear todo
+// de nuevo. Reusa el mismo bloque de actualización visual que chQ (la
+// tarjeta del producto en la grilla, si está a la vista, vuelve a
+// "apagada"), directo a cantidad 0 en vez de decrementar de a uno.
+function quitarDelCarrito(id){
+  const p=prods.find(x=>x.id==id); if(!p) return;
+  qtys[id]=0;
+  const card=document.getElementById(`pc-${id}`), qn=document.getElementById(`qn-${id}`);
+  if(card){
+    card.className='pc'; qn.textContent=0; qn.className='qn';
+    const b=card.querySelectorAll('.qb');
+    if(b[0]) b[0].disabled=true;
+    if(b[1]) b[1].disabled=false;
+  }
+  updateCart();
+}
+
 // ══ METHOD ══
 let splitActivo = false;
 
@@ -11605,7 +11624,7 @@ function updateCart(){
   const sub=sel.reduce((s,p)=>s+p.precio*(qtys[p.id]||0),0);
   const desc=_descuentoEfectivo();
   const total=sub*(1-desc/100);
-  document.getElementById('c-chips').innerHTML=sel.map(p=>`<div class="chip">${getEm(p.categoria)} ${esc(p.nombre.split(' ')[0])} ×${qtys[p.id]}</div>`).join('');
+  document.getElementById('c-chips').innerHTML=sel.map(p=>`<div class="chip">${getEm(p.categoria)} ${esc(p.nombre.split(' ')[0])} ×${qtys[p.id]} · $${(p.precio||0).toLocaleString('es-AR')}<span onclick="quitarDelCarrito('${p.id}')" title="Quitar del carrito" style="cursor:pointer;margin-left:6px;font-weight:700;opacity:.7">✕</span></div>`).join('');
   document.getElementById('c-total').textContent=`$${Math.round(total).toLocaleString('es-AR')}`;
   const descLabel = (promoAplicada && _promoEsValidaHoy(promoAplicada).ok) ? `${desc}% ${promoAplicada.codigo}` : (desc>0?`${desc}% desc`:'');
   document.getElementById('c-method-l').textContent=`${splitActivo?'Pago dividido':method}${descLabel?` · ${descLabel}`:''}`;
