@@ -391,11 +391,11 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div style="text-align:center;margin-bottom:20px">
       <div style="font-size:12px;color:rgba(245,240,232,.35);font-family:'DM Mono',monospace;letter-spacing:1px">Sistema privado · Solo acceso autorizado</div>
     </div>
-    <div id="login-form">
-      <input class="linp" id="l-email" type="email" placeholder="Email" autocomplete="email">
-      <input class="linp" id="l-pass" type="password" placeholder="Contraseña" autocomplete="current-password">
-      <button class="lbtn" id="l-btn" onclick="doLogin()">Ingresar →</button>
-    </div>
+    <form id="login-form" onsubmit="doLogin(); return false;" autocomplete="on">
+      <input class="linp" id="l-email" name="email" type="email" placeholder="Email" autocomplete="username" required>
+      <input class="linp" id="l-pass" name="password" type="password" placeholder="Contraseña" autocomplete="current-password" required>
+      <button class="lbtn" id="l-btn" type="submit">Ingresar →</button>
+    </form>
     <div class="lerr" id="l-err"></div>
   </div>
 </div>
