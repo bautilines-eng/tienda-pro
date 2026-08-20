@@ -7015,7 +7015,14 @@ function generarIVA(tipo) {
     // Arma 1 línea de 325 -- común para factura y NC, que comparten
     // exactamente el mismo diseño (solo cambia el tipo de comprobante y
     // de dónde salen los datos).
-    const armarLineaCbte = (fecha, tipoCbte, ptoVta, numero, cuitProv, denomProv, total, noGravado, exento, percIva5329, percOtrosNac, percIibb, percMuni, impInternos, creditoFiscal) => [
+    // 19/08: agregado el parámetro alicuotaPct -- si es 0%, el campo 20
+    // (Código de operación) NO puede quedar en blanco, ARCA lo rechaza
+    // ("Si la alícuota es 0% el código de operación no puede informarse
+    // en blanco"). Tabla oficial: Z-Zona franca, X-Imp.Exterior,
+    // E-Exentas, N-No gravado, A-No alcanzado. El caso real de TODO
+    // PYMES es Factura C (proveedor monotributista, no discrimina IVA)
+    // → corresponde 'E' (Exenta), la categoría estándar para este caso.
+    const armarLineaCbte = (fecha, tipoCbte, ptoVta, numero, cuitProv, denomProv, total, noGravado, exento, percIva5329, percOtrosNac, percIibb, percMuni, impInternos, creditoFiscal, algunaAlicuotaCero, cantAlicuotas) => [
       fmtFecha(fecha),                    // 1  Fecha (8)
       tipoCbte,                           // 2  Tipo de comprobante (3)
       padL(ptoVta || '1', 5),             // 3  Punto de venta (5)
@@ -7034,8 +7041,8 @@ function generarIVA(tipo) {
       fmtMonto(impInternos),              // 16 Importe de Impuestos Internos (15)
       'PES',                              // 17 Código de moneda (3)
       '0001000000',                       // 18 Tipo de cambio (10) — 4 enteros+6 decimales sin punto = 1,000000 fijo
-      '1',                                // 19 Cantidad de alícuotas de IVA (1) — este sistema declara 1 por comprobante
-      ' ',                                // 20 Código de operación (1) — blanco = operación normal
+      String(cantAlicuotas || 1),         // 19 Cantidad de alícuotas de IVA (1) — real, no siempre 1 (ver desglose_alicuotas)
+      algunaAlicuotaCero ? 'E' : ' ',     // 20 Código de operación (1) — 'E'=Exenta si alguna alícuota es 0%, blanco si no
       fmtMonto(creditoFiscal),            // 21 Crédito Fiscal Computable (15)
       padL(0,15),                         // 22 Otros Tributos (15) — no trackeado
       padL(0,11),                         // 23 CUIT emisor/corredor (11) — no aplica, no hay corredor
@@ -7043,26 +7050,44 @@ function generarIVA(tipo) {
       padL(0,15),                         // 25 IVA comisión (15) — no aplica
     ].join('');
 
+    // Las NC de proveedor no siempre tienen cuit_prov cargado (el
+    // formulario de carga no lo pide) — si falta, se busca el CUIT real
+    // en alguna factura del MISMO proveedor (por nombre) ya cargada este
+    // período. Antes esto quedaba en cero → "La CUIT del vendedor es
+    // inválida", uno de los rechazos de hoy.
+    const cuitPorProveedor = {};
+    for (const f of facs) {
+      const cuitF = String(f.cuit_prov || '').replace(/\D/g, '');
+      if (cuitF && f.proveedor) cuitPorProveedor[f.proveedor.trim().toUpperCase()] = cuitF;
+    }
+
     lineas = registros.map(r => {
       if (r.tipo === 'factura') {
         const f = r.f;
         const { ptoVta, numero } = _splitNumeroFactura(f.numero);
         const cuitDig = String(f.cuit_prov || '').replace(/\D/g, '');
+        const desglose = Array.isArray(f.desglose_alicuotas) && f.desglose_alicuotas.length ? f.desglose_alicuotas : null;
+        const cantAlic = desglose ? desglose.length : 1;
+        const algunaCero = desglose ? desglose.some(d => +d.pct === 0) : (+f.alicuota_iva === 0);
         return armarLineaCbte(
           f.fecha, tipoCbteMap[f.tipo_cbte], ptoVta, numero, cuitDig, f.proveedor,
           f.total||0, f.no_gravado||0, 0, f.perc_iva||0, f.perc_3337||0, f.perc_iibb||0, 0, f.imp_internos||0,
-          f.importe_iva||0
+          f.importe_iva||0, algunaCero, cantAlic
         );
       }
       const nc = r.nc;
       const letra = _letraDesdeFacturaRelacionada(nc.factura_relacionada);
       const tipoNc = tipoCbteNcMap[letra] || CONFIG_FISCAL.tipo_cbte_nc_b; // sin match: asume B (el caso más común acá)
       const { ptoVta, numero } = _splitNumeroFactura(nc.nro_nota);
-      const cuitDig = String(nc.cuit_prov || '').replace(/\D/g, '');
+      let cuitDig = String(nc.cuit_prov || '').replace(/\D/g, '');
+      if (!cuitDig && nc.proveedor) cuitDig = cuitPorProveedor[nc.proveedor.trim().toUpperCase()] || '';
+      const desgloseNc = Array.isArray(nc.desglose_alicuotas) && nc.desglose_alicuotas.length ? nc.desglose_alicuotas : null;
+      const cantAlicNc = desgloseNc ? desgloseNc.length : 1;
+      const algunaCeroNc = desgloseNc ? desgloseNc.some(d => +d.pct === 0) : false;
       return armarLineaCbte(
         nc.fecha, tipoNc, ptoVta, numero, cuitDig, nc.proveedor,
         nc.total||0, 0, 0, nc.perc_iva||0, 0, 0, 0, 0,
-        nc.iva||0
+        nc.iva||0, algunaCeroNc, cantAlicNc
       );
     });
 
@@ -7076,11 +7101,21 @@ function generarIVA(tipo) {
     // punto decimal", igual que en todos los demás archivos).
     const tipoCbteMap = { FA: CONFIG_FISCAL.tipo_cbte_fac_a, FB: CONFIG_FISCAL.tipo_cbte_fac_b, FC: CONFIG_FISCAL.tipo_cbte_fac_c };
     const tipoCbteNcMap = { A: CONFIG_FISCAL.tipo_cbte_nc_a, B: CONFIG_FISCAL.tipo_cbte_nc_b, C: CONFIG_FISCAL.tipo_cbte_nc_c };
+    // 19/08: rechazo real de ARCA — "No se deben informar alícuotas para
+    // tipos de comprobante B o C". Confirmado contra el spec oficial:
+    // Factura B/C recibida no discrimina IVA, así que no corresponde
+    // ninguna línea acá (a diferencia del archivo CBTE, donde SÍ siguen
+    // apareciendo con Crédito Fiscal Computable = 0). Solo Factura A (y
+    // sus NC) van a este archivo.
     const facs = (facturas || []).filter(f =>
+      !f.anulada && f.tipo_cbte === 'FA' && f.fecha >= desde && f.fecha <= hasta
+    );
+    const facsTodas = (facturas || []).filter(f => // para el mapa de CUIT por proveedor de abajo, incluye A/B/C
       !f.anulada && tipoCbteMap[f.tipo_cbte] && f.fecha >= desde && f.fecha <= hasta
     );
     const ncs = (notasCreditoProveedor || []).filter(nc =>
-      nc.contabilizada && nc.fecha >= desde && nc.fecha <= hasta
+      nc.contabilizada && nc.fecha >= desde && nc.fecha <= hasta &&
+      _letraDesdeFacturaRelacionada(nc.factura_relacionada) === 'A'
     );
     const registros = [
       ...facs.map(f => ({ tipo:'factura', f })),
@@ -7098,23 +7133,42 @@ function generarIVA(tipo) {
       fmtMonto(ivaLiq),                   // 8 Impuesto liquidado (15)
     ].join('');
 
-    lineas = registros.map(r => {
+    const cuitPorProveedor = {};
+    for (const f of facsTodas) {
+      const cuitF = String(f.cuit_prov || '').replace(/\D/g, '');
+      if (cuitF && f.proveedor) cuitPorProveedor[f.proveedor.trim().toUpperCase()] = cuitF;
+    }
+
+    lineas = registros.flatMap(r => {
       if (r.tipo === 'factura') {
         const f = r.f;
         const { ptoVta, numero } = _splitNumeroFactura(f.numero);
         const cuitDig = String(f.cuit_prov || '').replace(/\D/g, '');
-        return armarLineaAlic(tipoCbteMap[f.tipo_cbte], ptoVta, numero, cuitDig, f.neto_gravado||0, f.alicuota_iva, f.importe_iva||0);
+        const desglose = Array.isArray(f.desglose_alicuotas) && f.desglose_alicuotas.length ? f.desglose_alicuotas : null;
+        if (desglose) {
+          // Factura con IVA mixto (ej. 10,5%+21% en el mismo comprobante,
+          // caso real: CODENOA/ERDASER) — 1 línea por cada alícuota, en
+          // vez de aplanar todo a una sola tasa (eso fue lo que rechazó
+          // ARCA el 19/08: el neto/IVA no cerraba contra "todo 21%").
+          return desglose.map(d => armarLineaAlic(tipoCbteMap[f.tipo_cbte], ptoVta, numero, cuitDig, d.neto||0, d.pct, d.iva||0));
+        }
+        return [armarLineaAlic(tipoCbteMap[f.tipo_cbte], ptoVta, numero, cuitDig, f.neto_gravado||0, f.alicuota_iva, f.importe_iva||0)];
       }
       const nc = r.nc;
       const letra = _letraDesdeFacturaRelacionada(nc.factura_relacionada);
       const tipoNc = tipoCbteNcMap[letra] || CONFIG_FISCAL.tipo_cbte_nc_b;
       const { ptoVta, numero } = _splitNumeroFactura(nc.nro_nota);
-      const cuitDig = String(nc.cuit_prov || '').replace(/\D/g, '');
+      let cuitDig = String(nc.cuit_prov || '').replace(/\D/g, '');
+      if (!cuitDig && nc.proveedor) cuitDig = cuitPorProveedor[nc.proveedor.trim().toUpperCase()] || '';
+      const desgloseNc = Array.isArray(nc.desglose_alicuotas) && nc.desglose_alicuotas.length ? nc.desglose_alicuotas : null;
+      if (desgloseNc) {
+        return desgloseNc.map(d => armarLineaAlic(tipoNc, ptoVta, numero, cuitDig, d.neto||0, d.pct, d.iva||0));
+      }
       // La NC hereda la misma alícuota que declaraba la factura original —
       // no se guarda un % explícito en notas_credito_proveedor, así que se
       // deriva del propio neto/iva de la NC (misma proporción).
       const pctDerivado = (nc.neto>0) ? Math.round((nc.iva||0)/(nc.neto||1)*100*2)/2 : 21;
-      return armarLineaAlic(tipoNc, ptoVta, numero, cuitDig, nc.neto||0, pctDerivado, nc.iva||0);
+      return [armarLineaAlic(tipoNc, ptoVta, numero, cuitDig, nc.neto||0, pctDerivado, nc.iva||0)];
     });
   }
 
@@ -8258,6 +8312,7 @@ let facturas = [];
 let facCompraId = null;
 let facPagoActual = 'Contado';
 let facMultiAlicuota = false;   // true cuando el remito de esta factura mezcla alícuotas de IVA
+let _facGruposAlicuotaActual = {}; // { [pct]: {neto, iva} } -- el desglose real calculado en abrirModalFactura, para que guardarFactura lo persista
 let facIvaManual = false;       // true si el usuario tipeó el IVA a mano (no pisar con neto×alícuota)
 
 // Lee la alícuota elegida en #fac-alic-iva de forma segura.
@@ -8344,6 +8399,7 @@ function abrirModalFactura(compraId) {
   const netoTotal = alicuotas.reduce((s,a) => s + grupos[a].neto, 0);
   const ivaTotal  = alicuotas.reduce((s,a) => s + grupos[a].iva, 0);
   facMultiAlicuota = alicuotas.length > 1;
+  _facGruposAlicuotaActual = grupos;
 
   const boxEl  = document.getElementById('fac-multi-alicuota-box');
   const rowsEl = document.getElementById('fac-multi-alicuota-rows');
@@ -8505,6 +8561,19 @@ async function guardarFactura() {
   const alic     = facMultiAlicuota
     ? (neto > 0 ? Math.round((iva / neto) * 100 * 100) / 100 : 21)
     : _alicFacSeleccionada();
+  // 20/08: antes acá se perdía el desglose real (grupos, calculado y
+  // mostrado en pantalla al abrir el modal — ver abrirModalFactura) y
+  // solo quedaba guardado el % promedio ponderado de arriba. Con eso,
+  // una factura real que mezcla 10,5%+21% se declaraba a ARCA como "todo
+  // 21%", y el neto/IVA no cerraba contra ese % → rechazo real (14/08,
+  // factura CODENOA 916811 y otras). Ahora se guarda el desglose
+  // completo también, para que el Excel y los TXT de IVA Compras
+  // declaren cada alícuota por separado, como corresponde.
+  const desgloseAlicuotas = facMultiAlicuota
+    ? Object.keys(_facGruposAlicuotaActual || {}).map(Number).sort((a,b)=>b-a).map(pct => ({
+        pct, neto: Math.round(_facGruposAlicuotaActual[pct].neto*100)/100, iva: Math.round(_facGruposAlicuotaActual[pct].iva*100)/100
+      }))
+    : null;
   const percIva  = parseFloat(document.getElementById('fac-perc-iva')?.value) || 0;
   const percIIBB = parseFloat(document.getElementById('fac-perc-iibb')?.value) || 0;
   const perc3337 = parseFloat(document.getElementById('fac-perc-3337')?.value) || 0;
@@ -8530,6 +8599,7 @@ async function guardarFactura() {
       fecha_vence:  vence,
       neto_gravado: neto,
       alicuota_iva: alic,
+      desglose_alicuotas: desgloseAlicuotas,
       importe_iva:  iva,
       perc_iva:     percIva,
       perc_iibb:    percIIBB,
