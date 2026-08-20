@@ -899,7 +899,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           style="padding:13px 16px;border-radius:10px;border:1.5px solid #1a5ec9;background:#eaf0fd;color:#1a5ec9;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
           🎁 Combo
         </button>
-        <button onclick="abrirPromosCantidad()"
+        <button id="btn-promo-cantidad" onclick="abrirPromosCantidad()"
           style="padding:13px 16px;border-radius:10px;border:1.5px solid #1a8a4a;background:#e9f7ef;color:#1a8a4a;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
           📦 Promo x cant.
         </button>
@@ -10141,6 +10141,11 @@ function aplicarPermisosUI(){
   if (tabAjuste) tabAjuste.style.display = esVendedor ? 'none' : '';
   const tabRecuento = document.getElementById('stock-tab-recuento');
   if (tabRecuento) tabRecuento.style.display = esVendedor ? 'none' : '';
+  // Vendedor: no ve el botón de crear/gestionar promos por cantidad
+  // (solo dueño/administrativo) — Bautista pidió explícitamente que no
+  // esté disponible para vendedores.
+  const btnPromoCant = document.getElementById('btn-promo-cantidad');
+  if (btnPromoCant) btnPromoCant.style.display = esVendedor ? 'none' : '';
   // Administrativo: NO puede efectuar ventas
   window.NO_PUEDE_VENDER = esAdministrativo;
   // Vendedor: NO puede aplicar descuentos en las ventas
@@ -10275,6 +10280,7 @@ async function initApp(){
     loadGastos(),
     loadCombos(),
     loadPromociones(),
+    loadPromosCantidad(),
     loadFacturas(),
     loadRecepciones(),
   ]);
@@ -11666,6 +11672,7 @@ function quitarPromoAplicada(){
 let pcantItems = []; // productos del grupo que se está armando/editando, en memoria
 
 function abrirPromosCantidad(){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden crear promos por cantidad','err'); return; }
   pcantItems = [];
   document.getElementById('pcant-nombre').value = '';
   document.getElementById('pcant-cantidad').value = '3';
