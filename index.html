@@ -1875,6 +1875,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div style="display:flex;gap:8px;margin-bottom:12px">
         <div style="flex:1">
           <div class="flabel">Agregar producto</div>
+          <input class="inp" id="combo-prod-buscar" placeholder="🔎 Buscar por nombre..." oninput="filtrarComboProdSel()" style="margin-bottom:6px">
           <select class="inp" id="combo-prod-sel" style="cursor:pointer">
             <option value="">Seleccionar...</option>
           </select>
@@ -2100,6 +2101,50 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <button onclick="abrirPromociones()" style="width:100%;padding:13px;border-radius:10px;border:1.5px solid #1a5ec9;background:#eaf0fd;color:#1a5ec9;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">
         🏷️ Promociones — códigos de descuento por día
       </button>
+      <button onclick="abrirPromosCantidad()" style="width:100%;padding:13px;border-radius:10px;border:1.5px solid #1a8a4a;background:#e9f7ef;color:#1a8a4a;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">
+        📦 Promos por cantidad — ej. "cada 3 unidades, $1000"
+      </button>
+      <div id="ov-promo-cantidad" class="overlay">
+        <div class="modal" style="max-width:520px">
+          <div class="modal-header" style="background:#1a8a4a">
+            <div>
+              <div class="modal-title">📦 Promos por cantidad</div>
+              <div style="font-size:11px;color:rgba(255,255,255,.7)">Mezcla libre entre los productos del grupo — ej. cualquier combinación de 3 jugos BC, $1000</div>
+            </div>
+            <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-promo-cantidad')">✕</span>
+          </div>
+          <div style="padding:16px 20px">
+            <div class="fgroup" style="margin-bottom:10px">
+              <div class="flabel">Nombre del grupo</div>
+              <input class="inp" id="pcant-nombre" placeholder="Ej: Jugos BC">
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:10px">
+              <div style="flex:1">
+                <div class="flabel">Cada</div>
+                <input class="inp" id="pcant-cantidad" type="number" min="2" value="3">
+              </div>
+              <div style="flex:1">
+                <div class="flabel">Unidades = $</div>
+                <input class="inp" id="pcant-precio" type="number" min="1" placeholder="1000">
+              </div>
+            </div>
+            <div class="fgroup" style="margin-bottom:10px">
+              <div class="flabel">Productos del grupo</div>
+              <input class="inp" id="pcant-buscar" placeholder="🔎 Buscar por nombre..." oninput="filtrarPcantProdSel()" style="margin-bottom:6px">
+              <select class="inp" id="pcant-prod-sel" style="cursor:pointer">
+                <option value="">Seleccionar...</option>
+              </select>
+              <button onclick="addPcantItem()" style="width:100%;margin-top:6px;padding:9px;border-radius:9px;background:#1a8a4a;color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer">+ Agregar al grupo</button>
+            </div>
+            <div id="pcant-items-list" style="min-height:50px;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px;margin-bottom:12px">
+              <div style="color:#aaa;font-size:12px;text-align:center;padding:12px">Agregá productos al grupo</div>
+            </div>
+            <button onclick="guardarPromoCantidad()" style="width:100%;padding:12px;border-radius:10px;background:#1a8a4a;color:#fff;border:none;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:16px">Crear promo por cantidad →</button>
+            <div style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;margin-bottom:8px">Promos existentes</div>
+            <div id="pcant-lista"></div>
+          </div>
+        </div>
+      </div>
       <div class="card">
         <div class="flabel">Proveedor</div>
         <select class="inp" id="prec-prov" style="cursor:pointer" onchange="selectPrecioProv(this.value)">
@@ -11473,15 +11518,57 @@ let splitActivo = false;
 // ══ PROMOCIONES ══
 let promociones = [];
 let promoAplicada = null; // la promo activa en el carrito actual, o null
+let promosCantidad = []; // promos "cada N unidades = $X" (ej. jugos BC 3x$1000) — mezcla libre entre productos del mismo grupo
 
 async function loadPromociones(){
   try{ promociones = await sbGet('promociones'); }catch(e){ promociones = []; }
+}
+
+async function loadPromosCantidad(){
+  try{ promosCantidad = await sbGet('promos_cantidad'); }catch(e){ promosCantidad = []; }
 }
 
 // Un código es válido HOY si: está activo, o bien no tiene días
 // restringidos o hoy es uno de ellos, y si tiene ventana de fechas, hoy
 // cae adentro. Se usa tanto al aplicar el código como de nuevo al
 // confirmar la venta (por si pasó el tiempo o cambió el día en el medio).
+// Promos "cada N unidades = $X" (ej. Jugos BC: cada 3 unidades, $1000),
+// con mezcla libre entre todos los productos del mismo grupo — no
+// importa qué sabores puntuales entran, solo cuántas unidades en total.
+// Devuelve { [producto_id]: precioEfectivoUnitario } SOLO para los
+// productos afectados por alguna promo activa; el resto del carrito
+// queda sin tocar. Conviven con las promos por código/día (son
+// mecanismos independientes, cada uno actúa sobre su propia porción).
+function _calcularPromosCantidad(sel, qtys){
+  const ajustes = {};
+  for(const promo of (promosCantidad||[])){
+    if(!promo.activo) continue;
+    const idsGrupo = new Set(promo.producto_ids||[]);
+    const itemsGrupo = sel.filter(p => idsGrupo.has(p.id) && (qtys[p.id]||0)>0);
+    if(!itemsGrupo.length) continue;
+    const totalUnidades = itemsGrupo.reduce((s,p)=>s+(qtys[p.id]||0),0);
+    const grupos = Math.floor(totalUnidades / (promo.cantidad_grupo||1));
+    if(grupos<=0) continue; // no alcanza para ni un grupo completo -- todo queda a precio normal
+    const unidadesEnPromo = grupos * promo.cantidad_grupo;
+    const precioPorUnidadEnGrupo = (promo.precio_grupo||0) / promo.cantidad_grupo;
+    // Reparto proporcional: cada producto del grupo aporta la MISMA
+    // fracción de sus propias unidades a la porción "en promo" (justo
+    // cuando los precios son todos iguales, como en el caso real de las
+    // BC — si difieren, el descuento se reparte por cantidad, no por
+    // valor, que es la convención más simple y auditable).
+    const fraccionGrupo = Math.min(1, unidadesEnPromo / totalUnidades);
+    for(const p of itemsGrupo){
+      const cant = qtys[p.id]||0;
+      const unidadesGrupoP = cant * fraccionGrupo;
+      const unidadesLeftoverP = cant - unidadesGrupoP;
+      const valorTotalP = unidadesGrupoP*precioPorUnidadEnGrupo + unidadesLeftoverP*(p.precio||0);
+      ajustes[p.id] = Math.round((valorTotalP/cant) * 100) / 100;
+    }
+  }
+  return ajustes;
+}
+
+
 function _promoEsValidaHoy(promo){
   if(!promo || !promo.activo) return { ok:false, motivo:'Ese código está desactivado' };
   const hoy = fechaHoyLocal();
@@ -11549,6 +11636,132 @@ function quitarPromoAplicada(){
 }
 
 // ── Administración de promociones (Precios → 🏷️ Promociones) ──
+// ── Administración de promos por cantidad (Precios → 📦 Promos por cantidad) ──
+let pcantItems = []; // productos del grupo que se está armando/editando, en memoria
+
+function abrirPromosCantidad(){
+  pcantItems = [];
+  document.getElementById('pcant-nombre').value = '';
+  document.getElementById('pcant-cantidad').value = '3';
+  document.getElementById('pcant-precio').value = '';
+  const buscarEl = document.getElementById('pcant-buscar'); if(buscarEl) buscarEl.value = '';
+  _poblarPcantProdSel('');
+  renderPcantItems();
+  renderPcantLista();
+  openModal('ov-promo-cantidad');
+}
+
+function _poblarPcantProdSel(filtro){
+  const sel = document.getElementById('pcant-prod-sel');
+  if(!sel) return;
+  const f = (filtro||'').trim().toLowerCase();
+  const disponibles = (prods||[]).filter(p => !p.es_combo && (!f || (p.nombre||'').toLowerCase().includes(f)))
+    .slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  sel.innerHTML = '<option value="">Seleccionar...</option>' +
+    disponibles.map(p=>`<option value="${p.id}">${esc(p.nombre)}${p.precio!=null?' — $'+p.precio.toLocaleString('es-AR'):''}</option>`).join('');
+}
+
+function filtrarPcantProdSel(){
+  const buscarEl = document.getElementById('pcant-buscar');
+  _poblarPcantProdSel(buscarEl ? buscarEl.value : '');
+}
+
+function addPcantItem(){
+  const sel = document.getElementById('pcant-prod-sel');
+  const id = sel?.value;
+  if(!id){ showToast('Elegí un producto', 'err'); return; }
+  if(pcantItems.some(it=>it.id===id)){ showToast('Ese producto ya está en el grupo', 'err'); return; }
+  const p = (prods||[]).find(x=>x.id===id);
+  if(!p) return;
+  pcantItems.push({ id: p.id, nombre: p.nombre });
+  renderPcantItems();
+}
+
+function quitarPcantItem(id){
+  pcantItems = pcantItems.filter(it=>it.id!==id);
+  renderPcantItems();
+}
+
+function renderPcantItems(){
+  const el = document.getElementById('pcant-items-list');
+  if(!el) return;
+  if(!pcantItems.length){
+    el.innerHTML = '<div style="color:#aaa;font-size:12px;text-align:center;padding:12px">Agregá productos al grupo</div>';
+    return;
+  }
+  el.innerHTML = pcantItems.map(it=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #f0f0f0;font-size:12px">
+      <span>${esc(it.nombre)}</span>
+      <span onclick="quitarPcantItem('${it.id}')" style="cursor:pointer;color:#c94040;font-weight:700">✕</span>
+    </div>`).join('');
+}
+
+async function guardarPromoCantidad(){
+  const nombre = document.getElementById('pcant-nombre').value.trim();
+  const cantidad_grupo = parseInt(document.getElementById('pcant-cantidad').value);
+  const precio_grupo = parseFloat(document.getElementById('pcant-precio').value);
+  if(!nombre){ showToast('Ingresá un nombre para el grupo', 'err'); return; }
+  if(!cantidad_grupo || cantidad_grupo<2){ showToast('La cantidad tiene que ser 2 o más', 'err'); return; }
+  if(!precio_grupo || precio_grupo<=0){ showToast('Ingresá el precio del grupo', 'err'); return; }
+  if(!pcantItems.length){ showToast('Agregá al menos un producto al grupo', 'err'); return; }
+
+  try{
+    const nueva = await sbInsert('promos_cantidad', {
+      nombre, cantidad_grupo, precio_grupo,
+      producto_ids: pcantItems.map(it=>it.id),
+      activo: true, created_by: USER?.email||null,
+    });
+    promosCantidad.unshift(nueva);
+    showToast(`✅ Promo "${esc(nombre)}" creada`, 'ok');
+    pcantItems = [];
+    document.getElementById('pcant-nombre').value = '';
+    document.getElementById('pcant-precio').value = '';
+    renderPcantItems();
+    renderPcantLista();
+  }catch(e){
+    showToast('❌ Error al guardar: '+(e?.message||'desconocido'), 'err');
+    console.error('guardarPromoCantidad error:', e);
+  }
+}
+
+async function toggleActivoPcant(id){
+  const promo = promosCantidad.find(p=>p.id===id);
+  if(!promo) return;
+  try{
+    const { data, error } = await SB.from('promos_cantidad').update({ activo: !promo.activo }).eq('id', id).select();
+    if(error) throw error;
+    if(!data || !data.length){ showToast('❌ No se pudo actualizar (permiso denegado)', 'err'); return; }
+    promo.activo = data[0].activo;
+    renderPcantLista();
+    showToast(promo.activo?'▶️ Promo activada':'⏸️ Promo desactivada', 'ok');
+  }catch(e){
+    showToast('❌ Error: '+(e?.message||'desconocido'), 'err');
+    console.error('toggleActivoPcant error:', e);
+  }
+}
+
+function renderPcantLista(){
+  const el = document.getElementById('pcant-lista');
+  if(!el) return;
+  if(!promosCantidad.length){
+    el.innerHTML = '<div class="empty" style="margin-top:6px">Todavía no creaste ninguna</div>';
+    return;
+  }
+  el.innerHTML = promosCantidad.map(p=>{
+    const nombresProductos = (p.producto_ids||[]).map(id=>{
+      const prod = (prods||[]).find(x=>x.id===id);
+      return prod ? prod.nombre : '(producto eliminado)';
+    }).join(', ');
+    return `<div class="card" style="margin-bottom:8px;opacity:${p.activo?1:.5}">
+      <div style="font-weight:700;font-size:13px">${esc(p.nombre)}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">Cada ${p.cantidad_grupo} unidades = $${(p.precio_grupo||0).toLocaleString('es-AR')}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">${esc(nombresProductos)}</div>
+      <div style="font-size:10px;margin-top:4px;color:${p.activo?'#1a5c38':'#c94040'}">${p.activo?'✅ Activa':'⏸️ Desactivada'}</div>
+      <button onclick="toggleActivoPcant('${p.id}')" style="width:100%;margin-top:6px;padding:6px;border-radius:7px;border:1px solid #ddd;background:#fff;font-size:11px;cursor:pointer">${p.activo?'⏸️ Desactivar':'▶️ Activar'}</button>
+    </div>`;
+  }).join('');
+}
+
 function abrirPromociones(){
   renderPromociones();
   openModal('ov-promociones');
@@ -11704,10 +11917,22 @@ function updateCart(){
   const cart=document.getElementById('cart');
   if(!sel.length){cart.classList.remove('show');return;}
   cart.classList.add('show');
-  const sub=sel.reduce((s,p)=>s+p.precio*(qtys[p.id]||0),0);
+  // Promos "cada N unidades = $X" (ej. Jugos BC) -- se aplican PRIMERO,
+  // sobre el precio de catálogo; el descuento por código/día de abajo
+  // sigue actuando sobre el total ya con esta promo adentro (las dos
+  // conviven, confirmado con Bautista).
+  const ajustesCantidad = _calcularPromosCantidad(sel, qtys);
+  const precioEfectivo = p => ajustesCantidad[p.id]!=null ? ajustesCantidad[p.id] : p.precio;
+  const sub=sel.reduce((s,p)=>s+precioEfectivo(p)*(qtys[p.id]||0),0);
   const desc=_descuentoEfectivo();
   const total=sub*(1-desc/100);
-  document.getElementById('c-chips').innerHTML=sel.map(p=>`<div class="chip">${getEm(p.categoria)} ${esc(p.nombre.split(' ')[0])} ×${qtys[p.id]} · $${(p.precio||0).toLocaleString('es-AR')}<span onclick="quitarDelCarrito('${p.id}')" title="Quitar del carrito" style="cursor:pointer;margin-left:6px;font-weight:700;opacity:.7">✕</span></div>`).join('');
+  document.getElementById('c-chips').innerHTML=sel.map(p=>{
+    const pe = precioEfectivo(p);
+    const precioTxt = ajustesCantidad[p.id]!=null
+      ? `<s style="opacity:.5">$${(p.precio||0).toLocaleString('es-AR')}</s> $${pe.toLocaleString('es-AR',{maximumFractionDigits:0})} 🏷️`
+      : `$${(p.precio||0).toLocaleString('es-AR')}`;
+    return `<div class="chip">${getEm(p.categoria)} ${esc(p.nombre.split(' ')[0])} ×${qtys[p.id]} · ${precioTxt}<span onclick="quitarDelCarrito('${p.id}')" title="Quitar del carrito" style="cursor:pointer;margin-left:6px;font-weight:700;opacity:.7">✕</span></div>`;
+  }).join('');
   document.getElementById('c-total').textContent=`$${Math.round(total).toLocaleString('es-AR')}`;
   const descLabel = (promoAplicada && _promoEsValidaHoy(promoAplicada).ok) ? `${desc}% ${promoAplicada.codigo}` : (desc>0?`${desc}% desc`:'');
   document.getElementById('c-method-l').textContent=`${splitActivo?'Pago dividido':method}${descLabel?` · ${descLabel}`:''}`;
@@ -12037,7 +12262,12 @@ async function registerSale(){
   btn.textContent='Guardando...';
 
   try{
-    const sub=sel.reduce((s,p)=>s+p.precio*(qtys[p.id]||0),0);
+    // Mismo ajuste que updateCart -- promos "cada N unidades = $X" (ej.
+    // Jugos BC) aplicadas ANTES del descuento por código/día, para que
+    // el total real cobrado sea igual al que se vio en el carrito.
+    const ajustesCantidadVenta = _calcularPromosCantidad(sel, qtys);
+    const precioEfectivoVenta = p => ajustesCantidadVenta[p.id]!=null ? ajustesCantidadVenta[p.id] : p.precio;
+    const sub=sel.reduce((s,p)=>s+precioEfectivoVenta(p)*(qtys[p.id]||0),0);
     // El Vendedor no puede aplicar descuentos manuales — se fuerza a 0 acá
     // aunque el campo esté oculto, para no depender solo del DOM (mismo
     // criterio que el guard de "Administrativo no puede vender" de arriba).
@@ -12066,7 +12296,10 @@ async function registerSale(){
     const clienteNom=clienteEl.value?(clienteEl.options[clienteEl.selectedIndex]?.text||''):'';
     let nota=document.getElementById('v-nota').value;
     if(promoValidaAhora) nota = (nota?nota+' ':'') + `[Promo: ${promoValidaAhora.codigo}]`;
-    const items=sel.map(p=>({producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:p.precio,subtotal:p.precio*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota),impuesto_interno_unitario:(p.impuesto_interno_unitario||0),es_combo:!!p.es_combo,combo_items:p.combo_items||null}));
+    const items=sel.map(p=>{
+      const pe = precioEfectivoVenta(p);
+      return {producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:pe,subtotal:pe*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota),impuesto_interno_unitario:(p.impuesto_interno_unitario||0),es_combo:!!p.es_combo,combo_items:p.combo_items||null};
+    });
     // Versión con cualquier combo descompuesto en sus productos reales —
     // necesaria para el desglose de IVA/ARCA y para la RPC de venta (ver
     // _descomponerItemsCombo). El ticket sigue mostrando `items` tal cual
@@ -14395,15 +14628,28 @@ function abrirModalCombo(){
   document.getElementById('combo-nombre').value = '';
   document.getElementById('combo-precio').value = '';
   const qtyEl = document.getElementById('combo-prod-qty'); if(qtyEl) qtyEl.value = '1';
-  const sel = document.getElementById('combo-prod-sel');
-  if(sel){
-    const disponibles = (prods||[]).filter(p => !p.es_combo)
-      .slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
-    sel.innerHTML = '<option value="">Seleccionar...</option>' +
-      disponibles.map(p=>`<option value="${p.id}">${esc(p.nombre)}${p.stock!=null?' (stock: '+p.stock+')':''}</option>`).join('');
-  }
+  const buscarEl = document.getElementById('combo-prod-buscar'); if(buscarEl) buscarEl.value = '';
+  _poblarComboProdSel('');
   renderComboItems();
   openModal('ov-add-combo');
+}
+
+// Llena el <select> de productos del combo, opcionalmente filtrado por
+// texto (nombre) — reusada tanto al abrir el modal como al tipear en el
+// buscador de arriba.
+function _poblarComboProdSel(filtro){
+  const sel = document.getElementById('combo-prod-sel');
+  if(!sel) return;
+  const f = (filtro||'').trim().toLowerCase();
+  const disponibles = (prods||[]).filter(p => !p.es_combo && (!f || (p.nombre||'').toLowerCase().includes(f)))
+    .slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  sel.innerHTML = '<option value="">Seleccionar...</option>' +
+    disponibles.map(p=>`<option value="${p.id}">${esc(p.nombre)}${p.stock!=null?' (stock: '+p.stock+')':''}</option>`).join('');
+}
+
+function filtrarComboProdSel(){
+  const buscarEl = document.getElementById('combo-prod-buscar');
+  _poblarComboProdSel(buscarEl ? buscarEl.value : '');
 }
 
 async function loadCombos() {
