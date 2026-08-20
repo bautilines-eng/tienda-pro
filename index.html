@@ -7069,9 +7069,19 @@ function generarIVA(tipo) {
         const desglose = Array.isArray(f.desglose_alicuotas) && f.desglose_alicuotas.length ? f.desglose_alicuotas : null;
         const cantAlic = desglose ? desglose.length : 1;
         const algunaCero = desglose ? desglose.some(d => +d.pct === 0) : (+f.alicuota_iva === 0);
+        // 20/08: encontrado en verificación propia (no en un rechazo de
+        // ARCA) — el campo "Importe de operaciones exentas" quedaba
+        // siempre en 0, así que una Factura C (San Bernardo, Exenta) no
+        // aparecía en NINGÚN campo del CBTE y Total dejaba de cerrar
+        // contra la suma de componentes. Ahora el neto de las líneas al
+        // 0% (si hay desglose, solo esas líneas; si la factura es 100%
+        // exenta, todo el neto) va al campo que corresponde.
+        const exentoMonto = desglose
+          ? desglose.filter(d => +d.pct === 0).reduce((s,d) => s + (+d.neto||0), 0)
+          : (algunaCero ? (f.neto_gravado||0) : 0);
         return armarLineaCbte(
           f.fecha, tipoCbteMap[f.tipo_cbte], ptoVta, numero, cuitDig, f.proveedor,
-          f.total||0, f.no_gravado||0, 0, f.perc_iva||0, f.perc_3337||0, f.perc_iibb||0, 0, f.imp_internos||0,
+          f.total||0, f.no_gravado||0, exentoMonto, f.perc_iva||0, f.perc_3337||0, f.perc_iibb||0, 0, f.imp_internos||0,
           f.importe_iva||0, algunaCero, cantAlic
         );
       }
@@ -7084,9 +7094,12 @@ function generarIVA(tipo) {
       const desgloseNc = Array.isArray(nc.desglose_alicuotas) && nc.desglose_alicuotas.length ? nc.desglose_alicuotas : null;
       const cantAlicNc = desgloseNc ? desgloseNc.length : 1;
       const algunaCeroNc = desgloseNc ? desgloseNc.some(d => +d.pct === 0) : false;
+      const exentoMontoNc = desgloseNc
+        ? desgloseNc.filter(d => +d.pct === 0).reduce((s,d) => s + (+d.neto||0), 0)
+        : (algunaCeroNc ? (nc.neto||0) : 0);
       return armarLineaCbte(
         nc.fecha, tipoNc, ptoVta, numero, cuitDig, nc.proveedor,
-        nc.total||0, 0, 0, nc.perc_iva||0, 0, 0, 0, 0,
+        nc.total||0, 0, exentoMontoNc, nc.perc_iva||0, 0, 0, 0, 0,
         nc.iva||0, algunaCeroNc, cantAlicNc
       );
     });
