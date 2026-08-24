@@ -13872,6 +13872,17 @@ function editProduct(id){
   { const _b=document.getElementById('np-bulto'); if(_b) _b.value=p.unidades_por_bulto||1; }
   { const _cb=document.getElementById('np-cant-bultos'); if(_cb) _cb.value=''; }
   { const _h=document.getElementById('np-stock-calc'); if(_h) _h.style.display='none'; }
+  // 24/08: editProduct nunca repoblaba ni preseleccionaba el proveedor —
+  // solo abrirAltaProducto() (para PRODUCTO NUEVO) lo hacía. Al editar
+  // un producto ya existente, el desplegable quedaba con lo que hubiera
+  // quedado de la última vez que se abrió "Nuevo Producto" (vacío la
+  // mayoría de las veces), sin importar qué proveedor tuviera cargado
+  // el producto ni qué proveedores existieran realmente.
+  const npProv=document.getElementById('np-proveedor');
+  if(npProv){
+    npProv.innerHTML='<option value="">— Sin proveedor —</option>'+(proveedores||[]).filter(x=>!x.is_deleted).map(x=>`<option value="${x.id}">${esc(x.razon_social||x.nombre||'')}</option>`).join('');
+    npProv.value = p.proveedor_id || '';
+  }
   actualizarMargenPreview();
   const _blk=document.getElementById('np-pricing-block'); if(_blk) _blk.style.display='';
   const _hint=document.getElementById('np-alta-hint'); if(_hint) _hint.style.display='none';
@@ -13893,7 +13904,12 @@ async function updateProduct(id){
     const costo = parseFloat(document.getElementById('np-costo')?.value) || 0;
     const impuestoInterno = parseFloat(document.getElementById('np-imp-interno')?.value) || 0;
     const vence = document.getElementById('np-vence')?.value || null;
-    const updates={nombre,precio:precioNuevo,barcode,codigo_proveedor:codigoProveedor,costo,impuesto_interno_unitario:impuestoInterno,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1};
+    // 24/08: proveedor_id faltaba acá por completo — aunque el
+    // desplegable mostrara el proveedor correcto, "Guardar cambios"
+    // nunca lo mandaba a la base. Quedaba descartado en silencio, sin
+    // ningún error visible.
+    const proveedor_id = document.getElementById('np-proveedor')?.value || null;
+    const updates={nombre,precio:precioNuevo,barcode,codigo_proveedor:codigoProveedor,costo,impuesto_interno_unitario:impuestoInterno,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1,proveedor_id};
     // Si cambió el precio a mano, bloquearlo para que las listas nuevas no lo pisen
     if(precioNuevo>0 && Math.abs(precioNuevo-precioAnterior)>0.01){
       updates.precio_bloqueado = true;
