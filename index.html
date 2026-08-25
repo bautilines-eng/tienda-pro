@@ -540,7 +540,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         Impuesto interno ($ por unidad)
         <span style="font-size:10px;color:#aaa;font-weight:400">(opcional — solo bebidas alcohólicas/gaseosas gravadas. Ley 24.674)</span>
       </div>
-      <input class="inp" id="np-imp-interno" type="number" min="0" step="0.01" placeholder="0" style="font-family:'DM Mono',monospace">
+      <input class="inp" id="np-imp-interno" type="number" min="0" step="0.01" placeholder="0" style="font-family:'DM Mono',monospace" oninput="_prodEditandoInterno=parseFloat(this.value)||0;actualizarMargenPreview()">
       <div style="font-size:11px;color:#999;margin-top:5px">Ya está incluido en el costo — esto solo lo discrimina en el ticket de venta (Régimen Transparencia Fiscal). Se completa solo al cargar un remito de este producto, pero también lo podés editar directo acá.</div>
     </div>
     <div class="frow" style="margin-bottom:10px">
@@ -13817,11 +13817,11 @@ function renderStock(f){
       </div>
       <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${p.stock} uds</div></div>
       <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${esc(p.barcode?'🔖 '+p.barcode:'')}</span><span>${esc(p.codigo_proveedor?'#'+p.codigo_proveedor:'')}</span><span>${p.costo>0?'Costo: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
-      ${p.costo>0?`<div style="display:flex;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
-        <span style="color:#1a5c38;font-weight:600">Margen: $${((p.precio||0)-(p.costo||0)).toLocaleString('es-AR')}</span>
+      ${p.costo>0?(()=>{const cIva=_costoConIva(p);return `<div style="display:flex;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
+        <span style="color:#1a5c38;font-weight:600">Margen: $${((p.precio||0)-cIva).toLocaleString('es-AR')}</span>
         <span style="color:#999">·</span>
-        <span style="color:#1a5c38;font-weight:600">${p.costo>0?Math.round(((p.precio-p.costo)/p.costo)*100):0}%</span>
-      </div>`:''}
+        <span style="color:#1a5c38;font-weight:600">${cIva>0?Math.round(((p.precio-cIva)/cIva)*100):0}% (con IVA)</span>
+      </div>`;})():''}
       ${window.NO_PUEDE_AJUSTAR_STOCK ? '' : `<div style="display:flex;align-items:center;gap:8px;margin-top:8px">
         <span style="font-size:11px;color:var(--muted)">Ajustar stock:</span>
         <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red);padding:4px 10px" onclick="ajustarStock('${p.id}',-1)">−</button>
@@ -13883,6 +13883,8 @@ function editProduct(id){
     npProv.innerHTML='<option value="">— Sin proveedor —</option>'+(proveedores||[]).filter(x=>!x.is_deleted).map(x=>`<option value="${x.id}">${esc(x.razon_social||x.nombre||'')}</option>`).join('');
     npProv.value = p.proveedor_id || '';
   }
+  _prodEditandoAlicuota = (p.iva_alicuota==null ? 21 : +p.iva_alicuota);
+  _prodEditandoInterno = +p.impuesto_interno_unitario || 0;
   actualizarMargenPreview();
   const _blk=document.getElementById('np-pricing-block'); if(_blk) _blk.style.display='';
   const _hint=document.getElementById('np-alta-hint'); if(_hint) _hint.style.display='none';
@@ -13999,6 +14001,8 @@ function abrirAltaProducto(){
   ['np-name','np-barcode','np-codprov','np-imp-interno','np-cat','np-vence','np-price','np-costo','np-stock','np-min'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   const npProv=document.getElementById('np-proveedor');
   if(npProv) npProv.innerHTML='<option value="">— Sin proveedor —</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
+  _prodEditandoAlicuota = 21;
+  _prodEditandoInterno = 0;
   { const _b=document.getElementById('np-bulto'); if(_b) _b.value=''; }
   { const _cb=document.getElementById('np-cant-bultos'); if(_cb) _cb.value=''; }
   { const _h=document.getElementById('np-stock-calc'); if(_h) _h.style.display='none'; }
@@ -15440,15 +15444,42 @@ function calcStockDesdeBultos(){
   }
 }
 
+// Costo "real de bolsillo" de un producto — SOLO para mostrar margen en
+// pantalla (Editar Producto, lista de Stock, Rentabilidad). NO reemplaza
+// a p.costo en ningún otro lado: compras/kardex/consumo personal/notas
+// de crédito siguen usando p.costo tal cual (neto, sin IVA) para que el
+// Kardex quede valuado igual en TODOS los movimientos, como hasta ahora.
+// Acá sí sumamos IVA + Impuesto Interno, porque lo que se compara es
+// "cuánta plata realmente puso" vs "cuánta plata realmente cobra" —
+// ambos con IVA adentro, como pediste.
+// Alícuota/impuesto interno del producto que se está editando ahora
+// mismo en el modal — no hay campo de alícuota en este formulario (se
+// carga desde el remito), así que actualizarMargenPreview() los toma de
+// acá para calcular el margen real. "Nuevo Producto" usa el default del
+// sistema (21%, sin interno) hasta que se cargue por primera vez.
+let _prodEditandoAlicuota = 21;
+let _prodEditandoInterno = 0;
+
+function _costoConIva(p){
+  if(!p || !(p.costo>0)) return 0;
+  const alic = (p.iva_alicuota==null ? 21 : +p.iva_alicuota);
+  const interno = +p.impuesto_interno_unitario || 0;
+  return Math.round((p.costo*(1+alic/100) + interno) * 100) / 100;
+}
+
 function actualizarMargenPreview(){
   const precio = parseFloat(document.getElementById('np-price')?.value)||0;
-  const costo = parseFloat(document.getElementById('np-costo')?.value)||0;
+  const costoBase = parseFloat(document.getElementById('np-costo')?.value)||0;
   const el = document.getElementById('np-margen-preview');
   if(!el) return;
+  // Margen real: precio (con IVA, lo que cobrás) vs costo con IVA +
+  // interno (lo que realmente pusiste) — antes comparaba precio CON IVA
+  // contra costo SIN IVA, lo que inflaba el % que veías acá.
+  const costo = _costoConIva({costo:costoBase, iva_alicuota:_prodEditandoAlicuota, impuesto_interno_unitario:_prodEditandoInterno});
   if(precio > 0 && costo > 0){
-    const margen = Math.round((precio-costo)/costo*100);  // margen sobre costo
+    const margen = Math.round((precio-costo)/costo*100);  // margen sobre costo con IVA
     const ganancia = precio - costo;
-    el.textContent = `$${ganancia.toLocaleString('es-AR')} · ${margen}% margen`;
+    el.textContent = `$${ganancia.toLocaleString('es-AR')} · ${margen}% margen (con IVA)`;
     el.style.color = margen >= 30 ? '#1a5c38' : margen >= 10 ? '#e65100' : '#c94040';
   } else {
     el.textContent = '—';
@@ -15884,15 +15915,19 @@ function mostrarFinChartDetalle(i){
     </div>`;
 }
 
-// Rentabilidad real por producto — mismo costo (prod.costo) que ya usa
-// todo Tienda Pro, no una segunda lógica de costos.
+// Rentabilidad real por producto — usa _costoConIva(prod), NO prod.costo
+// pelado. Antes comparaba item.precio (con IVA, lo que cobra) contra
+// prod.costo (sin IVA, lo que usa el Kardex) — inflaba el margen que se
+// veía acá. El resto del sistema (compras, Kardex, consumo personal,
+// notas de crédito) sigue usando prod.costo tal cual, sin tocar — esto
+// es solo para esta pantalla.
 function finRentabilidadProductos(ventasFilt){
   const map = {};
   ventasFilt.forEach(v=>{
     const items = typeof v.items==='string' ? JSON.parse(v.items||'[]') : (v.items||[]);
     items.forEach(item=>{
       const prod = prods.find(p=>p.id===item.id || p.nombre===item.nombre);
-      const costoUnit = prod?.costo || 0;
+      const costoUnit = prod ? _costoConIva(prod) : 0;
       const cant = item.cantidad || 1;
       const ventaLinea = (item.precio||0)*cant;
       const costoLinea = costoUnit*cant;
