@@ -13833,11 +13833,13 @@ function renderStock(f){
         </div>
       </div>
       <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${p.stock} uds</div></div>
-      <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${esc(p.barcode?'🔖 '+p.barcode:'')}</span><span>${esc(p.codigo_proveedor?'#'+p.codigo_proveedor:'')}</span><span>${p.costo>0?'Costo: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
-      ${p.costo>0?(()=>{const cIva=_costoConIva(p);return `<div style="display:flex;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
+      <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${esc(p.barcode?'🔖 '+p.barcode:'')}</span><span>${esc(p.codigo_proveedor?'#'+p.codigo_proveedor:'')}</span><span>${p.costo>0?'Costo neto: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
+      ${p.costo>0?(()=>{const cIva=_costoConIva(p);return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
+        <span style="color:#666">Costo con IVA: $${cIva.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>
+        <span style="color:#999">·</span>
         <span style="color:#1a5c38;font-weight:600">Margen: $${((p.precio||0)-cIva).toLocaleString('es-AR')}</span>
         <span style="color:#999">·</span>
-        <span style="color:#1a5c38;font-weight:600">${cIva>0?Math.round(((p.precio-cIva)/cIva)*100):0}% (con IVA)</span>
+        <span style="color:#1a5c38;font-weight:600">${cIva>0?Math.round(((p.precio-cIva)/cIva)*100):0}%</span>
       </div>`;})():''}
       ${window.NO_PUEDE_AJUSTAR_STOCK ? '' : `<div style="display:flex;align-items:center;gap:8px;margin-top:8px">
         <span style="font-size:11px;color:var(--muted)">Ajustar stock:</span>
@@ -15491,12 +15493,15 @@ function actualizarMargenPreview(){
   if(!el) return;
   // Margen real: precio (con IVA, lo que cobrás) vs costo con IVA +
   // interno (lo que realmente pusiste) — antes comparaba precio CON IVA
-  // contra costo SIN IVA, lo que inflaba el % que veías acá.
+  // contra costo SIN IVA, lo que inflaba el % que veías acá. Se muestra
+  // el costo con IVA explícito (no solo el % final) para poder seguir
+  // la cuenta a simple vista, en vez de que quede "escondido" adentro
+  // del cálculo — eso fue lo que generó confusión en Stock.
   const costo = _costoConIva({costo:costoBase, iva_alicuota:_prodEditandoAlicuota, impuesto_interno_unitario:_prodEditandoInterno});
   if(precio > 0 && costo > 0){
     const margen = Math.round((precio-costo)/costo*100);  // margen sobre costo con IVA
     const ganancia = precio - costo;
-    el.textContent = `$${ganancia.toLocaleString('es-AR')} · ${margen}% margen (con IVA)`;
+    el.innerHTML = `<div>Costo con IVA: $${costo.toLocaleString('es-AR',{minimumFractionDigits:2})}</div><div>$${ganancia.toLocaleString('es-AR')} · ${margen}% margen</div>`;
     el.style.color = margen >= 30 ? '#1a5c38' : margen >= 10 ? '#e65100' : '#c94040';
   } else {
     el.textContent = '—';
