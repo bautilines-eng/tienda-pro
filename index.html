@@ -531,6 +531,11 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <input class="inp" id="np-costo" type="number" placeholder="0" style="border-color:#c8e6c9" oninput="actualizarMargenPreview()">
       </div>
     </div>
+    <label style="display:flex;align-items:center;gap:6px;margin-bottom:10px;font-size:12px;color:#555;cursor:pointer">
+      <input type="checkbox" id="np-costo-con-iva" onchange="_prodEditandoCostoConIva=this.checked;actualizarMargenPreview()" style="width:15px;height:15px;cursor:pointer">
+      Este costo ya incluye IVA
+      <span title="Marcalo si cargaste el costo tal como sale en la factura, con IVA adentro (así lo hace automático cuando cargás un remito con impuesto interno). Dejalo destildado si el costo que pusiste es neto, sin IVA — ahí el sistema se lo suma para calcular el margen real." style="cursor:help;font-size:11px;background:#f0f0f0;border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:#666">?</span>
+    </label>
     <div style="margin-bottom:12px;padding:8px 12px;background:#f0faf4;border-radius:8px;border:1px solid #c8e6c9;font-size:12px;color:#2e7d32;display:flex;justify-content:space-between;align-items:center">
       <span>Margen estimado</span>
       <span style="font-family:'DM Mono',monospace;font-weight:700" id="np-margen-preview">—</span>
@@ -5807,7 +5812,7 @@ async function confirmarRemito(){
         // compras.precio_unitario y el Kardex, más arriba, se guardaron
         // SIN el IVA — ese valor alimenta la contabilidad, que ya calcula
         // el IVA Crédito Fiscal por su cuenta a partir de él.
-        await SB.from('productos').update({costo:ln.costoParaPrecio, iva_alicuota:ln.alicuota, impuesto_interno_unitario:ln.impInternoUnitario}).eq('id',ln.prodId);
+        await SB.from('productos').update({costo:ln.costoParaPrecio, iva_alicuota:ln.alicuota, impuesto_interno_unitario:ln.impInternoUnitario, costo_incluye_iva:ln.impInternoUnitario>0}).eq('id',ln.prodId);
         if(pref){ pref.iva_alicuota = ln.alicuota; pref.impuesto_interno_unitario = ln.impInternoUnitario; }
       }
       try{ const {data:fresh}=await SB.from('productos').select('precio,costo,stock').eq('id',ln.prodId).single();
@@ -13904,6 +13909,8 @@ function editProduct(id){
   }
   _prodEditandoAlicuota = (p.iva_alicuota==null ? 21 : +p.iva_alicuota);
   _prodEditandoInterno = +p.impuesto_interno_unitario || 0;
+  _prodEditandoCostoConIva = (p.costo_incluye_iva != null) ? !!p.costo_incluye_iva : (_prodEditandoInterno > 0);
+  { const _chk=document.getElementById('np-costo-con-iva'); if(_chk) _chk.checked = _prodEditandoCostoConIva; }
   actualizarMargenPreview();
   const _blk=document.getElementById('np-pricing-block'); if(_blk) _blk.style.display='';
   const _hint=document.getElementById('np-alta-hint'); if(_hint) _hint.style.display='none';
@@ -13930,7 +13937,8 @@ async function updateProduct(id){
     // nunca lo mandaba a la base. Quedaba descartado en silencio, sin
     // ningún error visible.
     const proveedor_id = document.getElementById('np-proveedor')?.value || null;
-    const updates={nombre,precio:precioNuevo,barcode,codigo_proveedor:codigoProveedor,costo,impuesto_interno_unitario:impuestoInterno,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1,proveedor_id};
+    const costoIncluyeIva = !!document.getElementById('np-costo-con-iva')?.checked;
+    const updates={nombre,precio:precioNuevo,barcode,codigo_proveedor:codigoProveedor,costo,impuesto_interno_unitario:impuestoInterno,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1,proveedor_id,costo_incluye_iva:costoIncluyeIva};
     // Si cambió el precio a mano, bloquearlo para que las listas nuevas no lo pisen
     if(precioNuevo>0 && Math.abs(precioNuevo-precioAnterior)>0.01){
       updates.precio_bloqueado = true;
@@ -13991,6 +13999,7 @@ async function saveProduct(){
     const impuestoInterno = parseFloat(document.getElementById('np-imp-interno')?.value) || 0;
     const vence = document.getElementById('np-vence').value || null;
     const proveedor_id = document.getElementById('np-proveedor')?.value || null;
+    const costoIncluyeIva = !!document.getElementById('np-costo-con-iva')?.checked;
     const p=await sbInsert('productos',{
       nombre,
       precio,
@@ -14004,6 +14013,7 @@ async function saveProduct(){
       stock_minimo:parseInt(document.getElementById('np-min').value)||10,
       unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1,
       proveedor_id,
+      costo_incluye_iva: costoIncluyeIva,
     });
     if(proveedor_id && p){
       try{ const {data:fresh}=await SB.from('productos').select('precio,costo').eq('id',p.id).single();
@@ -14014,6 +14024,8 @@ async function saveProduct(){
     renderCats();renderProds();renderStock(stockFilter);populateSelects();
     showToast('✅ Producto agregado','ok');
     ['np-name','np-price','np-stock','np-cat','np-min','np-barcode','np-codprov','np-imp-interno'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+    { const _chk=document.getElementById('np-costo-con-iva'); if(_chk) _chk.checked=false; }
+    _prodEditandoCostoConIva = false;
   }catch(e){showToast('❌ Error al guardar producto','err');console.error(e);}
 }
 function abrirAltaProducto(){
@@ -14022,6 +14034,8 @@ function abrirAltaProducto(){
   if(npProv) npProv.innerHTML='<option value="">— Sin proveedor —</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
   _prodEditandoAlicuota = 21;
   _prodEditandoInterno = 0;
+  _prodEditandoCostoConIva = false;
+  { const _chk=document.getElementById('np-costo-con-iva'); if(_chk) _chk.checked = false; }
   { const _b=document.getElementById('np-bulto'); if(_b) _b.value=''; }
   { const _cb=document.getElementById('np-cant-bultos'); if(_cb) _cb.value=''; }
   { const _h=document.getElementById('np-stock-calc'); if(_h) _h.style.display='none'; }
@@ -15463,13 +15477,15 @@ function calcStockDesdeBultos(){
   }
 }
 
-// Alícuota/impuesto interno del producto que se está editando ahora
-// mismo en el modal — no hay campo de alícuota en este formulario (se
-// carga desde el remito), así que actualizarMargenPreview() los toma de
-// acá para calcular el margen real. "Nuevo Producto" usa el default del
-// sistema (21%, sin interno) hasta que se cargue por primera vez.
+// Alícuota/impuesto interno/costo-con-IVA del producto que se está
+// editando ahora mismo en el modal — no hay campo de alícuota en este
+// formulario (se carga desde el remito), así que actualizarMargenPreview()
+// los toma de acá para calcular el margen real. "Nuevo Producto" usa el
+// default del sistema (21%, sin interno, costo SIN IVA) hasta que se
+// cargue por primera vez.
 let _prodEditandoAlicuota = 21;
 let _prodEditandoInterno = 0;
+let _prodEditandoCostoConIva = null; // null = no seteado explícito, usa el fallback de abajo
 
 // Costo "real de bolsillo" de un producto — SOLO para mostrar margen en
 // pantalla (Editar Producto, lista de Stock, Rentabilidad). NO reemplaza
@@ -15477,17 +15493,22 @@ let _prodEditandoInterno = 0;
 // de crédito siguen usando p.costo tal cual para que el Kardex quede
 // valuado igual en TODOS los movimientos, como hasta ahora.
 //
-// 25/08: FIX — productos CON impuesto interno (tabaco) ya guardan
-// p.costo = base + IVA + interno desde que se carga el remito (ver
-// costoParaPrecio en la carga de remito) — es una convención distinta
-// y ya existente, no inventada acá. Sumarle IVA de nuevo duplicaba el
-// IVA (Lucky Strike daba -38% de margen en vez del ~23% real). Para
-// productos SIN interno, p.costo sigue siendo neto puro — ahí sí hace
-// falta sumarle el IVA, como antes.
+// 25/08: dos correcciones seguidas sobre esto —
+// (1) productos con impuesto interno cargados por remito guardan
+//     p.costo = base + IVA + interno (ver costoParaPrecio) — sumarle IVA
+//     de nuevo duplicaba el IVA.
+// (2) PERO no todos los productos con impuesto interno pasaron por esa
+//     carga automática — algunos se editan a mano (ej. Secco Naranja),
+//     y ahí Bautista puede haber cargado el costo SIN IVA, con el
+//     interno sí adentro. No hay forma de saber esto mirando los datos
+//     solos, así que ahora es un campo explícito (costo_incluye_iva) que
+//     se tilda a mano en "Editar Producto". Si todavía no está seteado
+//     para un producto viejo, se usa como antes (interno>0 → asume que
+//     ya incluye IVA, que es lo más común al venir de un remito).
 function _costoConIva(p){
   if(!p || !(p.costo>0)) return 0;
-  const interno = +p.impuesto_interno_unitario || 0;
-  if(interno > 0){
+  const yaIncluyeIva = (p.costo_incluye_iva != null) ? !!p.costo_incluye_iva : ((+p.impuesto_interno_unitario||0) > 0);
+  if(yaIncluyeIva){
     return Math.round(p.costo * 100) / 100;
   }
   const alic = (p.iva_alicuota==null ? 21 : +p.iva_alicuota);
@@ -15505,7 +15526,7 @@ function actualizarMargenPreview(){
   // el costo con IVA explícito (no solo el % final) para poder seguir
   // la cuenta a simple vista, en vez de que quede "escondido" adentro
   // del cálculo — eso fue lo que generó confusión en Stock.
-  const costo = _costoConIva({costo:costoBase, iva_alicuota:_prodEditandoAlicuota, impuesto_interno_unitario:_prodEditandoInterno});
+  const costo = _costoConIva({costo:costoBase, iva_alicuota:_prodEditandoAlicuota, impuesto_interno_unitario:_prodEditandoInterno, costo_incluye_iva:_prodEditandoCostoConIva});
   if(precio > 0 && costo > 0){
     const margen = Math.round((precio-costo)/costo*100);  // margen sobre costo con IVA
     const ganancia = precio - costo;
