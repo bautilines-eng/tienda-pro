@@ -13833,7 +13833,7 @@ function renderStock(f){
         </div>
       </div>
       <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${p.stock} uds</div></div>
-      <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${esc(p.barcode?'🔖 '+p.barcode:'')}</span><span>${esc(p.codigo_proveedor?'#'+p.codigo_proveedor:'')}</span><span>${p.costo>0?'Costo neto: $'+(p.costo||0).toLocaleString('es-AR'):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
+      <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${esc(p.barcode?'🔖 '+p.barcode:'')}</span><span>${esc(p.codigo_proveedor?'#'+p.codigo_proveedor:'')}</span><span>${p.costo>0?((p.impuesto_interno_unitario>0?'Costo total (ya con IVA+interno): $':'Costo neto: $')+(p.costo||0).toLocaleString('es-AR')):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
       ${p.costo>0?(()=>{const cIva=_costoConIva(p);return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
         <span style="color:#666">Costo con IVA: $${cIva.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>
         <span style="color:#999">·</span>
@@ -15463,14 +15463,6 @@ function calcStockDesdeBultos(){
   }
 }
 
-// Costo "real de bolsillo" de un producto — SOLO para mostrar margen en
-// pantalla (Editar Producto, lista de Stock, Rentabilidad). NO reemplaza
-// a p.costo en ningún otro lado: compras/kardex/consumo personal/notas
-// de crédito siguen usando p.costo tal cual (neto, sin IVA) para que el
-// Kardex quede valuado igual en TODOS los movimientos, como hasta ahora.
-// Acá sí sumamos IVA + Impuesto Interno, porque lo que se compara es
-// "cuánta plata realmente puso" vs "cuánta plata realmente cobra" —
-// ambos con IVA adentro, como pediste.
 // Alícuota/impuesto interno del producto que se está editando ahora
 // mismo en el modal — no hay campo de alícuota en este formulario (se
 // carga desde el remito), así que actualizarMargenPreview() los toma de
@@ -15479,11 +15471,27 @@ function calcStockDesdeBultos(){
 let _prodEditandoAlicuota = 21;
 let _prodEditandoInterno = 0;
 
+// Costo "real de bolsillo" de un producto — SOLO para mostrar margen en
+// pantalla (Editar Producto, lista de Stock, Rentabilidad). NO reemplaza
+// a p.costo en ningún otro lado: compras/kardex/consumo personal/notas
+// de crédito siguen usando p.costo tal cual para que el Kardex quede
+// valuado igual en TODOS los movimientos, como hasta ahora.
+//
+// 25/08: FIX — productos CON impuesto interno (tabaco) ya guardan
+// p.costo = base + IVA + interno desde que se carga el remito (ver
+// costoParaPrecio en la carga de remito) — es una convención distinta
+// y ya existente, no inventada acá. Sumarle IVA de nuevo duplicaba el
+// IVA (Lucky Strike daba -38% de margen en vez del ~23% real). Para
+// productos SIN interno, p.costo sigue siendo neto puro — ahí sí hace
+// falta sumarle el IVA, como antes.
 function _costoConIva(p){
   if(!p || !(p.costo>0)) return 0;
-  const alic = (p.iva_alicuota==null ? 21 : +p.iva_alicuota);
   const interno = +p.impuesto_interno_unitario || 0;
-  return Math.round((p.costo*(1+alic/100) + interno) * 100) / 100;
+  if(interno > 0){
+    return Math.round(p.costo * 100) / 100;
+  }
+  const alic = (p.iva_alicuota==null ? 21 : +p.iva_alicuota);
+  return Math.round((p.costo*(1+alic/100)) * 100) / 100;
 }
 
 function actualizarMargenPreview(){
