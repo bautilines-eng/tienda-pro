@@ -8469,15 +8469,32 @@ function abrirModalFactura(compraId) {
   // Desglose real por alícuota (mismo criterio que _ivaCompra usa en
   // renderMayor/renderBalance) — agrupa las compras del remito por su
   // iva_alicuota REAL, en vez de asumir una sola para todo el remito.
+  //
+  // 25/08: FIX — _ivaCompra().neto viene de compras.precio_unitario, que
+  // a propósito INCLUYE el Impuesto Interno (así vale bien Mercaderías
+  // en la contabilidad, ver asientoCompra). Pero acá, para el campo
+  // "Neto Gravado" de ARCA, el Impuesto Interno NO es parte de la base
+  // sobre la que se calcula IVA — es una línea aparte. Antes esto
+  // inflaba el Neto Gravado (y en cascada el IVA) exactamente en el
+  // monto del Impuesto Interno. Se resta acá, localmente, SIN tocar
+  // _ivaCompra() — así la contabilidad (que sí necesita el interno
+  // adentro de Mercaderías) sigue exactamente igual.
+  // Verificado contra la factura real de Salta Refrescos (24/08): Neto
+  // $25.598,40 + Interno $2.226,04 = $27.824,44 (lo que mostraba antes,
+  // mal) — con el fix da $25.598,40 (correcto) e IVA $5.375,66 (antes
+  // daba $5.843,12, inflado en la misma proporción).
   // ══════════════════════════════════════════════════════════════
   const grupos = {};
   let impInternoTotal = 0;
   comprasRemito.forEach(c => {
-    const { neto, iva, ali } = _ivaCompra(c);
+    const { neto: brutoConInterno, ali } = _ivaCompra(c);
+    const impInternoLinea = redondear((c.impuesto_interno_unitario || 0) * (c.cantidad || 0), 2);
+    const netoGravado = redondear(brutoConInterno - impInternoLinea, 2);
+    const ivaLinea = redondear(netoGravado * ali / 100, 2);
     if (!grupos[ali]) grupos[ali] = { neto: 0, iva: 0 };
-    grupos[ali].neto += neto;
-    grupos[ali].iva  += iva;
-    impInternoTotal += (c.impuesto_interno_unitario || 0) * (c.cantidad || 0);
+    grupos[ali].neto += netoGravado;
+    grupos[ali].iva  += ivaLinea;
+    impInternoTotal += impInternoLinea;
   });
   const alicuotas = Object.keys(grupos).map(Number).sort((a,b) => b - a);
   const netoTotal = alicuotas.reduce((s,a) => s + grupos[a].neto, 0);
