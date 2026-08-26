@@ -1438,6 +1438,13 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
           <div style="font-size:10.5px;color:#9a3412;margin-top:6px;font-family:inherit">Neto e IVA de abajo ya vienen sumados correctamente — no hace falta elegir una sola alícuota.</div>
         </div>
 
+        <!-- Detalle por producto — para cruzar cada línea contra la factura de
+             papel antes de guardar, en vez de confiar solo en el total. -->
+        <div id="fac-detalle-productos-box" style="display:none;margin-bottom:10px;padding:10px 12px;background:#f0f5ff;border:1.5px solid #b8cdf0;border-radius:9px">
+          <div style="font-size:11px;font-weight:700;color:#1a3a5c;margin-bottom:6px">📋 Detalle por producto (comparalo contra el papel)</div>
+          <div id="fac-detalle-productos-rows" style="font-size:11px;color:#1a3a5c;font-family:'DM Mono',monospace"></div>
+        </div>
+
         <div class="frow" style="margin-bottom:8px">
           <div style="flex:1">
             <div class="flabel">Neto gravado</div>
@@ -8491,6 +8498,7 @@ function abrirModalFactura(compraId) {
   // ══════════════════════════════════════════════════════════════
   const grupos = {};
   let impInternoTotal = 0;
+  const detalleProductos = [];
   comprasRemito.forEach(c => {
     const { neto: brutoConInterno, ali } = _ivaCompra(c);
     const impInternoLinea = redondear((c.impuesto_interno_unitario || 0) * (c.cantidad || 0), 2);
@@ -8500,6 +8508,14 @@ function abrirModalFactura(compraId) {
     grupos[ali].neto += netoGravado;
     grupos[ali].iva  += ivaLinea;
     impInternoTotal += impInternoLinea;
+    detalleProductos.push({
+      nombre: c.producto_nombre || c.nombre || '(sin nombre)',
+      cantidad: c.cantidad || 0,
+      precioUnitConInterno: c.precio_unitario || 0,      // = "P.U. TOTAL" de la factura (neto+interno por unidad)
+      internoUnit: c.impuesto_interno_unitario || 0,      // = "IMP.NAC.UNI" de la factura
+      netoGravadoLinea: netoGravado,                      // debería matchear (P.U.NETO × cantidad) de la factura
+      ivaLinea,
+    });
   });
   const alicuotas = Object.keys(grupos).map(Number).sort((a,b) => b - a);
   const netoTotal = alicuotas.reduce((s,a) => s + grupos[a].neto, 0);
@@ -8540,6 +8556,28 @@ function abrirModalFactura(compraId) {
   // Impuesto interno: suma real de lo cargado en el remito (si lo hubo)
   const impIntEl = document.getElementById('fac-imp-int');
   if (impIntEl && impInternoTotal > 0) impIntEl.value = Math.round(impInternoTotal * 100) / 100;
+
+  // Detalle por producto — siempre que haya algo cargado, independiente
+  // de si el remito tiene una alícuota o varias, para poder cruzar cada
+  // línea contra la factura de papel antes de guardar.
+  const detBoxEl  = document.getElementById('fac-detalle-productos-box');
+  const detRowsEl = document.getElementById('fac-detalle-productos-rows');
+  if (detalleProductos.length) {
+    if (detBoxEl) detBoxEl.style.display = 'block';
+    if (detRowsEl) {
+      detRowsEl.innerHTML = detalleProductos.map(d => `
+        <div style="padding:5px 0;border-bottom:1px solid #d5e0f5">
+          <div style="font-weight:700;font-size:10.5px">${esc(d.nombre)} ${d.cantidad>1?'×'+d.cantidad:''}</div>
+          <div style="display:flex;justify-content:space-between;font-size:10.5px;color:#4a5f7a">
+            <span>Neto: $${d.netoGravadoLinea.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>
+            ${d.internoUnit>0?`<span>Interno/u: $${d.internoUnit.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>`:''}
+            <span>IVA: $${d.ivaLinea.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>
+          </div>
+        </div>`).join('');
+    }
+  } else if (detBoxEl) {
+    detBoxEl.style.display = 'none';
+  }
 
   if (netoTotal > 0) calcularTotalesFac();
 
