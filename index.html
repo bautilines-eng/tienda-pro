@@ -937,6 +937,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <!-- Kardex Panel -->
     <div id="panel-kardex" style="display:none;padding:0 20px">
       <div style="margin:12px 0">
+        <input class="inp" id="kardex-prod-buscar" placeholder="🔎 Buscar producto por nombre..." oninput="filtrarKardexProdSel()" style="margin-bottom:6px">
         <select class="inp" id="kardex-prod-sel" onchange="renderKardex()" style="cursor:pointer">
           <option value="">Seleccioná un producto para ver su kardex...</option>
         </select>
@@ -9327,15 +9328,32 @@ async function aprobarGRN(recepId) {
 
 let kardexData = [];
 
+// Arma las opciones del selector de Kardex, opcionalmente filtradas por
+// nombre — mismo patrón que _poblarComboProdSel/_poblarPcantProdSel. Si
+// el producto que ya estaba elegido sigue en la lista filtrada, se
+// mantiene seleccionado (no se pierde el kardex que se estaba viendo
+// solo por escribir en el buscador).
+function _poblarKardexProdSel(filtro){
+  const sel = document.getElementById('kardex-prod-sel');
+  if(!sel) return;
+  const valorActual = sel.value;
+  const f = (filtro||'').trim().toLowerCase();
+  const disponibles = (prods||[]).filter(p => !f || (p.nombre||'').toLowerCase().includes(f))
+    .slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  sel.innerHTML = '<option value="">Seleccioná un producto para ver su kardex...</option>' +
+    disponibles.map(p=>`<option value="${p.id}">${esc(p.nombre)} — Stock: ${p.stock} uds</option>`).join('');
+  if(valorActual && disponibles.some(p=>p.id===valorActual)) sel.value = valorActual;
+}
+
+function filtrarKardexProdSel(){
+  const buscarEl = document.getElementById('kardex-prod-buscar');
+  _poblarKardexProdSel(buscarEl ? buscarEl.value : '');
+}
+
 function initKardexSelector() {
   const sel = document.getElementById('kardex-prod-sel');
   if (!sel || sel.options.length > 1) return;
-  prods.forEach(p => {
-    const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = `${esc(p.nombre)} — Stock: ${p.stock} uds`;
-    sel.appendChild(opt);
-  });
+  _poblarKardexProdSel('');
 }
 
 async function renderKardex() {
