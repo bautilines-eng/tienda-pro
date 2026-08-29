@@ -4754,6 +4754,82 @@ async function loadNotasCredito(){
   try{ notasCredito = await sbGet('notas_credito'); }catch(e){ notasCredito = []; }
 }
 
+// nro_nota de las Notas de Crédito que NO tienen su movimiento de Kardex
+// DEVOLUCION_CLIENTE — significa que la nota se emitió (con CAE real,
+// irreversible) pero el paso de devolver el stock no llegó a correr
+// (ej. se cerró el navegador o hubo un corte de red justo en el medio).
+// Se chequea en un solo query batch, no uno por nota.
+let _ncSinDevolucionStock = new Set();
+
+async function _verificarDevolucionesStockNC(){
+  try{
+    const nros = (notasCredito||[]).map(nc=>nc.nro_nota).filter(Boolean);
+    if(!nros.length) return;
+    const { data, error } = await SB.from('kardex')
+      .select('documento_nro')
+      .eq('tienda_id', STORE.id)
+      .eq('documento_tipo', 'NOTA_CREDITO')
+      .eq('tipo_movimiento', 'DEVOLUCION_CLIENTE')
+      .in('documento_nro', nros);
+    if(error) throw error;
+    const conDevolucion = new Set((data||[]).map(k=>k.documento_nro));
+    const faltantes = nros.filter(n => !conDevolucion.has(n));
+    _ncSinDevolucionStock = new Set(faltantes);
+    if(faltantes.length>0) renderHist();
+  }catch(e){ /* si el chequeo falla no rompe nada -- simplemente no se muestra la alerta */ }
+}
+
+// Reintenta devolver el stock de una NC que quedó a mitad de camino.
+// Es idempotente: primero revisa qué productos de esa nota YA tienen su
+// movimiento de Kardex (por si la devolución fue parcial, no total) y
+// solo procesa los que faltan — nunca duplica un producto ya devuelto.
+async function reintentarDevolucionStockNC(notaCreditoId){
+  const nc = (notasCredito||[]).find(x => x.id === notaCreditoId);
+  if(!nc){ showToast('No encontré esa nota de crédito','err'); return; }
+  try{
+    const { data: yaHechos, error: errYaHechos } = await SB.from('kardex')
+      .select('producto_id')
+      .eq('tienda_id', STORE.id)
+      .eq('documento_tipo', 'NOTA_CREDITO')
+      .eq('documento_nro', nc.nro_nota)
+      .eq('tipo_movimiento', 'DEVOLUCION_CLIENTE');
+    if(errYaHechos) throw errYaHechos;
+    const idsYaHechos = new Set((yaHechos||[]).map(k=>k.producto_id));
+
+    const items = typeof nc.items === 'string' ? JSON.parse(nc.items||'[]') : (nc.items||[]);
+    const pendientes = items.filter(it => !idsYaHechos.has(it.producto_id));
+
+    if(!pendientes.length){
+      showToast('Esta nota ya tenía el stock devuelto','ok');
+      _ncSinDevolucionStock.delete(nc.nro_nota);
+      renderHist();
+      return;
+    }
+    for(const item of pendientes){
+      const p = prods.find(x=>x.id===item.producto_id);
+      if(!p) continue;
+      await SB.rpc('mover_stock_con_kardex', {
+        p_tienda_id:   STORE.id,
+        p_producto_id: p.id,
+        p_cantidad:    item.cantidad,
+        p_tipo_mov:    'DEVOLUCION_CLIENTE',
+        p_doc_tipo:    'NOTA_CREDITO',
+        p_doc_id:      nc.id,
+        p_doc_nro:     nc.nro_nota,
+        p_costo_unit:  item.costo || p.costo || 0,
+        p_precio_unit: item.precio || p.precio || 0,
+        p_observacion: `Devolución por nota de crédito ${nc.nro_nota} (reintento)`,
+      });
+      p.stock += item.cantidad;
+    }
+    showToast(`✅ Stock devuelto (${pendientes.length} producto${pendientes.length>1?'s':''})`, 'ok');
+    _ncSinDevolucionStock.delete(nc.nro_nota);
+    renderHist(); renderProds(); renderStock(stockFilter);
+  }catch(e){
+    showToast('❌ No se pudo reintentar: '+(e?.message||'desconocido'), 'err');
+  }
+}
+
 // Fecha contable de una NC (la tabla guarda created_at, no una columna fecha)
 function _fechaNC(nc){
   return nc.fecha || (nc.created_at ? String(nc.created_at).slice(0,10) : '');
@@ -10390,6 +10466,7 @@ async function initApp(){
     loadRecepciones(),
   ]);
   loadUsuarios();
+  _verificarDevolucionesStockNC(); // no se espera (await) -- corre en paralelo, re-renderiza Historial solo si encuentra algo pendiente
   // Recién acá prods y combos están cargados los dos -- mete los combos
   // activos como productos virtuales con stock real (antes esto solo
   // pasaba una vez, al crear el combo, en memoria; se perdía con
@@ -13305,7 +13382,14 @@ function renderHist(){
           <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();reopenTicket('${s.id}')">🖨️ Ticket</button>
           ${s.anulada ? '' : `<button class="btn btn-sm" style="background:#fdf5ea;color:#8a5a1a;border:1.5px solid #8a5a1a" onclick="event.stopPropagation();abrirEditarVenta('${s.id}')">✏️ Editar</button>`}
           ${s.anulada
-  ? `<span style="font-size:11px;color:var(--red);font-weight:700;padding:4px 8px;background:#fee2e2;border-radius:6px">❌ ANULADA${s.nota_credito_id?'':''}</span>`
+  ? (() => {
+      const nc = (notasCredito||[]).find(x => x.venta_id === s.id);
+      const faltaStock = nc && _ncSinDevolucionStock.has(nc.nro_nota);
+      return faltaStock
+        ? `<span style="font-size:11px;color:#c94040;font-weight:700;padding:4px 8px;background:#fee2e2;border-radius:6px">⚠️ Stock no devuelto</span>
+           <button class="btn btn-sm" style="background:#fff3e0;color:#e65100;border:1.5px solid #e65100" onclick="event.stopPropagation();reintentarDevolucionStockNC('${nc.id}')">🔁 Reintentar</button>`
+        : `<span style="font-size:11px;color:var(--red);font-weight:700;padding:4px 8px;background:#fee2e2;border-radius:6px">❌ ANULADA</span>`;
+    })()
   : `<button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="anularVenta('${s.id}',event)">📋 Nota de Crédito</button>`}
         </div></div>
     </div>`;
@@ -13472,33 +13556,49 @@ async function confirmarNotaCredito() {
       throw new Error(error?.message || data?.error || 'Error al emitir nota de crédito');
     }
 
-    // Devolver stock con Kardex
+    // Devolver stock con Kardex — en un try/catch PROPIO: si esto falla,
+    // la nota de crédito YA se emitió (con CAE real si correspondía, ya
+    // irreversible), así que no tiene sentido que el error se mezcle con
+    // "no se pudo emitir la nota" — el usuario necesita un mensaje
+    // distinto y accionable (reintentar desde Historial), no pensar que
+    // no pasó nada.
     const items = typeof s.items === 'string' ? JSON.parse(s.items || '[]') : s.items || [];
-    for (const item of items) {
-      const p = prods.find(x => x.id === item.producto_id);
-      if (p) {
-        await SB.rpc('mover_stock_con_kardex', {
-          p_tienda_id:   STORE.id,
-          p_producto_id: p.id,
-          p_cantidad:    item.cantidad, // positivo = entrada (devolución)
-          p_tipo_mov:    'DEVOLUCION_CLIENTE',
-          p_doc_tipo:    'NOTA_CREDITO',
-          p_doc_id:      data.nota_credito_id,
-          p_doc_nro:     data.nro_nota,
-          p_costo_unit:  p.costo || 0,
-          p_precio_unit: p.precio || 0,
-          p_observacion: `Devolución por nota de crédito ${data.nro_nota}`
-        });
-        p.stock += item.cantidad;
+    let stockOk = true;
+    try {
+      for (const item of items) {
+        const p = prods.find(x => x.id === item.producto_id);
+        if (p) {
+          await SB.rpc('mover_stock_con_kardex', {
+            p_tienda_id:   STORE.id,
+            p_producto_id: p.id,
+            p_cantidad:    item.cantidad, // positivo = entrada (devolución)
+            p_tipo_mov:    'DEVOLUCION_CLIENTE',
+            p_doc_tipo:    'NOTA_CREDITO',
+            p_doc_id:      data.nota_credito_id,
+            p_doc_nro:     data.nro_nota,
+            p_costo_unit:  p.costo || 0,
+            p_precio_unit: p.precio || 0,
+            p_observacion: `Devolución por nota de crédito ${data.nro_nota}`
+          });
+          p.stock += item.cantidad;
+        }
       }
+    } catch(eStock) {
+      stockOk = false;
+      console.error('Falló la devolución de stock de la NC (la nota ya se emitió bien):', eStock);
     }
     // Marcar venta localmente
     s.anulada = true;
     s.nota_credito_id = data.nota_credito_id;
+    if (!stockOk) _ncSinDevolucionStock.add(data.nro_nota);
 
     closeModal('ov-nota-credito');
     renderHist(); renderProds(); renderStock(stockFilter); renderCaja();
-    showToast(`✅ Nota de crédito ${data.nro_nota}${esFiscal ? ' · CAE ' + afipCae : ''} emitida correctamente`, 'ok');
+    if (stockOk) {
+      showToast(`✅ Nota de crédito ${data.nro_nota}${esFiscal ? ' · CAE ' + afipCae : ''} emitida correctamente`, 'ok');
+    } else {
+      showToast(`⚠️ Nota ${data.nro_nota} emitida, pero el stock no se pudo devolver — reintentalo desde Historial`, 'err');
+    }
     _ventaAnularId = null;
 
   } catch(e) {
