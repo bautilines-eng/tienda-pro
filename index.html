@@ -5527,10 +5527,10 @@ function exportarMargenStock(){
   if(typeof XLSX==='undefined'){ showToast('El generador de Excel se está cargando, probá de nuevo','err'); return; }
   const provMap={}; (proveedores||[]).forEach(p=>{ provMap[p.id]=p.razon_social||p.nombre||''; });
   const lista=(prods||[]).filter(p=>!p.is_deleted && !p.es_combo && (p.stock||0)>0).map(p=>{
-    const costo=+p.costo||0, precio=+p.precio||0;
+    const costo=_costoConIva(p), precio=+p.precio||0;
     const margenPesos = precio-costo;
     const margenPct = costo>0 ? (margenPesos/costo*100) : null; // null = sin costo cargado, no se puede calcular
-    return {...p, margenPesos, margenPct};
+    return {...p, costoConIva:costo, margenPesos, margenPct};
   }).sort((a,b)=>{
     // Sin costo cargado va al final (no hay % que ordenar)
     if(a.margenPct==null && b.margenPct==null) return (a.nombre||'').localeCompare(b.nombre||'');
@@ -5539,13 +5539,13 @@ function exportarMargenStock(){
     return b.margenPct - a.margenPct;
   });
   if(!lista.length){ showToast('No hay productos con stock para exportar','err'); return; }
-  const header=['Producto','Categoría','Proveedor','Stock (unidades)','Costo unit.','Precio venta','Margen $','Margen %'];
+  const header=['Producto','Categoría','Proveedor','Stock (unidades)','Costo unit. (con IVA)','Precio venta','Margen $','Margen %'];
   const aoa=[header];
   lista.forEach(p=>{
     aoa.push([
       p.nombre||'', p.categoria||'', provMap[p.proveedor_id]||'',
       p.stock||0,
-      Math.round((+p.costo||0)*100)/100,
+      Math.round(p.costoConIva*100)/100,
       Math.round((+p.precio||0)*100)/100,
       Math.round(p.margenPesos*100)/100,
       p.margenPct==null ? 'Sin costo' : Math.round(p.margenPct*10)/10,
@@ -15990,13 +15990,19 @@ function toggleFinComparar(el){
 // Costo y ganancia bruta de un conjunto de ventas ya filtradas — misma
 // lógica que ya usaba Finanzas, solo extraída a helper para reutilizarla
 // en el período actual Y en el anterior sin duplicar código.
+// 30/08: usa _costoConIva(prod), NO prod.costo pelado — mismo criterio
+// que finRentabilidadProductos (más abajo en esta misma pantalla), para
+// que "Ganancia Neta"/"Margen Neto" no queden inconsistentes con la
+// lista de Rentabilidad por producto de la misma pestaña. El resto del
+// sistema (compras, Kardex, consumo personal, notas de crédito) sigue
+// usando prod.costo tal cual, sin tocar.
 function _finCostoYGanancia(ventasFilt){
   let costo=0, ganancia=0, tieneCosto=false;
   ventasFilt.forEach(v=>{
     const items = typeof v.items==='string' ? JSON.parse(v.items||'[]') : (v.items||[]);
     items.forEach(item=>{
       const prod = prods.find(p=>p.id===item.id || p.nombre===item.nombre);
-      const c = prod?.costo || 0;
+      const c = prod ? _costoConIva(prod) : 0;
       const cant = item.cantidad || 1;
       const precioVenta = (item.precio||0)*cant;
       costo += c*cant;
