@@ -532,7 +532,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
     </div>
     <label style="display:flex;align-items:center;gap:6px;margin-bottom:10px;font-size:12px;color:#555;cursor:pointer">
-      <input type="checkbox" id="np-costo-con-iva" onchange="_prodEditandoCostoConIva=this.checked;actualizarMargenPreview()" style="width:15px;height:15px;cursor:pointer">
+      <input type="checkbox" id="np-costo-con-iva" checked onchange="_prodEditandoCostoConIva=this.checked;actualizarMargenPreview()" style="width:15px;height:15px;cursor:pointer">
       Este costo ya incluye IVA
       <span title="Marcalo si cargaste el costo tal como sale en la factura, con IVA adentro (así lo hace automático cuando cargás un remito con impuesto interno). Dejalo destildado si el costo que pusiste es neto, sin IVA — ahí el sistema se lo suma para calcular el margen real." style="cursor:help;font-size:11px;background:#f0f0f0;border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:#666">?</span>
     </label>
@@ -5193,18 +5193,17 @@ function exportarNotaDebitoPDF(id){
 
 let reglasPrecios = [];
 
-// 30/08: corregida para sumar IVA — antes decía en el comentario "el IVA
-// ya está contenido" pero la fórmula no lo sumaba en ningún lado, igual
-// que calcular_precio_venta() del lado del servidor (la función real que
-// fija los precios). Se arreglaron las dos juntas, mismo criterio: si el
-// producto ya trae el IVA incluido en su costo (impuesto interno), se usa
-// tal cual; si no, se le suma acá antes de aplicar el margen.
-function calcPrecioJS(costo, margen, iva, redondeo, costoIncluyeIva){
+// 31/08: se agrega impuesto interno — faltaba sumarlo acá igual que ya
+// se sumaba en _costoConIva(). Costo neto = compra (lo que se guarda en
+// productos.costo); IVA + interno se suman recién acá, al calcular el
+// costo de venta sobre el que se aplica el margen. Mismo criterio en
+// calcular_precio_venta() del servidor — se arreglaron las dos juntas.
+function calcPrecioJS(costo, margen, iva, redondeo, costoIncluyeIva, interno){
   costo = +costo || 0;
   if(costo <= 0) return 0;
   redondeo = (redondeo==null ? 1 : +redondeo);
-  const costoConIva = costoIncluyeIva ? costo : costo * (1 + (+iva||21)/100);
-  let p = costoConIva * (1 + (+margen||0)/100);
+  const costoVenta = costoIncluyeIva ? costo : costo * (1 + (+iva||21)/100) + (+interno||0);
+  let p = costoVenta * (1 + (+margen||0)/100);
   if(redondeo > 0) p = Math.round(p/redondeo)*redondeo;
   else p = Math.round(p*100)/100;
   return p;
@@ -5221,7 +5220,7 @@ function margenEfectivo(prov, cat){
 function muestraPrecioCat(list, cat, margen, redondeo){
   const p = list.find(x=>x.categoria===cat && +x.costo>0);
   if(!p) return null;
-  return {costo:+p.costo, precio:calcPrecioJS(+p.costo, margen, p.iva_alicuota, redondeo, !!p.costo_incluye_iva)};
+  return {costo:+p.costo, precio:calcPrecioJS(+p.costo, margen, p.iva_alicuota, redondeo, !!p.costo_incluye_iva, p.impuesto_interno_unitario)};
 }
 
 async function renderPreciosPage(){
@@ -5330,7 +5329,7 @@ function _previewRecalculoPrecio(proveedorId, categoria, margenResolver, redonde
     const margen = margenResolver(p);
     if(margen==null) return null;
     const precioActual = +p.precio || 0;
-    const precioNuevo = calcPrecioJS(p.costo, margen, p.iva_alicuota, redondeo, !!p.costo_incluye_iva);
+    const precioNuevo = calcPrecioJS(p.costo, margen, p.iva_alicuota, redondeo, !!p.costo_incluye_iva, p.impuesto_interno_unitario);
     const pct = precioActual>0 ? ((precioNuevo-precioActual)/precioActual*100) : null;
     return { nombre:p.nombre, precioActual, precioNuevo, pct };
   }).filter(Boolean);
@@ -5815,6 +5814,10 @@ function renderRemitoLineas(){
           <input type="number" id="rem-costo-${l.uid}" min="0" placeholder="0" value="${escAttr(l.costo ?? '')}" class="inp" style="padding:9px 10px" oninput="recalcRemitoTotales()">
         </div>
       </div>
+      <label style="display:flex;align-items:center;gap:5px;margin-top:6px;font-size:10.5px;color:#888;cursor:pointer">
+        <input type="checkbox" id="rem-costo-con-iva-${l.uid}" ${l.costoIncluyeIva?'checked':''} onchange="recalcRemitoTotales()" style="width:13px;height:13px;cursor:pointer">
+        El costo de compra que puse ya incluye IVA
+      </label>
       <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:7px;margin-top:8px">
         <div>
           <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px">El costo que puse es...</div>
@@ -5857,12 +5860,13 @@ function recalcRemitoTotales(){
     const modoRaw=document.getElementById('rem-modo-'+l.uid)?.value || 'bulto';
     const costoRaw=document.getElementById('rem-costo-'+l.uid)?.value ?? '';
     const costoModoRaw=document.getElementById('rem-costomodo-'+l.uid)?.value || 'unidad';
+    const costoConIva=!!document.getElementById('rem-costo-con-iva-'+l.uid)?.checked;
     const alicRaw=parseFloat(document.getElementById('rem-alic-'+l.uid)?.value);
     const impInternoRaw=document.getElementById('rem-imp-interno-'+l.uid)?.value ?? '';
     const internoIncluyeIva=!!document.getElementById('rem-interno-con-iva-'+l.uid)?.checked;
     // Guardamos lo que el usuario tipeó en la línea misma, para que sobreviva
     // si se re-renderiza la lista (por ej. al agregar/quitar otro producto)
-    l.cantidad=qtyRaw; l.modo=modoRaw; l.costo=costoRaw; l.costoModo=costoModoRaw; l.impInterno=impInternoRaw; l.internoIncluyeIva=internoIncluyeIva;
+    l.cantidad=qtyRaw; l.modo=modoRaw; l.costo=costoRaw; l.costoModo=costoModoRaw; l.costoConIva=costoConIva; l.impInterno=impInternoRaw; l.internoIncluyeIva=internoIncluyeIva;
     l.alicuota = isNaN(alicRaw) ? (l.alicuota ?? 21) : alicRaw;
 
     const qty=parseFloat(qtyRaw)||0;
@@ -5870,9 +5874,18 @@ function recalcRemitoTotales(){
     const costo=parseFloat(costoRaw)||0;
     const costoModo=costoModoRaw;
     const unidades = modo==='bulto'? qty*l.upb : qty;
-    // Costo por unidad: si lo cargó por bulto, se divide por las unidades del bulto
-    const costoUnit = costoModo==='bulto' ? (l.upb>0 ? costo/l.upb : costo) : costo;
-    // Neto de la línea = costo por unidad × unidades totales
+    // Costo por unidad, tal como se tipeó (todavía sin decidir si es neto o con IVA):
+    // si lo cargó por bulto, se divide por las unidades del bulto primero.
+    const costoUnitTalCual = costoModo==='bulto' ? (l.upb>0 ? costo/l.upb : costo) : costo;
+    // 30/08: si "el costo que puse ya incluye IVA" está tildado, ese número
+    // es BRUTO — hay que sacarle el IVA acá para tener el neto real, antes
+    // de calcular nada más. Reemplaza a la vieja heurística de "si tiene
+    // impuesto interno, ya incluye IVA" — ahora es explícito, línea por
+    // línea, decidido en el momento en que se tiene la factura adelante.
+    const costoUnit = costoConIva
+      ? Math.round((costoUnitTalCual / (1 + l.alicuota/100)) * 10000) / 10000
+      : costoUnitTalCual;
+    // Neto de la línea = costo por unidad (ya neto) × unidades totales
     const neto = Math.round(costoUnit * unidades * 100)/100;
     // IVA de la línea con SU PROPIA alícuota (no una sola para todo el remito)
     const ivaLinea = Math.round(neto * l.alicuota / 100 * 100)/100;
@@ -5903,7 +5916,7 @@ function recalcRemitoTotales(){
         ? `${qty} ${qty===1?'bulto':'bultos'} × ${l.upb} = <b>${unidades} u</b>`
         : `<b>${unidades} u</b>`;
       const partesDer = [];
-      if(costo>0) partesDer.push(`$${neto.toLocaleString('es-AR')} · IVA ${l.alicuota}%`);
+      if(costo>0) partesDer.push(`$${neto.toLocaleString('es-AR')} · IVA ${l.alicuota}%${costoConIva?' (costo sin IVA ya calculado)':''}`);
       if(impInternoTotalLinea>0) partesDer.push(`Interno $${impInternoUnitario.toLocaleString('es-AR')}/u${internoIncluyeIva?' (ya sin el IVA)':''}`);
       sub.innerHTML = `<span style="color:#5a7a68">📦 ${izq}</span>`
         + (partesDer.length ? `<span>${partesDer.join(' · ')}</span>` : `<span style="color:#bbb;font-weight:500">sin costo</span>`);
@@ -5966,16 +5979,23 @@ async function confirmarRemito(){
     const modo=document.getElementById('rem-modo-'+l.uid)?.value||'bulto';
     const costo=parseFloat(document.getElementById('rem-costo-'+l.uid)?.value)||0;
     const costoModo=document.getElementById('rem-costomodo-'+l.uid)?.value||'unidad';
+    const costoConIva=!!document.getElementById('rem-costo-con-iva-'+l.uid)?.checked;
     const alicLinea=parseFloat(document.getElementById('rem-alic-'+l.uid)?.value)||21;
     const impInternoTotalLineaBruto=parseFloat(document.getElementById('rem-imp-interno-'+l.uid)?.value)||0;
     const internoIncluyeIva=!!document.getElementById('rem-interno-con-iva-'+l.uid)?.checked;
     if(qty<=0){ showToast('Revisá las cantidades (deben ser mayores a 0)','err'); return; }
     const unidades = modo==='bulto'? qty*l.upb : qty;
-    // Costo por unidad, tal como se cargó (base, sin impuesto interno). Si
-    // lo cargó por bulto, se divide por upb.
-    const costoUnit = costo>0
+    // Costo por unidad, tal como se tipeó (todavía sin decidir si es neto o
+    // con IVA). Si lo cargó por bulto, se divide por upb primero.
+    const costoUnitTalCual = costo>0
       ? (costoModo==='bulto' ? Math.round(costo/l.upb*100)/100 : costo)
       : null;
+    // 30/08: si "el costo que puse ya incluye IVA" está tildado, ese número
+    // es BRUTO — se le saca el IVA acá para tener el neto real. Reemplaza
+    // a la vieja heurística de "si tiene impuesto interno, ya incluye IVA":
+    // ahora es explícito, decidido línea por línea con la factura adelante.
+    const costoUnit = costoUnitTalCual==null ? null
+      : (costoConIva ? Math.round((costoUnitTalCual/(1+alicLinea/100))*10000)/10000 : costoUnitTalCual);
     // Mismo ajuste que en recalcRemitoTotales (preview en vivo): si el
     // check "ya trae el IVA mezclado" está tildado, se le resta el IVA de
     // esta línea antes de guardarlo como impuesto interno real. Sin este
@@ -5997,14 +6017,15 @@ async function confirmarRemito(){
     // Crédito Fiscal, en asientoCompra/Mayor/Balance) a partir de este
     // mismo neto; sumarlo acá lo contaría dos veces.
     const costoFinalUnit = costoUnit!=null ? Math.round((costoUnit+impInternoUnitario)*100)/100 : null;
-    // Costo PARA PRECIO DE VENTA: en productos con impuesto interno
-    // (tabaco), tu propia planilla suma neto + IVA + impuesto interno —
-    // eso es lo que se guarda acá. En productos SIN impuesto interno, no
-    // se toca nada: el costo sigue siendo el mismo de siempre (sin IVA),
-    // para no cambiarte el margen de todo el resto del catálogo sin que
-    // lo hayas pedido. Avisame si en realidad querés esto para todo.
-    const costoParaPrecio = costoUnit==null ? null
-      : (impInternoUnitario>0 ? Math.round((costoUnit+ivaUnitario+impInternoUnitario)*100)/100 : costoFinalUnit);
+    // Costo PARA PRECIO DE VENTA (productos.costo): el NETO PURO, sin el
+    // impuesto interno combinado adentro. impuesto_interno_unitario ya
+    // se guarda aparte (columna separada) — _costoConIva() y
+    // calcular_precio_venta() suman ese interno por su cuenta cuando
+    // hace falta. Si acá se guardara costoFinalUnit (neto+interno juntos,
+    // como se usa para compras/Kardex), ese cálculo sumaría el interno
+    // dos veces. El IVA nunca se guarda adentro de ningún costo — se
+    // suma únicamente donde hace falta calcularlo.
+    const costoParaPrecio = costoUnit;
     // Neto de la línea (para el registro de la compra) = costo contable × unidades
     const neto = costoFinalUnit!=null ? Math.round(costoFinalUnit*unidades*100)/100 : 0;
     lineas.push({...l, qty, modo, costo, costoModo, alicuota:alicLinea, impInternoUnitario, ivaUnitario, unidades, costoUnit, costoFinalUnit, costoParaPrecio, neto});
@@ -6043,13 +6064,16 @@ async function confirmarRemito(){
       if(ln.costoParaPrecio!=null){
         // Alícuota e impuesto interno REALES de esta línea (no un valor
         // de cabecera) — cada producto guarda los suyos, así la venta los
-        // lee correctos más adelante. productos.costo = base + IVA +
-        // impuesto interno (el costo real para calcular precio de venta);
-        // compras.precio_unitario y el Kardex, más arriba, se guardaron
-        // SIN el IVA — ese valor alimenta la contabilidad, que ya calcula
-        // el IVA Crédito Fiscal por su cuenta a partir de él.
-        await SB.from('productos').update({costo:ln.costoParaPrecio, iva_alicuota:ln.alicuota, impuesto_interno_unitario:ln.impInternoUnitario, costo_incluye_iva:ln.impInternoUnitario>0}).eq('id',ln.prodId);
-        if(pref){ pref.iva_alicuota = ln.alicuota; pref.impuesto_interno_unitario = ln.impInternoUnitario; }
+        // lee correctos más adelante. productos.costo = base + impuesto
+        // interno, SIEMPRE SIN IVA (mismo criterio que compras.precio_unitario
+        // y el Kardex, más arriba) — el IVA nunca se guarda adentro de un
+        // costo; se suma únicamente donde hace falta calcularlo (margen en
+        // pantalla, precio de venta sugerido). costo_incluye_iva=false
+        // siempre para lo cargado por remito de acá en adelante — el check
+        // "el costo que puse ya incluye IVA" de arriba ya se encargó de
+        // dejar el neto bien derivado, sin importar cómo lo hayas tipeado.
+        await SB.from('productos').update({costo:ln.costoParaPrecio, iva_alicuota:ln.alicuota, impuesto_interno_unitario:ln.impInternoUnitario, costo_incluye_iva:false}).eq('id',ln.prodId);
+        if(pref){ pref.iva_alicuota = ln.alicuota; pref.impuesto_interno_unitario = ln.impInternoUnitario; pref.costo_incluye_iva = false; }
       }
       try{ const {data:fresh}=await SB.from('productos').select('precio,costo,stock').eq('id',ln.prodId).single();
            if(fresh&&pref){ pref.costo=fresh.costo; pref.precio=fresh.precio; pref.stock=fresh.stock; } }catch(_){}
@@ -14408,8 +14432,8 @@ async function saveProduct(){
     renderCats();renderProds();renderStock(stockFilter);populateSelects();
     showToast('✅ Producto agregado','ok');
     ['np-name','np-price','np-stock','np-cat','np-min','np-barcode','np-codprov','np-imp-interno'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
-    { const _chk=document.getElementById('np-costo-con-iva'); if(_chk) _chk.checked=false; }
-    _prodEditandoCostoConIva = false;
+    { const _chk=document.getElementById('np-costo-con-iva'); if(_chk) _chk.checked=true; }
+    _prodEditandoCostoConIva = true;
   }catch(e){showToast('❌ Error al guardar producto','err');console.error(e);}
 }
 function abrirAltaProducto(){
@@ -14418,8 +14442,8 @@ function abrirAltaProducto(){
   if(npProv) npProv.innerHTML='<option value="">— Sin proveedor —</option>'+(proveedores||[]).filter(p=>!p.is_deleted).map(p=>`<option value="${p.id}">${esc(p.razon_social||p.nombre||'')}</option>`).join('');
   _prodEditandoAlicuota = 21;
   _prodEditandoInterno = 0;
-  _prodEditandoCostoConIva = false;
-  { const _chk=document.getElementById('np-costo-con-iva'); if(_chk) _chk.checked = false; }
+  _prodEditandoCostoConIva = true;
+  { const _chk=document.getElementById('np-costo-con-iva'); if(_chk) _chk.checked = true; }
   { const _b=document.getElementById('np-bulto'); if(_b) _b.value=''; }
   { const _cb=document.getElementById('np-cant-bultos'); if(_cb) _cb.value=''; }
   { const _h=document.getElementById('np-stock-calc'); if(_h) _h.style.display='none'; }
@@ -15889,14 +15913,28 @@ let _prodEditandoCostoConIva = null; // null = no seteado explícito, usa el fal
 //     se tilda a mano en "Editar Producto". Si todavía no está seteado
 //     para un producto viejo, se usa como antes (interno>0 → asume que
 //     ya incluye IVA, que es lo más común al venir de un remito).
+// Costo "real de bolsillo" de un producto — SOLO para mostrar margen en
+// pantalla (Editar Producto, lista de Stock, Rentabilidad, Finanzas,
+// Excel). NO reemplaza a p.costo en ningún otro lado: compras/kardex/
+// consumo personal/notas de crédito siguen usando p.costo tal cual.
+//
+// 30/08: FIX — la rama "costo neto" (yaIncluyeIva=false) no le sumaba
+// el impuesto interno, solo el IVA. Para un producto con interno Y
+// costo_incluye_iva=false (ej. Secco Naranja) esto subestimaba el costo
+// real — faltaba justo el interno. Se corrige: si costo NO incluye IVA,
+// se le suma IVA + interno (los dos son costo real que no está en el
+// número base). Si YA incluye IVA (formato viejo de remito con
+// impuesto interno, donde costo=neto+IVA+interno todo junto), se usa
+// tal cual — ahí sumar de nuevo duplicaría todo.
 function _costoConIva(p){
   if(!p || !(p.costo>0)) return 0;
-  const yaIncluyeIva = (p.costo_incluye_iva != null) ? !!p.costo_incluye_iva : ((+p.impuesto_interno_unitario||0) > 0);
+  const interno = +p.impuesto_interno_unitario || 0;
+  const yaIncluyeIva = (p.costo_incluye_iva != null) ? !!p.costo_incluye_iva : (interno > 0);
   if(yaIncluyeIva){
     return Math.round(p.costo * 100) / 100;
   }
   const alic = (p.iva_alicuota==null ? 21 : +p.iva_alicuota);
-  return Math.round((p.costo*(1+alic/100)) * 100) / 100;
+  return Math.round((p.costo*(1+alic/100) + interno) * 100) / 100;
 }
 
 function actualizarMargenPreview(){
