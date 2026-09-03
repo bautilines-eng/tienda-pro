@@ -11046,6 +11046,7 @@ function renderClientesAgrupados(){
     const pct   = orig > 0 ? Math.round((orig-total)/orig*100) : 0;
     const vencidas = g.items.filter(d=>d.fecha_limite && new Date(d.fecha_limite) < new Date());
     const telefono = g.items.find(d=>d.telefono)?.telefono;
+    const clienteKey = g.nombre.replace(/[^a-zA-Z0-9]/g,'_');
 
     return `<div class="card" style="${vencidas.length?'border-color:var(--red);background:var(--red-l)':''}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:${g.items.length>1?'10px':'6px'}">
@@ -11067,13 +11068,23 @@ function renderClientesAgrupados(){
         <button onclick="verComprasCliente('${esc(g.nombre)}')" class="btn btn-sm" style="background:#e8f0fe;color:#1a3a5c;border:1.5px solid #1a3a5c">📄 Compras (PDF)</button>
         ${g.items.length>1?`<button onclick="abrirModalPagoTotal('${esc(g.nombre)}')" class="btn btn-sm" style="background:#e65100;color:#fff;border:1.5px solid #e65100;font-weight:700">💰 Pagar todo ($${total.toLocaleString('es-AR')})</button>`:''}
       </div>
+      ${g.items.length>1?`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-bottom:8px;background:#f5f8fc;border-radius:8px;border:1px dashed #cbd5e1">
+        <div style="font-size:10.5px;color:#555">Seleccionadas: <b id="sel-count-${clienteKey}">0</b> · <b id="sel-total-${clienteKey}">$0</b></div>
+        <button id="btn-pagar-lote-${clienteKey}" onclick="abrirModalPagoLote('${clienteKey}')" disabled
+          style="padding:5px 12px;border-radius:6px;border:none;background:#94a3b8;color:#fff;font-size:10.5px;font-weight:700;cursor:pointer">
+          💰 Pagar seleccionadas
+        </button>
+      </div>`:''}
       ${g.items.map(d=>{
         const vencida = d.fecha_limite && new Date(d.fecha_limite) < new Date();
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(18,16,14,.06);font-size:11.5px;flex-wrap:wrap;gap:6px">
-          <div style="min-width:0">
-            <span style="color:#555">${esc(d.descripcion)||'Venta a cuenta corriente'}</span>
-            ${d.tipo==='personal'?'<span style="font-size:9px;background:#fdf5ea;color:#8a5a1a;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:5px">PERSONAL</span>':''}
-            ${d.fecha_limite?`<span style="margin-left:6px;color:${vencida?'var(--red)':'var(--muted)'}">${vencida?'⚠️ Vencida':'📅'} ${new Date(d.fecha_limite+'T12:00:00').toLocaleDateString('es-AR')}</span>`:'<span style="margin-left:6px;color:var(--muted)">Sin fecha límite</span>'}
+          <div style="display:flex;align-items:center;gap:8px;min-width:0">
+            ${g.items.length>1?`<input type="checkbox" class="chk-pago-lote" data-provkey="${clienteKey}" data-id="${d.id}" data-monto="${d.monto||0}" onchange="actualizarSeleccionLote('${clienteKey}')" style="width:15px;height:15px;flex-shrink:0;cursor:pointer">`:''}
+            <span style="min-width:0">
+              <span style="color:#555">${esc(d.descripcion)||'Venta a cuenta corriente'}</span>
+              ${d.tipo==='personal'?'<span style="font-size:9px;background:#fdf5ea;color:#8a5a1a;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:5px">PERSONAL</span>':''}
+              ${d.fecha_limite?`<span style="margin-left:6px;color:${vencida?'var(--red)':'var(--muted)'}">${vencida?'⚠️ Vencida':'📅'} ${new Date(d.fecha_limite+'T12:00:00').toLocaleDateString('es-AR')}</span>`:'<span style="margin-left:6px;color:var(--muted)">Sin fecha límite</span>'}
+            </span>
           </div>
           <div style="display:flex;align-items:center;gap:5px">
             <span style="font-family:DM Mono,monospace;font-weight:600;color:${vencida?'var(--red)':'#1a3a5c'}">$${(d.monto||0).toLocaleString('es-AR')}</span>
@@ -11341,7 +11352,11 @@ function abrirModalPagoLote(provKey){
   pagoLoteIds = ids;
   pagoTotalCliente = null;
   pagoModalTotalActual = total;
-  pagoEsCobro = false;
+  // 03/09: antes era siempre `false` (asumía proveedor) — esta función
+  // ahora también se usa desde Deudores→Clientes ("Pagar seleccionadas"),
+  // así que se infiere del tipo real de la deuda, mismo criterio que ya
+  // se usa en abrirModalPago() para un pago individual.
+  pagoEsCobro = items[0] ? (items[0].tipo!=='proveedor' && items[0].tipo!=='gasto') : true;
   document.getElementById('pago-deuda-id').value = '';
   document.getElementById('pago-deuda-nombre').textContent = `${items.length} factura(s) seleccionada(s) de ${nombreProv}`;
   document.getElementById('pago-saldo').textContent = '$'+total.toLocaleString('es-AR');
