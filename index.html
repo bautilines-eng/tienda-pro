@@ -3584,7 +3584,7 @@ let CUENTAS_ESPECIALES = {
 const CONFIG_FISCAL = {
   alicuota_iva:      0.21,   // 21% general
   alicuota_iibb:     0.03,   // 3% Santiago del Estero
-  tipo_cbte_ticket:  '008',  // Tique Factura B
+  tipo_cbte_ticket:  '006',  // Tique/venta a Consumidor Final vía WSFE = Factura B (mismo código que tipo_cbte_fac_b). El '008' que estaba acá antes es en realidad el código de Nota de Crédito B — un bug de copiado que solo afectaba al export de IVA Ventas (no a la emisión real de CAE, que usa otro camino), pero lo corregimos igual.
   tipo_cbte_fac_b:   '006',  // Factura B
   tipo_cbte_fac_a:   '001',  // Factura A
   tipo_cbte_fac_c:   '011',  // Factura C (no aplica RI)
@@ -7259,67 +7259,148 @@ function generarIVA(tipo) {
 
   if (tipo === 'ventas_cbte') {
     filename = `LIBRO_IVA_DIGITAL_VENTAS_CBTE_${periodo.replace('-','')}.txt`;
+    // Diseño de registro OFICIAL de VENTAS (266 caracteres, 22 campos) —
+    // bajado directo de AFIP, mismo día que se rehizo Compras. La versión
+    // anterior (281 caracteres) era la que se usó por analogía para armar
+    // Compras al principio — y ESA copia fue la que generó el rechazo real
+    // de ARCA ("281 vs 325"). Resulta que el original de Ventas tampoco
+    // estaba bien: le faltaban por completo 2 campos (Percepción a no
+    // categorizados, y Otros Tributos), tenía Fecha de Vto/Pago mal
+    // ubicada, usaba 'ptoVta' fijo de la tienda en vez de derivarlo del
+    // propio número de comprobante, y calculaba TODO con 21% fijo (ni
+    // neto ni IVA reales por alícuota).
+    // Fuente: guia.ispcube.com/.../libro-iva-digital-diseno-registros.pdf
+    // (mismo documento oficial de AFIP que Compras, sección Ventas)
+    const tipoCbteMap = { A: CONFIG_FISCAL.tipo_cbte_fac_a, B: CONFIG_FISCAL.tipo_cbte_fac_b };
+    const tipoCbteNcMap = { A: CONFIG_FISCAL.tipo_cbte_nc_a, B: CONFIG_FISCAL.tipo_cbte_nc_b };
     // Solo comprobantes FISCALES vigentes: se excluyen las ventas sin
     // comprobante (tipo X, numeración interna SC-N) y las anuladas.
     // Incluirlas en el Libro IVA Digital sería declarar ante AFIP algo
     // que no es un comprobante fiscal.
-    const vents = sales.filter(v => v.fecha >= desde && v.fecha <= hasta
-                                 && (v.tipo_cbte || 'T') !== 'X'
-                                 && !v.anulada && !v.is_deleted)
-                       .sort((a,b) => a.fecha.localeCompare(b.fecha));
-    lineas = vents.map((v, i) => {
-      const nro    = padL(i+1, 20);
-      const total  = fmtMonto(v.total||0);
-      const iva    = fmtMonto((v.total||0)/1.21*0.21);
-      const neto   = fmtMonto((v.total||0)/1.21);
-      // Factura A si el cliente tiene CUIT registrado, sino Tique B
-      const tipoC  = v.cuit_comprador ? CONFIG_FISCAL.tipo_cbte_fac_a : CONFIG_FISCAL.tipo_cbte_ticket;
-      const codDoc = v.cuit_comprador ? '80' : '99';
-      const nroDoc = padL(v.cuit_comprador ? v.cuit_comprador.replace(/-/g,'') : '0', 20);
-      const denom  = padR(v.cliente || 'CONSUMIDOR FINAL', 30);
-      return [
-        fmtFecha(v.fecha),  // [0:8]   fecha
-        tipoC,              // [8:11]  tipo_cbte
-        ptoVta,             // [11:16] pto_vta
-        nro,                // [16:36] nro_cbte_desde
-        nro,                // [36:56] nro_cbte_hasta
-        codDoc,             // [56:58] cod_doc
-        nroDoc,             // [58:78] nro_doc
-        denom,              // [78:108] denominacion
-        total,              // [108:123] imp_total
-        padL(0,15),         // [123:138] imp_tot_conc
-        neto,               // [138:153] imp_neto_grav
-        padL(0,15),         // [153:168] liq_tur
-        padL(0,15),         // [168:183] imp_int
-        padL(0,15),         // [183:198] perc_iva
-        padL(0,15),         // [198:213] perc_nac
-        iva,                // [213:228] imp_iva
-        padL(0,15),         // [228:243] imp_internos
-        padL(0,15),         // [243:258] gratuitos
-        '1',                // [258:259] cant_alicuotas
-        ' ',                // [259:260] cod_operacion
-        'PES',              // [260:263] moneda
-        padL(10000,10),     // [263:273] tipo_cambio (1.0000 = 10000 con 4 dec)
-        fmtFecha(v.fecha),  // [273:281] fecha_cbte_asoc
-      ].join('');
+    const vents = (sales||[]).filter(v => v.fecha >= desde && v.fecha <= hasta
+                                 && tipoCbteMap[v.tipo_cbte] && !v.anulada && !v.is_deleted);
+    const ncs = (notasCredito||[]).filter(nc => {
+      const f = _fechaNC(nc); if(!(f >= desde && f <= hasta)) return false;
+      const s = (sales||[]).find(x => x.id === nc.venta_id);
+      return s && tipoCbteMap[s.tipo_cbte]; // solo NC que reversan una fiscal A/B
+    });
+    const registros = [
+      ...vents.map(v => ({ tipo:'venta', v })),
+      ...ncs.map(nc => ({ tipo:'nc', nc, s:(sales||[]).find(x=>x.id===nc.venta_id) })),
+    ].sort((a,b) => ((a.v?.fecha)||_fechaNC(a.nc)||'').localeCompare((b.v?.fecha)||_fechaNC(b.nc)||''));
+
+    const armarLineaVentaCbte = (fecha, tipoCbte, ptoVta, numero, codDoc, nroDoc, denom, total, noGravado, exento, percNac, percIibb, impInternos, cantAlicuotas) => [
+      fmtFecha(fecha),                       // 1  Fecha del comprobante (8)
+      tipoCbte,                              // 2  Tipo de comprobante (3)
+      padL(ptoVta || '1', 5),                // 3  Punto de venta (5)
+      padL(numero || '0', 20),               // 4  Número de comprobante desde (20)
+      padL(numero || '0', 20),               // 5  Número de comprobante hasta (20) — 1 sola por comprobante, nunca rango
+      codDoc,                                // 6  Código de documento del comprador (2) — 80=CUIT, 99=Consumidor Final
+      padL(nroDoc || '0', 20),               // 7  Número de identificación del comprador (20)
+      padR(denom || 'CONSUMIDOR FINAL', 30), // 8  Apellido y nombre o denominación del comprador (30)
+      fmtMonto(total),                       // 9  Importe total de la operación (15)
+      fmtMonto(noGravado),                   // 10 Importe conceptos que no integran el precio neto gravado (15)
+      fmtMonto(0),                           // 11 Percepción a no categorizados (15) — no aplica, TODO PYMES no vende a monotributistas no categorizados
+      fmtMonto(exento),                      // 12 Importe de operaciones exentas (15)
+      fmtMonto(percNac),                     // 13 Percepciones/pagos a cta impuestos Nacionales (15) — no trackeado en ventas hoy, ver aviso abajo
+      fmtMonto(percIibb),                    // 14 Percepciones de Ingresos Brutos (15)
+      fmtMonto(0),                           // 15 Percepciones impuestos Municipales (15) — no trackeado, siempre 0
+      fmtMonto(impInternos),                 // 16 Importe impuestos internos (15)
+      'PES',                                 // 17 Código de moneda (3)
+      '0001000000',                          // 18 Tipo de cambio (10) — 4 enteros+6 decimales sin punto = 1,000000 fijo
+      String(cantAlicuotas || 1),            // 19 Cantidad de alícuotas de IVA (1)
+      ' ',                                   // 20 Código de operación (1) — blanco = operación normal gravada
+      fmtMonto(0),                           // 21 Otros Tributos (15) — no trackeado, siempre 0
+      fmtFecha(fecha),                       // 22 Fecha de Vto/Pago (8) — sin dato propio, se usa la misma fecha del comprobante (venta de contado)
+    ].join('');
+
+    lineas = registros.map(r => {
+      if (r.tipo === 'venta') {
+        const v = r.v;
+        const { ptoVta, numero } = _splitNumeroFactura(v.nro_comprobante);
+        const conCuit = v.tipo_cbte === 'A' && v.cuit_comprador;
+        const codDoc = conCuit ? '80' : '99';
+        const nroDoc = conCuit ? String(v.cuit_comprador).replace(/\D/g,'') : '0';
+        const desglose = Array.isArray(v.alicuotas_detalle) && v.alicuotas_detalle.length ? v.alicuotas_detalle : null;
+        const cantAlic = desglose ? desglose.length : 1;
+        const exentoMonto = desglose
+          ? desglose.filter(d => +d.alicuota === 0).reduce((s,d) => s + (+d.base_imp||0), 0)
+          : 0;
+        return armarLineaVentaCbte(
+          v.fecha, tipoCbteMap[v.tipo_cbte], ptoVta, numero, codDoc, nroDoc, v.cliente,
+          v.total||0, v.no_gravado||0, exentoMonto, 0, v.perc_iibb||0, 0, cantAlic
+        );
+      }
+      const nc = r.nc, s = r.s;
+      const { ptoVta, numero } = _splitNumeroFactura(nc.nro_nota);
+      const conCuit = s.tipo_cbte === 'A' && s.cuit_comprador;
+      const codDoc = conCuit ? '80' : '99';
+      const nroDoc = conCuit ? String(s.cuit_comprador).replace(/\D/g,'') : '0';
+      const desglose = Array.isArray(s.alicuotas_detalle) && s.alicuotas_detalle.length ? s.alicuotas_detalle : null;
+      const cantAlic = desglose ? desglose.length : 1;
+      const exentoMonto = desglose
+        ? desglose.filter(d => +d.alicuota === 0).reduce((s2,d) => s2 + (+d.base_imp||0), 0)
+        : 0;
+      return armarLineaVentaCbte(
+        _fechaNC(nc), tipoCbteNcMap[s.tipo_cbte], ptoVta, numero, codDoc, nroDoc, s.cliente,
+        nc.total ?? s.total ?? 0, s.no_gravado||0, exentoMonto, 0, s.perc_iibb||0, 0, cantAlic
+      );
     });
 
   } else if (tipo === 'ventas_alic') {
     filename = `LIBRO_IVA_DIGITAL_VENTAS_ALICUOTAS_${periodo.replace('-','')}.txt`;
-    // Solo comprobantes FISCALES vigentes: se excluyen las ventas sin
-    // comprobante (tipo X, numeración interna SC-N) y las anuladas.
-    // Incluirlas en el Libro IVA Digital sería declarar ante AFIP algo
-    // que no es un comprobante fiscal.
-    const vents = sales.filter(v => v.fecha >= desde && v.fecha <= hasta
-                                 && (v.tipo_cbte || 'T') !== 'X'
-                                 && !v.anulada && !v.is_deleted)
-                       .sort((a,b) => a.fecha.localeCompare(b.fecha));
-    lineas = vents.map((v, i) => {
-      const tipoC  = v.cuit_comprador ? CONFIG_FISCAL.tipo_cbte_fac_a : CONFIG_FISCAL.tipo_cbte_ticket;
-      const nro    = padL(i+1, 20);
-      const neto   = fmtMonto((v.total||0)/1.21, 15, 3);
-      const ivaLiq = fmtMonto((v.total||0)/1.21*0.21, 15, 3);
-      return [tipoC, ptoVta, nro, neto, '0005', ivaLiq].join(''); // 0005 = 21%
+    // Diseño de registro OFICIAL (62 caracteres, 6 campos) — misma fuente
+    // que ventas_cbte arriba. La versión anterior calculaba IVA/neto con
+    // 21% fijo (total/1.21) para TODO, sin importar la alícuota real de
+    // cada producto, y usaba 3 decimales en vez de 2. Acá se usa el
+    // desglose real por alícuota (alicuotas_detalle) que ya guarda cada venta —
+    // 1 línea por cada alícuota distinta dentro del mismo comprobante,
+    // igual que se corrigió para Compras cuando apareció el caso mixto de
+    // CODENOA/ERDASER.
+    const tipoCbteMap = { A: CONFIG_FISCAL.tipo_cbte_fac_a, B: CONFIG_FISCAL.tipo_cbte_fac_b };
+    const tipoCbteNcMap = { A: CONFIG_FISCAL.tipo_cbte_nc_a, B: CONFIG_FISCAL.tipo_cbte_nc_b };
+    const vents = (sales||[]).filter(v => v.fecha >= desde && v.fecha <= hasta
+                                 && tipoCbteMap[v.tipo_cbte] && !v.anulada && !v.is_deleted);
+    const ncs = (notasCredito||[]).filter(nc => {
+      const f = _fechaNC(nc); if(!(f >= desde && f <= hasta)) return false;
+      const s = (sales||[]).find(x => x.id === nc.venta_id);
+      return s && tipoCbteMap[s.tipo_cbte];
+    });
+    const registros = [
+      ...vents.map(v => ({ tipo:'venta', v })),
+      ...ncs.map(nc => ({ tipo:'nc', nc, s:(sales||[]).find(x=>x.id===nc.venta_id) })),
+    ].sort((a,b) => ((a.v?.fecha)||_fechaNC(a.nc)||'').localeCompare((b.v?.fecha)||_fechaNC(b.nc)||''));
+
+    const armarLineaVentaAlic = (tipoCbte, ptoVta, numero, neto, alicCodigo, ivaLiq) => [
+      tipoCbte,                  // 1 Tipo de comprobante (3)
+      padL(ptoVta || '1', 5),    // 2 Punto de venta (5)
+      padL(numero || '0', 20),   // 3 Número de comprobante (20)
+      fmtMonto(neto),            // 4 Importe neto gravado (15)
+      padL(alicCodigo || '0005', 4), // 5 Alícuota de IVA (4) — código de tabla AFIP (0005=21%)
+      fmtMonto(ivaLiq),          // 6 Impuesto Liquidado (15)
+    ].join('');
+
+    lineas = registros.flatMap(r => {
+      if (r.tipo === 'venta') {
+        const v = r.v;
+        const { ptoVta, numero } = _splitNumeroFactura(v.nro_comprobante);
+        const desglose = Array.isArray(v.alicuotas_detalle) && v.alicuotas_detalle.length ? v.alicuotas_detalle : null;
+        if (desglose) {
+          // id_afip ya viene en formato de tabla oficial (ej. '0005'), no
+          // hace falta traducir el % — se guarda así desde registerSale.
+          return desglose.map(d => armarLineaVentaAlic(tipoCbteMap[v.tipo_cbte], ptoVta, numero, d.base_imp||0, d.id_afip, d.importe||0));
+        }
+        // Venta vieja sin desglose guardado: única alícuota derivada de
+        // neto_gravado/importe_iva tal como quedaron grabados.
+        return [armarLineaVentaAlic(tipoCbteMap[v.tipo_cbte], ptoVta, numero, v.neto_gravado||0, _alicCodigoRG3685(v.alicuota_iva||21), v.importe_iva||0)];
+      }
+      const nc = r.nc, s = r.s;
+      const { ptoVta, numero } = _splitNumeroFactura(nc.nro_nota);
+      const desglose = Array.isArray(s.alicuotas_detalle) && s.alicuotas_detalle.length ? s.alicuotas_detalle : null;
+      if (desglose) {
+        return desglose.map(d => armarLineaVentaAlic(tipoCbteNcMap[s.tipo_cbte], ptoVta, numero, d.base_imp||0, d.id_afip, d.importe||0));
+      }
+      return [armarLineaVentaAlic(tipoCbteNcMap[s.tipo_cbte], ptoVta, numero, s.neto_gravado||0, _alicCodigoRG3685(s.alicuota_iva||21), s.importe_iva||0)];
     });
 
   } else if (tipo === 'compras_cbte') {
@@ -12609,8 +12690,8 @@ async function _pedirCaeAfipNC({ venta, motivo, requestId }){
     throw new Error('No se pudo interpretar el número de comprobante original ("' + venta.nro_comprobante + '") para armar el comprobante asociado.');
   }
 
-  const alicuotas = venta.iva_detalle && venta.iva_detalle.length
-    ? venta.iva_detalle.map(d => ({ id: d.id_afip, base_imp: d.base_imp, importe: d.importe }))
+  const alicuotas = venta.alicuotas_detalle && venta.alicuotas_detalle.length
+    ? venta.alicuotas_detalle.map(d => ({ id: d.id_afip, base_imp: d.base_imp, importe: d.importe }))
     : [{ id: ALICUOTA_AFIP_ID[venta.alicuota_iva] || 5, base_imp: venta.neto_gravado, importe: venta.importe_iva }];
 
   const { data, error } = await SB.functions.invoke('afip-cae', {
@@ -12881,17 +12962,15 @@ async function registerSale(){
       // tipo de comprobante (Tique B incluido). Es lo mismo que se le
       // declaró a ARCA cuando hubo CAE, así que el ticket recién impreso
       // queda consistente con lo declarado.
-      // OJO — deuda técnica conocida: `procesar_venta_atomica` (la RPC de
-      // Supabase) todavía puede no aceptar/guardar este desglose si no se
-      // actualizó del lado de Supabase — confirmar que la migración de
-      // p_neto_gravado/p_importe_iva/p_alicuotas ya se corrió. Si no se
-      // corrió, la RPC sigue calculando por su cuenta con 21% fijo y lo
-      // que queda GRABADO en `ventas` puede no coincidir con esto; un
-      // reimpreso desde el Historial después de recargar mostraría el
-      // valor viejo de la RPC, no este.
+      // 03/09: resuelto — la RPC procesar_venta_atomica SÍ guarda bien
+      // este desglose (columna alicuotas_detalle). El problema real era
+      // que TODO el código de acá en adelante (export de IVA Ventas,
+      // ticket, Historial) leía un nombre de columna distinto
+      // (iva_detalle, que no existe) — los datos nunca se perdieron,
+      // solo se leían mal. Corregido en todo el archivo de una vez.
       neto_gravado:    ivaCalc ? ivaCalc.neto : result.neto,
       importe_iva:     ivaCalc ? ivaCalc.iva  : result.iva,
-      iva_detalle:     ivaCalc ? ivaCalc.detalle : null,
+      alicuotas_detalle: ivaCalc ? ivaCalc.detalle : null,
       impuesto_interno: impuestoInternoVenta || 0,
       anulada:         false,
       cae:             result.cae || null,
@@ -13191,7 +13270,7 @@ let _ticketQRUrl = null;
 // Leyenda "IVA incluido" para comprobantes no-A. Si la venta tiene más de
 // una alícuota mezclada, lo dice en vez de mentir con un solo %.
 function _leyendaIvaIncluido(s){
-  const det = s.iva_detalle;
+  const det = s.alicuotas_detalle;
   if(det && det.length){
     if(det.length === 1) return `IVA ${det[0].alicuota}% incluido`;
     return `IVA incluido (${det.map(d=>d.alicuota+'%').join(' + ')})`;
@@ -13207,7 +13286,7 @@ function _leyendaIvaIncluido(s){
 // porque el sistema no releva impuestos internos ni otros indirectos —
 // no es el coeficiente por rubro que publica AFIP, es el cálculo directo.
 function _ivaContenidoTicket(s){
-  if(s.iva_detalle && s.iva_detalle.length) return s.iva_detalle.reduce((sum,d)=> sum + (d.importe||0), 0);
+  if(s.alicuotas_detalle && s.alicuotas_detalle.length) return s.alicuotas_detalle.reduce((sum,d)=> sum + (d.importe||0), 0);
   if(s.importe_iva != null) return s.importe_iva;
   return calcularIVA(s.total||0).iva;
 }
@@ -13273,12 +13352,12 @@ function showTicket(s){
   // el carrito mezcló tasas); el resto muestra "IVA incluido" con el/los
   // % reales de la venta.
   const totales = esA ? `
-      ${(s.iva_detalle && s.iva_detalle.length > 1)
-        ? s.iva_detalle.map(d => `
+      ${(s.alicuotas_detalle && s.alicuotas_detalle.length > 1)
+        ? s.alicuotas_detalle.map(d => `
             <div class="ticket-row"><span>Neto ${d.alicuota}%</span><span>$${d.base_imp.toLocaleString('es-AR')}</span></div>
             <div class="ticket-row"><span>IVA ${d.alicuota}%</span><span>$${d.importe.toLocaleString('es-AR')}</span></div>`).join('')
         : `<div class="ticket-row"><span>Neto gravado</span><span>$${(neto||0).toLocaleString('es-AR')}</span></div>
-           <div class="ticket-row"><span>IVA ${(s.iva_detalle && s.iva_detalle[0]?.alicuota) ?? 21}%</span><span>$${(iva||0).toLocaleString('es-AR')}</span></div>`}
+           <div class="ticket-row"><span>IVA ${(s.alicuotas_detalle && s.alicuotas_detalle[0]?.alicuota) ?? 21}%</span><span>$${(iva||0).toLocaleString('es-AR')}</span></div>`}
       <div class="ticket-row total"><span>TOTAL</span><span>$${total.toLocaleString('es-AR')}</span></div>`
     : `<div class="ticket-row total"><span>TOTAL</span><span>$${total.toLocaleString('es-AR')}</span></div>
        ${!esX?`<div style="font-size:10px;color:#888;text-align:right">${_leyendaIvaIncluido(s)}</div>`:''}`;
