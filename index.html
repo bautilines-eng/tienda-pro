@@ -4852,7 +4852,8 @@ async function reintentarDevolucionStockNC(notaCreditoId){
     const idsYaHechos = new Set((yaHechos||[]).map(k=>k.producto_id));
 
     const items = typeof nc.items === 'string' ? JSON.parse(nc.items||'[]') : (nc.items||[]);
-    const pendientes = items.filter(it => !idsYaHechos.has(it.producto_id));
+    const itemsParaDevolver = _descomponerItemsCombo(items);
+    const pendientes = itemsParaDevolver.filter(it => !idsYaHechos.has(it.producto_id));
 
     if(!pendientes.length){
       showToast('Esta nota ya tenía el stock devuelto','ok');
@@ -13848,9 +13849,15 @@ async function confirmarNotaCredito() {
     // distinto y accionable (reintentar desde Historial), no pensar que
     // no pasó nada.
     const items = typeof s.items === 'string' ? JSON.parse(s.items || '[]') : s.items || [];
+    // Los combos se descomponen en sus componentes reales antes de
+    // devolver stock — el stock de venta se descontó en los componentes
+    // (itemsReales, vía la RPC), no en el combo en sí. Sin esto, la
+    // devolución le sumaba stock a un producto-combo que no lo tiene, y
+    // los componentes reales quedaban perdidos para siempre.
+    const itemsParaDevolver = _descomponerItemsCombo(items);
     let stockOk = true;
     try {
-      for (const item of items) {
+      for (const item of itemsParaDevolver) {
         const p = prods.find(x => x.id === item.producto_id);
         if (p) {
           await SB.rpc('mover_stock_con_kardex', {
@@ -16295,13 +16302,30 @@ function toggleFinComparar(el){
 // lista de Rentabilidad por producto de la misma pestaña. El resto del
 // sistema (compras, Kardex, consumo personal, notas de crédito) sigue
 // usando prod.costo tal cual, sin tocar.
+// Costo real de un ítem de venta — soporta combos: un combo no tiene su
+// propio costo cargado (no es un producto con stock real), así que su
+// costo verdadero es la suma del costo de sus componentes reales. Sin
+// esto, cualquier función que buscara el "producto" del combo por nombre
+// encontraba el combo mismo, con costo 0, e inflaba la ganancia mostrada
+// cada vez que se vendía un combo.
+function _costoUnitItem(item){
+  if(item.es_combo){
+    const comboItems = typeof item.combo_items==='string' ? JSON.parse(item.combo_items||'[]') : (item.combo_items||[]);
+    return comboItems.reduce((s,ci)=>{
+      const compReal = prods.find(p=>p.id===ci.id);
+      return s + (compReal ? _costoConIva(compReal) : 0) * (ci.cantidad||1);
+    }, 0);
+  }
+  const prod = prods.find(p=>p.id===item.producto_id || p.id===item.id || p.nombre===item.nombre);
+  return prod ? _costoConIva(prod) : 0;
+}
+
 function _finCostoYGanancia(ventasFilt){
   let costo=0, ganancia=0, tieneCosto=false;
   ventasFilt.forEach(v=>{
     const items = typeof v.items==='string' ? JSON.parse(v.items||'[]') : (v.items||[]);
     items.forEach(item=>{
-      const prod = prods.find(p=>p.id===item.id || p.nombre===item.nombre);
-      const c = prod ? _costoConIva(prod) : 0;
+      const c = _costoUnitItem(item);
       const cant = item.cantidad || 1;
       const precioVenta = (item.precio||0)*cant;
       costo += c*cant;
@@ -16541,8 +16565,7 @@ function finRentabilidadProductos(ventasFilt){
   ventasFilt.forEach(v=>{
     const items = typeof v.items==='string' ? JSON.parse(v.items||'[]') : (v.items||[]);
     items.forEach(item=>{
-      const prod = prods.find(p=>p.id===item.id || p.nombre===item.nombre);
-      const costoUnit = prod ? _costoConIva(prod) : 0;
+      const costoUnit = _costoUnitItem(item);
       const cant = item.cantidad || 1;
       const ventaLinea = (item.precio||0)*cant;
       const costoLinea = costoUnit*cant;
