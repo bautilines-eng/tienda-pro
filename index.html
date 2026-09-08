@@ -3572,12 +3572,15 @@ let GASTO_CUENTA = {
 // Cuentas especiales (IVA, IIBB, etc.)
 let CUENTAS_ESPECIALES = {
   'iva_debito':     '21404',
-  'iva_credito':    '1.1.06',
-  'iibb_pagar':     '2.1.03',
-  'iibb_percepcion':'1.1.07',
+  'iva_credito':    '11403005',
+  'iibb_pagar':     '21412002',
+  'iibb_percepcion':'11403002',
   'ventas':         '41101007',
-  'mercaderias':    '1.2.01',
-  'proveedores':    '2.1.01',
+  'mercaderias':    '11501008',
+  'proveedores':    '21101001',
+  'acreedores_varios': '21102001',
+  'fondos_a_rendir':   '11404003',
+  'perc_iva_compras':  '11403018',
 };
 
 // ── CONFIGURACIÓN FISCAL ──
@@ -3647,7 +3650,7 @@ function asientoVenta(venta) {
 
   const lineas = [
     ..._debitosVenta(venta).map(d=>({ debe:true, cuenta:d.cuenta, nombre:(PLAN_CUENTAS.find(c=>c.codigo===d.cuenta)?.nombre)||d.metodo, importe:d.importe, detalle:`Cobro ${d.metodo}` })),
-    { debe: false, cuenta: CUENTAS_ESPECIALES['ventas']||'4.1.01', nombre: 'Ventas', importe: neto, detalle: 'Ventas netas s/IVA' },
+    { debe: false, cuenta: CUENTAS_ESPECIALES['ventas']||'41101007', nombre: 'Ventas', importe: neto, detalle: 'Ventas netas s/IVA' },
     { debe: false, cuenta: CUENTAS_ESPECIALES['iva_debito']||'2.1.02', nombre: 'IVA Débito Fiscal', importe: iva, detalle: 'IVA débito fiscal' },
   ];
   // NOTA: TODO PYMES NO es agente de percepción → las ventas NO practican
@@ -3737,17 +3740,17 @@ function asientoCompra(compra) {
   const esSF = !!compra.es_sin_factura;
 
   const lineas = [
-    { debe: true, cuenta: CUENTAS_ESPECIALES['mercaderias']||'1.2.01', nombre: 'Mercaderías', importe: neto, detalle: compra.producto_nombre },
+    { debe: true, cuenta: CUENTAS_ESPECIALES['mercaderias']||'11501008', nombre: 'Mercaderías', importe: neto, detalle: compra.producto_nombre },
   ];
   if (!esSF) {
-    lineas.push({ debe: true, cuenta: CUENTAS_ESPECIALES['iva_credito']||'1.1.06', nombre: 'IVA Crédito Fiscal', importe: iva, detalle: 'IVA CF ' + ali + '%' });
+    lineas.push({ debe: true, cuenta: CUENTAS_ESPECIALES['iva_credito']||'11403005', nombre: 'IVA Crédito Fiscal', importe: iva, detalle: 'IVA CF ' + ali + '%' });
   }
   if (esSF) {
     const cuentaPago = _cuentaPagoCompra(compra.forma_pago);
     const nombrePago = PLAN_CUENTAS.find(c => c.codigo === cuentaPago)?.nombre || 'Caja';
     lineas.push({ debe: false, cuenta: cuentaPago, nombre: nombrePago, importe: total, detalle: 'Pago ' + (compra.forma_pago||'Contado') + ' — sin factura (' + (compra.proveedor||'proveedor') + ')' });
   } else {
-    lineas.push({ debe: false, cuenta: CUENTAS_ESPECIALES['proveedores']||'2.1.01', nombre: 'Proveedores', importe: total, detalle: compra.proveedor || 'Proveedor' });
+    lineas.push({ debe: false, cuenta: CUENTAS_ESPECIALES['proveedores']||'21101001', nombre: 'Proveedores', importe: total, detalle: compra.proveedor || 'Proveedor' });
   }
 
   return {
@@ -4070,8 +4073,10 @@ function _movimientosCuenta(cuentaCod, filtro) {
     // venta (multi-alícuota), 21% fijo solo como respaldo histórico.
     const iva = (v.importe_iva != null) ? v.importe_iva : calcularIVA(v.total||0).iva;
     const neto = (v.neto_gravado != null) ? v.neto_gravado : (v.total||0) - iva;
-    if (cuentaCod==='41101007')   movs.push({fecha:v.fecha, desc:'Ventas netas', debe:0, haber:neto, origen:'Venta'});
-    if (cuentaCod==='21404')      movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal', debe:0, haber:iva, origen:'Venta'});
+    const _ctaVentas = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.ventas) || '41101007';
+    const _ctaIvaDeb  = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.iva_debito) || '21404';
+    if (cuentaCod===_ctaVentas)   movs.push({fecha:v.fecha, desc:'Ventas netas', debe:0, haber:neto, origen:'Venta'});
+    if (cuentaCod===_ctaIvaDeb)   movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal', debe:0, haber:iva, origen:'Venta'});
     // IIBB propio: se registra por Minuta de egreso. TODO PYMES no es agente
     // de percepción, así que las ventas no practican percepción.
   });
@@ -4097,9 +4102,12 @@ function _movimientosCuenta(cuentaCod, filtro) {
   compras.filter(c => !c.anulada && !c.es_traspaso_interno && filtro(c.fecha)).forEach(co => {
     const {neto, iva, total, ali} = _ivaCompra(co);   // alícuota real (21/27/10,5)
     const esSF = !!co.es_sin_factura;
-    const cuentaCredito = esSF ? _cuentaPagoCompra(co.forma_pago) : '21101001';
-    if (cuentaCod==='11501008') movs.push({fecha:co.fecha, desc:'Compra '+co.producto_nombre+(esSF?' (sin factura)':''), debe:neto, haber:0, origen:'Compra'});
-    if (!esSF && cuentaCod==='11403005') movs.push({fecha:co.fecha, desc:'CF IVA '+ali+'% — '+co.proveedor, debe:iva, haber:0, origen:'Compra'});
+    const _ctaMerc = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.mercaderias) || '11501008';
+    const _ctaIvaCred = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.iva_credito) || '11403005';
+    const _ctaProv = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.proveedores) || '21101001';
+    const cuentaCredito = esSF ? _cuentaPagoCompra(co.forma_pago) : _ctaProv;
+    if (cuentaCod===_ctaMerc) movs.push({fecha:co.fecha, desc:'Compra '+co.producto_nombre+(esSF?' (sin factura)':''), debe:neto, haber:0, origen:'Compra'});
+    if (!esSF && cuentaCod===_ctaIvaCred) movs.push({fecha:co.fecha, desc:'CF IVA '+ali+'% — '+co.proveedor, debe:iva, haber:0, origen:'Compra'});
     if (cuentaCod===cuentaCredito) movs.push({fecha:co.fecha, desc:(esSF?'Pago sin factura — ':'A pagar — ')+(co.proveedor||'Proveedor'), debe:0, haber:total, origen:'Compra'});
   });
 
@@ -7083,8 +7091,10 @@ function renderBalance() {
     // Mismo criterio que asientoVenta/renderMayor: dato real de la venta.
     const iva = (v.importe_iva != null) ? v.importe_iva : calcularIVA(v.total||0).iva;
     const neto = (v.neto_gravado != null) ? v.neto_gravado : (v.total||0) - iva;
-    if (totales['41101007'])totales['41101007'].haber += neto;
-    if (totales['21404'])   totales['21404'].haber += iva;
+    const _ctaVentasB = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.ventas) || '41101007';
+    const _ctaIvaDebB  = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.iva_debito) || '21404';
+    if (totales[_ctaVentasB]) totales[_ctaVentasB].haber += neto;
+    if (totales[_ctaIvaDebB]) totales[_ctaIvaDebB].haber += iva;
     // IIBB propio: por Minuta de egreso. Sin percepción en ventas (no es agente).
   });
 
@@ -7109,9 +7119,12 @@ function renderBalance() {
   compras.filter(c => !c.anulada && !c.es_traspaso_interno && filtro(c.fecha)).forEach(co => {
     const {neto, iva, total} = _ivaCompra(co);
     const esSF = !!co.es_sin_factura;
-    if (totales['11501008'])totales['11501008'].debe += neto;
-    if (!esSF && totales['11403005'])totales['11403005'].debe += iva;   // todo el CF junto (decisión contadora)
-    const cuentaCredito = esSF ? _cuentaPagoCompra(co.forma_pago) : '21101001';
+    const _ctaMercB = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.mercaderias) || '11501008';
+    const _ctaIvaCredB = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.iva_credito) || '11403005';
+    const _ctaProvB = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.proveedores) || '21101001';
+    if (totales[_ctaMercB]) totales[_ctaMercB].debe += neto;
+    if (!esSF && totales[_ctaIvaCredB]) totales[_ctaIvaCredB].debe += iva;   // todo el CF junto (decisión contadora)
+    const cuentaCredito = esSF ? _cuentaPagoCompra(co.forma_pago) : _ctaProvB;
     if (totales[cuentaCredito])totales[cuentaCredito].haber += total;
   });
 
