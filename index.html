@@ -3689,11 +3689,36 @@ function asientoVenta(venta) {
 
 function asientoGasto(gasto) {
   const monto = gasto.monto || 0;
-  // Gasto a cuenta corriente: el asiento se genera al PAGAR (asientoPagoDeuda),
-  // no al registrarlo. Acá no devolvemos asiento para no duplicar.
-  if ((gasto.medio_pago || '') === 'Cuenta Corriente') return null;
   const ctaDebe = GASTO_CUENTA[gasto.categoria] || '51117003';
   const ctaNombreDebe = PLAN_CUENTAS.find(c => c.codigo === ctaDebe)?.nombre || gasto.categoria;
+
+  // Gasto a cuenta corriente: se reconoce el gasto YA al registrarlo —
+  // Debe [categoría real] / Haber Acreedores Varios. Antes esta función
+  // devolvía null acá y el gasto nunca llegaba a debitarse en su categoría
+  // real; solo aparecía como un débito huérfano a Acreedores Varios el día
+  // que se pagaba (sin la contrapartida de crédito que le faltaba). Ahora
+  // sigue el mismo patrón de dos patas que ya usan ventas y compras a
+  // cuenta corriente: esta es la pata de REGISTRO, asientoPagoDeuda sigue
+  // siendo la pata de PAGO (Debe Acreedores Varios / Haber medio), sin
+  // cambios ahí.
+  if ((gasto.medio_pago || '') === 'Cuenta Corriente') {
+    const cuentaAcree = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.acreedores_varios) || '21102001';
+    const nombreAcree = PLAN_CUENTAS.find(c => c.codigo === cuentaAcree)?.nombre || 'ACREEDORES VARIOS';
+    return {
+      nro: getNroAsiento(),
+      fecha: gasto.fecha,
+      tipo: 'GASTO (CTA CTE)',
+      comprobante: gasto.descripcion || 'Comprobante gasto',
+      descripcion: `Gasto a cta.cte. — ${esc(gasto.categoria)}${esc(gasto.descripcion ? ': ' + gasto.descripcion : '')}`,
+      origen: 'gasto',
+      origen_id: gasto.id,
+      lineas: [
+        { debe: true,  cuenta: ctaDebe,     nombre: ctaNombreDebe, importe: monto, detalle: gasto.descripcion || gasto.categoria },
+        { debe: false, cuenta: cuentaAcree, nombre: nombreAcree,   importe: monto, detalle: 'A pagar — ' + gasto.categoria },
+      ],
+      total_debe: monto, total_haber: monto,
+    };
+  }
   const ctaHaber = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[gasto.medio_pago]) || '11101001';
   const ctaHaberNombre = PLAN_CUENTAS.find(c => c.codigo === ctaHaber)?.nombre || 'CAJA EN PESOS';
   const detalleHaber = 'Pago ' + (gasto.medio_pago || 'Efectivo');
@@ -4083,11 +4108,13 @@ function _movimientosCuenta(cuentaCod, filtro) {
 
   // Gastos
   gastos.filter(g => filtro(g.fecha)).forEach(g => {
-    if (g.medio_pago === 'Cuenta Corriente') return; // se refleja al pagar (pago de deuda)
     const ctD = GASTO_CUENTA[g.categoria] || '51117003';
-    const ctH = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[g.medio_pago]) || '11101001';
+    const esCC = g.medio_pago === 'Cuenta Corriente';
+    const ctH = esCC
+      ? ((typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.acreedores_varios) || '21102001')
+      : ((typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[g.medio_pago]) || '11101001');
     if (cuentaCod === ctD) movs.push({fecha:g.fecha, desc:g.categoria+(g.descripcion?': '+g.descripcion:''), debe:g.monto, haber:0, origen:'Gasto'});
-    if (cuentaCod === ctH) movs.push({fecha:g.fecha, desc:'Pago '+g.categoria+(g.medio_pago?' ('+g.medio_pago+')':''), debe:0, haber:g.monto, origen:'Gasto'});
+    if (cuentaCod === ctH) movs.push({fecha:g.fecha, desc:(esCC?'A pagar — ':'Pago ')+g.categoria+(!esCC && g.medio_pago?' ('+g.medio_pago+')':''), debe:0, haber:g.monto, origen:'Gasto'});
   });
 
   // Pagos de deuda (proveedores, clientes, gastos a cuenta corriente)
@@ -7100,9 +7127,11 @@ function renderBalance() {
 
   // Gastos
   gastos.filter(g => filtro(g.fecha)).forEach(g => {
-    if (g.medio_pago === 'Cuenta Corriente') return; // se refleja al pagar (pago de deuda)
     const ctD = GASTO_CUENTA[g.categoria] || '51117003';
-    const ctH = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[g.medio_pago]) || '11101001';
+    const esCC = g.medio_pago === 'Cuenta Corriente';
+    const ctH = esCC
+      ? ((typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.acreedores_varios) || '21102001')
+      : ((typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[g.medio_pago]) || '11101001');
     if (totales[ctD]) totales[ctD].debe  += g.monto||0;
     if (totales[ctH]) totales[ctH].haber += g.monto||0;
   });
