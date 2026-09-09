@@ -440,6 +440,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <button class="btn btn-outline btn-full" onclick="closeModal('ov-cierre-turno')">Cancelar</button>
       <button class="btn btn-full" style="background:#1a5c38;color:#fff" onclick="confirmarCierreTurno()">Registrar Cierre de Turno</button>
     </div>
+    <button onclick="exportarCierreTurnoPDF()" style="width:100%;margin-top:10px;padding:13px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+      <span>📄</span> Exportar PDF del cierre
+    </button>
   </div>
 </div>
 
@@ -15218,6 +15221,152 @@ function selectEstadoPedido(btn) {
 // cierre oficial, así los dos nunca pueden mostrar números distintos
 // para el mismo momento — es el mismo criterio, aplicado con otro alcance.
 // ══════════════════════════════════
+function exportarCierreTurnoPDF(cierreGuardado) {
+  const d = cierreGuardado || window._cierreTurnoData;
+  if (!d) { showToast('⚠️ Primero generá el cierre', 'err'); return; }
+  const tienda = STORE?.nombre || 'Tienda Pro';
+  const fecha = new Date(d.fecha + 'T12:00:00').toLocaleDateString('es-AR', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const hora = d.created_at ? new Date(d.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '';
+
+  const ventasDelDia = (d.ventas_detalle || []);
+  const egresosEf = (d.egresos_detalle || []);
+  const otrosIngresosEf = (d.otros_ingresos_detalle || []);
+  const dif = d.diferencia || 0;
+  const money = n => `$${Math.round(n||0).toLocaleString('es-AR')}`;
+  const fila = (label,val,extra='') => `<div class="row"><span class="row-label">${label}</span><span class="row-value" ${extra}>${val}</span></div>`;
+
+  const tablaComprobantes = !ventasDelDia.length ? '<div style="font-size:12px;color:#999;padding:8px 0">Sin ventas este día</div>' : `
+    <table class="tbl">
+      <thead><tr><th>Comprobante</th><th>Cliente</th><th>Método</th><th style="text-align:right">Total</th></tr></thead>
+      <tbody>
+        ${ventasDelDia.map(v => `<tr>
+            <td>${esc(v.comprobante||'')}</td>
+            <td>${esc(v.cliente||'')}</td>
+            <td>${esc(v.metodo||'')}</td>
+            <td style="text-align:right">${money(v.total)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  const tablaEgresos = !egresosEf.length ? '<div style="font-size:12px;color:#999;padding:8px 0">Sin egresos en efectivo este día</div>' : `
+    <table class="tbl">
+      <thead><tr><th>Origen</th><th>Detalle</th><th style="text-align:right">Monto</th></tr></thead>
+      <tbody>
+        ${egresosEf.map(m => `<tr>
+            <td>${esc(m.origen||'')}</td>
+            <td>${esc(m.desc||'')}</td>
+            <td style="text-align:right;color:#c94040">-${money(m.monto)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Cierre de Turno - ${tienda}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=DM+Mono&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{touch-action:manipulation}
+  body{font-family:'DM Sans',sans-serif;background:#fff;color:#1a1a0e;padding:40px;max-width:680px;margin:0 auto}
+  .header{text-align:center;border-bottom:2px solid #1a1a0e;padding-bottom:24px;margin-bottom:28px}
+  .logo{font-size:28px;font-weight:700;letter-spacing:-0.5px}
+  .logo span{color:#c94f1a}
+  .subtitle{font-size:12px;color:#666;margin-top:4px;text-transform:uppercase;letter-spacing:1px}
+  .fecha{font-size:14px;color:#333;margin-top:8px;font-weight:600;text-transform:capitalize}
+  .section{margin-bottom:24px}
+  .section-title{font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid #eee}
+  .row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5}
+  .row:last-child{border:none}
+  .row-label{font-size:13px;color:#444}
+  .row-value{font-family:'DM Mono',monospace;font-size:14px;font-weight:600;color:#1a1a0e}
+  .total-row{background:#1a1a0e;color:#fff;border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;margin:16px 0}
+  .total-label{font-size:14px;font-weight:600}
+  .total-value{font-family:'DM Mono',monospace;font-size:20px;font-weight:700}
+  .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
+  .badge-ok{background:#eaf5ee;color:#1a5c38}
+  .badge-warn{background:#fff3e0;color:#e65100}
+  .badge-err{background:#fdeaea;color:#c94040}
+  .obs-box{background:#f8f8f8;border-radius:8px;padding:12px;font-size:13px;color:#555;margin-top:8px;line-height:1.5}
+  .info-box{background:#f0f5f8;border-radius:8px;padding:12px;font-size:11px;color:#555;margin-top:8px;line-height:1.5}
+  .footer{text-align:center;margin-top:32px;padding-top:20px;border-top:1px solid #eee;font-size:11px;color:#aaa}
+  .dif-pos{color:#1a5c38;font-weight:700}
+  .dif-neg{color:#c94040;font-weight:700}
+  .dif-zero{color:#666;font-weight:600}
+  .tbl{width:100%;border-collapse:collapse;font-size:11px}
+  .tbl th{text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#888;padding:4px 6px;border-bottom:1.5px solid #ddd}
+  .tbl td{padding:5px 6px;border-bottom:1px solid #f2f2f2;font-family:'DM Mono',monospace}
+  .tbl tr:last-child td{border-bottom:none}
+  @media print{body{padding:20px}button{display:none!important}}
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">Tienda <span>Pro</span></div>
+    <div class="subtitle">Cierre de Turno${hora?' — '+hora:''}</div>
+    <div class="fecha">${fecha}</div>
+    ${d.usuario_email?`<div style="font-size:11px;color:#888;margin-top:4px">Registrado por ${esc(d.usuario_email)}</div>`:''}
+  </div>
+
+  <div class="section">
+    <div class="section-title">Ventas del día (${ventasDelDia.length})</div>
+    ${tablaComprobantes}
+  </div>
+
+  <div class="section">
+    <div class="section-title">Desglose por método de pago</div>
+    ${fila('💵 Efectivo', money(d.efectivo))}
+    ${fila('🏦 Transferencia', money(d.transferencia))}
+    ${fila('💳 Tarjeta', money(d.tarjeta))}
+    ${fila('🔵 MercadoPago', money(d.mercadopago))}
+    ${d.cuenta_corriente>0?fila('📋 Cuenta Corriente (no cobrado)', money(d.cuenta_corriente), 'style="color:#9a6a00"'):''}
+  </div>
+
+  <div class="section">
+    <div class="section-title">Egresos en efectivo del día</div>
+    ${tablaEgresos}
+    ${egresosEf.length?fila('Total egresos', '-'+money(d.salidas_efectivo_dia), 'style="color:#c94040;font-weight:700"'):''}
+  </div>
+
+  <div class="section">
+    <div class="section-title">Arqueo al momento del checkpoint</div>
+    ${fila('Saldo inicial (antes de hoy)', money(d.saldo_inicial))}
+    ${otrosIngresosEf.length?fila('+ Otras entradas de efectivo hoy', '+'+money(otrosIngresosEf.reduce((s,m)=>s+(m.monto||0),0))):''}
+    ${egresosEf.length?fila('− Egresos en efectivo hoy', '-'+money(d.salidas_efectivo_dia)):''}
+    ${fila('Efectivo esperado (acumulado)', money(d.efectivo_esperado), 'style="font-weight:700"')}
+    ${fila('Efectivo contado', money(d.efectivo_contado))}
+    <div class="row">
+      <span class="row-label" style="font-weight:600">Diferencia</span>
+      <span class="row-value ${dif>0?'dif-pos':dif<0?'dif-neg':'dif-zero'}">
+        ${dif>0?'+':''}${money(dif)}
+        <span class="badge ${Math.abs(dif)<500?'badge-ok':dif<0?'badge-err':'badge-warn'}" style="margin-left:6px">
+          ${Math.abs(dif)<500?'OK':(dif<0?'Faltante':'Sobrante')}
+        </span>
+      </span>
+    </div>
+    <div class="info-box">ℹ️ Este es un checkpoint de entrega de turno, no el cierre oficial del día — no reemplaza "Realizar Cierre del Día".</div>
+    ${d.observaciones?`<div class="obs-box">📝 ${esc(d.observaciones)}</div>`:''}
+  </div>
+
+  <div class="total-row">
+    <span class="total-label">TOTAL COBRADO DEL DÍA</span>
+    <span class="total-value">${money(d.total_cobrado)}</span>
+  </div>
+
+  <div class="footer">
+    Generado por Tienda Pro · ${tienda} · ${new Date().toLocaleString('es-AR')}
+  </div>
+
+  <script>window.print();<\/script>
+</body>
+</html>`;
+
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+}
+
 function prepararCierreTurno() {
   const today = fechaHoyLocal();
   const now = new Date().toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
@@ -15283,7 +15432,7 @@ function renderHistorialCierresTurno(){
   if(!el) return;
   const items = (cierresTurno||[]).slice(0, 15);
   if(!items.length){ el.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0">Todavía no hay cierres de turno registrados.</div>'; return; }
-  el.innerHTML = items.map(c => {
+  el.innerHTML = items.map((c, i) => {
     const hora = c.created_at ? new Date(c.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '';
     const dif = c.diferencia || 0;
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eee;font-size:12px">
@@ -15291,9 +15440,12 @@ function renderHistorialCierresTurno(){
         <div style="font-weight:600">${c.fecha} · ${hora}</div>
         <div style="color:var(--muted)">${esc(c.usuario_email||'—')} · ${c.ventas_count||0} ventas</div>
       </div>
-      <div style="text-align:right">
-        <div style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${Math.round(dif).toLocaleString('es-AR')}</div>
-        <div style="color:var(--muted)">diferencia</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="text-align:right">
+          <div style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${Math.round(dif).toLocaleString('es-AR')}</div>
+          <div style="color:var(--muted)">diferencia</div>
+        </div>
+        <span onclick="exportarCierreTurnoPDF(cierresTurno[${i}])" title="Imprimir este cierre" style="cursor:pointer;font-size:18px">🖨️</span>
       </div>
     </div>`;
   }).join('');
