@@ -430,6 +430,19 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<div class="overlay" id="ov-cierre-turno">
+  <div class="modal" style="position:relative">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-cierre-turno')">✕</button>
+    <div class="modal-title">🔄 Cierre de Turno</div>
+    <div id="cierre-turno-content"></div>
+    <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+      <button class="btn btn-outline btn-full" onclick="closeModal('ov-cierre-turno')">Cancelar</button>
+      <button class="btn btn-full" style="background:#1a5c38;color:#fff" onclick="confirmarCierreTurno()">Registrar Cierre de Turno</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="ov-add-prov">
   <div class="modal" style="position:relative">
     <div class="modal-handle"></div>
@@ -847,6 +860,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <button class="btn btn-red btn-full" onclick="prepararCierre()">🔒 Realizar Cierre del Día</button>
         <button onclick="abrirModalReimputar()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:600;cursor:pointer">🔄 Reimputar medio de pago</button>
       </div>
+    </div>
+    <div style="margin-top:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px">Historial de cierres de turno (hoy y recientes)</div>
+      <div id="historial-cierres-turno"></div>
     </div>
     <div class="slabel"><span class="slabel-t">Cierres anteriores</span></div>
     <div style="padding:0 20px;display:flex;flex-direction:column;gap:8px" id="cierres-list"></div>
@@ -3238,7 +3255,7 @@ let USER_ROL = 'dueño';
 let STORE = null;
 
 // ══ STATE ══
-let prods=[], sales=[], clients=[], compras=[], cierres=[], gastos=[], proveedores=[], minutas=[], pagosDeuda=[], notasCredito=[], reclasificaciones=[], notasDebito=[];
+let prods=[], sales=[], clients=[], compras=[], cierres=[], cierresTurno=[], gastos=[], proveedores=[], minutas=[], pagosDeuda=[], notasCredito=[], reclasificaciones=[], notasDebito=[];
 let qtys={}, activeCat='all', filtered=[], method='Efectivo', periodo='semana';
 let stockFilter='all', histFilter='all';
 
@@ -10729,6 +10746,7 @@ async function initApp(){
       loadNotasDebito(),
       loadNotasCreditoProveedor(),
     loadCierres(),
+    loadCierresTurno(),
     loadDeudas(),
     loadConsumos(),
     loadGastos(),
@@ -12010,6 +12028,15 @@ async function loadGastos(){
 async function loadCierres(){
   try{cierres=await sbGet('cierres_caja');}
   catch(e){cierres=[];}
+}
+
+async function loadCierresTurno(){
+  try{
+    cierresTurno = await SB.from('cierres_turno').select('*')
+      .eq('tienda_id', STORE.id)
+      .order('created_at', {ascending:false})
+      .limit(100).then(r=>r.data||[]);
+  } catch(e){ cierresTurno=[]; console.error('loadCierresTurno', e); }
 }
 
 // ══ EMOJIS ══
@@ -14034,6 +14061,7 @@ function renderCaja(){
   document.getElementById('caja-avg').textContent=`$${avg.toLocaleString('es-AR')}`;
   document.getElementById('caja-prods').textContent=totalProds;
   document.getElementById('arq-total').textContent=`$${total.toLocaleString('es-AR')}`;
+  renderHistorialCierresTurno();
 
   // Efectivo esperado = saldo acumulado de Caja (no se vacía el cajón, ver
   // nota en _efectivoEsperadoHoy). Mismo número que "Saldo actual en caja"
@@ -15182,51 +15210,93 @@ function selectEstadoPedido(btn) {
 }
 
 // ══════════════════════════════════
-// CIERRE DE TURNO
+// CIERRE DE TURNO — checkpoint de entrega entre cajeros. A diferencia de
+// "Realizar Cierre del Día" (prepararCierre/confirmarCierre), este NO es
+// el cierre oficial: no bloquea repetirlo, no participa de ningún cálculo
+// contable, y se puede hacer todas las veces que haga falta en el día.
+// Reusa el MISMO cálculo de arqueo (_calcularArqueoDia) que ya usa el
+// cierre oficial, así los dos nunca pueden mostrar números distintos
+// para el mismo momento — es el mismo criterio, aplicado con otro alcance.
 // ══════════════════════════════════
-async function prepararCierreTurno() {
+function prepararCierreTurno() {
   const today = fechaHoyLocal();
   const now = new Date().toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
-  const turnoSales = sales.filter(s => s.fecha === today);
-  // Neto de NC del día (mismo helper que Caja y el cierre diario).
+  const todaySales = sales.filter(s => s.fecha === today);
   const { ef, tr, td, mp, cc } = _ventasNetasDeNC(today);
-  // TOTAL = solo lo cobrado (Efectivo+Transferencia+Tarjeta+MercadoPago).
-  // La Cuenta Corriente se ve aparte en su propia fila, aclarada como
-  // no cobrada — así el total sí cierra con el desglose de arriba.
-  const totalTurno = ef+tr+td+mp;
+  const total = ef+tr+td+mp;
+  const efCaja = parseFloat(document.getElementById('arq-ef').value) || 0;
+  const obs = document.getElementById('arq-obs').value;
+  const arqueo = _calcularArqueoDia(today, efCaja);
+  const dif = arqueo.dif;
 
-  if(!confirm(`¿Confirmar cierre de turno a las ${now}?
+  document.getElementById('cierre-turno-content').innerHTML = `
+    <div style="background:var(--cream);border-radius:12px;padding:16px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:12px">Turno al ${now} — ${today}</div>
+      <div class="hc-dr"><span>Total cobrado hoy</span><span style="font-family:monospace;font-weight:700">$${total.toLocaleString('es-AR')}</span></div>
+      <div class="hc-dr"><span>Cantidad de ventas hoy</span><span>${todaySales.length}</span></div>
+      <div class="hc-dr"><span>Efectivo</span><span>$${ef.toLocaleString('es-AR')}</span></div>
+      <div class="hc-dr"><span>Transferencia</span><span>$${tr.toLocaleString('es-AR')}</span></div>
+      <div class="hc-dr"><span>Tarjeta</span><span>$${td.toLocaleString('es-AR')}</span></div>
+      <div class="hc-dr"><span>MercadoPago</span><span>$${mp.toLocaleString('es-AR')}</span></div>
+      ${cc>0?`<div class="hc-dr" style="color:#9a5b12"><span>📒 Cuenta Corriente (no cobrado, no suma)</span><span>$${cc.toLocaleString('es-AR')}</span></div>`:''}
+      ${arqueo.salidasEfectivoDia>0?`<div class="hc-dr" style="border-top:1px solid #ddd;margin-top:6px;padding-top:6px"><span style="color:#c94040;font-weight:600">Gastos y retiros en efectivo hoy</span><span style="color:#c94040;font-weight:700">-$${Math.round(arqueo.salidasEfectivoDia).toLocaleString('es-AR')}</span></div>`:''}
+      <div class="hc-dr"><span style="font-weight:600">Efectivo esperado en caja <span style="font-weight:400;opacity:.6">(acumulado)</span></span><span style="font-weight:700">$${Math.round(arqueo.efectivoEsperado).toLocaleString('es-AR')}</span></div>
+      <div class="hc-dr"><span>Efectivo contado ahora</span><span>$${efCaja.toLocaleString('es-AR')}</span></div>
+      <div class="hc-dr"><span style="font-weight:600">Diferencia</span><span style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${Math.round(dif).toLocaleString('es-AR')}</span></div>
+      ${obs?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${esc(obs)}</div>`:''}
+    </div>
+    <div style="font-size:12px;color:var(--muted)">Esto es un checkpoint de entrega de turno — no reemplaza el "Cierre del Día" oficial y podés registrarlo las veces que necesites hoy.</div>`;
 
-Total cobrado: $${totalTurno.toLocaleString('es-AR')}${cc>0?`\nCta. Corriente (no cobrado): $${cc.toLocaleString('es-AR')}`:''}
-Ventas: ${turnoSales.length}`)) return;
+  window._cierreTurnoData = {
+    tienda_id: STORE.id, fecha: today, usuario_email: (typeof USER!=='undefined' && USER) ? USER.email : null,
+    total_cobrado: total, ventas_count: todaySales.length,
+    efectivo: ef, transferencia: tr, tarjeta: td, mercadopago: mp, cuenta_corriente: cc,
+    saldo_inicial: arqueo.saldoInicial, efectivo_esperado: arqueo.efectivoEsperado,
+    efectivo_contado: efCaja, diferencia: dif, salidas_efectivo_dia: arqueo.salidasEfectivoDia,
+    ventas_detalle: arqueo.ventasDetalle, egresos_detalle: arqueo.egresosDetalle,
+    otros_ingresos_detalle: arqueo.otrosIngresosDetalle, observaciones: obs,
+  };
+  openModal('ov-cierre-turno');
+}
 
-  // Generar PDF del turno
-  const html = `<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><title>Cierre de Turno</title>
-<style>
-  body{font-family:Arial,sans-serif;padding:30px;max-width:400px;margin:0 auto}
-  h2{border-bottom:2px solid #12100e;padding-bottom:8px}
-  .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0}
-  .total{font-weight:700;font-size:18px;margin-top:16px}
-  @media print{button{display:none}}
-</style></head>
-<body>
-  <h2>🔄 Cierre de Turno</h2>
-  <p><b>${esc(STORE?.nombre || 'Tienda Pro')}</b><br>Fecha: ${today} · Hora: ${now}</p>
-  <div class="row"><span>Ventas del turno</span><span>${turnoSales.length}</span></div>
-  <div class="row"><span>Efectivo</span><span>$${ef.toLocaleString('es-AR')}</span></div>
-  <div class="row"><span>Transferencia</span><span>$${tr.toLocaleString('es-AR')}</span></div>
-  <div class="row"><span>Tarjeta</span><span>$${td.toLocaleString('es-AR')}</span></div>
-  <div class="row"><span>MercadoPago</span><span>$${mp.toLocaleString('es-AR')}</span></div>
-  <div class="row"><span>Cta. Corriente <small style="color:#999">(no cobrado)</small></span><span>$${cc.toLocaleString('es-AR')}</span></div>
-  <div class="row total"><span>TOTAL COBRADO</span><span>$${totalTurno.toLocaleString('es-AR')}</span></div>
-  <br><p style="font-size:12px;color:#999">Generado por Tienda Pro · ${new Date().toLocaleString('es-AR')}</p>
-  <script>window.print();<\/script>
-</body></html>`;
-  const win = window.open('', '_blank');
-  win.document.write(html);
-  win.document.close();
-  showToast('✅ Cierre de turno generado', 'ok');
+let _cierreTurnoEnProgreso = false;
+async function confirmarCierreTurno(){
+  if(_cierreTurnoEnProgreso || !window._cierreTurnoData) return;
+  _cierreTurnoEnProgreso = true;
+  try{
+    const { data, error } = await SB.from('cierres_turno').insert(window._cierreTurnoData).select().single();
+    if(error) throw error;
+    cierresTurno.unshift(data);
+    closeModal('ov-cierre-turno');
+    showToast('✅ Cierre de turno registrado', 'ok');
+    renderHistorialCierresTurno();
+  } catch(e){
+    console.error('confirmarCierreTurno', e);
+    showToast('Error al registrar el cierre de turno: ' + (e.message||''), 'err');
+  } finally {
+    _cierreTurnoEnProgreso = false;
+  }
+}
+
+function renderHistorialCierresTurno(){
+  const el = document.getElementById('historial-cierres-turno');
+  if(!el) return;
+  const items = (cierresTurno||[]).slice(0, 15);
+  if(!items.length){ el.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0">Todavía no hay cierres de turno registrados.</div>'; return; }
+  el.innerHTML = items.map(c => {
+    const hora = c.created_at ? new Date(c.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '';
+    const dif = c.diferencia || 0;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eee;font-size:12px">
+      <div>
+        <div style="font-weight:600">${c.fecha} · ${hora}</div>
+        <div style="color:var(--muted)">${esc(c.usuario_email||'—')} · ${c.ventas_count||0} ventas</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${Math.round(dif).toLocaleString('es-AR')}</div>
+        <div style="color:var(--muted)">diferencia</div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // ══════════════════════════════════
