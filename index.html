@@ -1024,6 +1024,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div id="panel-stock" style="display:block">
     <button onclick="exportarStockContadora()" style="width:100%;margin:0 0 10px;padding:11px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:600;cursor:pointer">📊 Exportar Excel de stock (para contadora)</button>
     <button onclick="exportarMargenStock()" style="width:100%;margin:0 0 10px;padding:11px;border-radius:10px;border:1.5px solid #c94f1a;background:#fdf0ea;color:#c94f1a;font-size:13px;font-weight:600;cursor:pointer">📈 Exportar % de ganancia (solo con stock)</button>
+    <button onclick="exportarValuacionStock()" style="width:100%;margin:0 0 10px;padding:11px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:600;cursor:pointer">📋 Exportar Valuación de Stock (para la contadora)</button>
     <div style="position:relative;margin:0 0 10px">
       <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:15px;opacity:.5">🔍</span>
       <input id="st-search" class="inp" placeholder="Buscar producto por nombre o código..." style="padding-left:38px" oninput="buscarStock(this.value)">
@@ -5703,6 +5704,45 @@ function exportarStockContadora(){
 // Excel con SOLO los productos que tienen stock (>0), con su margen en
 // $ y en %. Ordenado de mayor a menor % de ganancia, para ver de un
 // vistazo qué productos rinden más y cuáles menos.
+function exportarValuacionStock(){
+  if(typeof XLSX==='undefined'){ showToast('El generador de Excel se está cargando, probá de nuevo','err'); return; }
+  const provMap={}; (proveedores||[]).forEach(p=>{ provMap[p.id]=p.razon_social||p.nombre||''; });
+  // Costo NETO (sin IVA) — el mismo que ya se actualiza con cada compra o
+  // carga de factura (ver doCompra/confirmarRemito), no con IVA sumado.
+  // La valuación de Bienes de Cambio para la contadora va sin IVA: el IVA
+  // de la mercadería ya es un crédito fiscal aparte, no forma parte del
+  // valor del stock.
+  const lista=(prods||[]).filter(p=>!p.is_deleted && !p.es_combo && (p.stock||0)>0).map(p=>{
+    const costoNeto = +p.costo||0;
+    const subtotal = costoNeto * (p.stock||0);
+    return {...p, costoNeto, subtotal};
+  }).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  if(!lista.length){ showToast('No hay productos con stock para exportar','err'); return; }
+  const header=['Código','Producto','Categoría','Proveedor','Stock (unidades)','Costo unit. (última compra, sin IVA)','Subtotal'];
+  const aoa=[header];
+  lista.forEach(p=>{
+    aoa.push([
+      p.barcode||p.codigo_proveedor||'', p.nombre||'', p.categoria||'', provMap[p.proveedor_id]||'',
+      p.stock||0,
+      Math.round(p.costoNeto*100)/100,
+      Math.round(p.subtotal*100)/100,
+    ]);
+  });
+  const total = lista.reduce((s,p)=>s+p.subtotal,0);
+  const sinCosto = lista.filter(p=>!(p.costoNeto>0));
+  aoa.push([]);
+  aoa.push(['', '', '', '', '', 'TOTAL VALUACIÓN DE STOCK', Math.round(total*100)/100]);
+  aoa.push(['Productos con stock', lista.length]);
+  if(sinCosto.length) aoa.push(['⚠️ Sin costo cargado (quedaron en $0, no reflejan valor real)', sinCosto.length]);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:14},{wch:34},{wch:14},{wch:18},{wch:15},{wch:26},{wch:16}];
+  const wb=XLSX.utils.book_new();
+  const mesLabel = fechaHoyLocal().slice(0,7);
+  XLSX.utils.book_append_sheet(wb, ws, 'Valuacion Stock');
+  XLSX.writeFile(wb, 'valuacion_stock_'+mesLabel+'.xlsx');
+  showToast('✅ Valuación de stock exportada' + (sinCosto.length?` (${sinCosto.length} sin costo cargado)`:''), 'ok');
+}
+
 function exportarMargenStock(){
   if(typeof XLSX==='undefined'){ showToast('El generador de Excel se está cargando, probá de nuevo','err'); return; }
   const provMap={}; (proveedores||[]).forEach(p=>{ provMap[p.id]=p.razon_social||p.nombre||''; });
