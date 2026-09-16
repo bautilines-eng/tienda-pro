@@ -5711,25 +5711,29 @@ function exportarStockContadora(){
 // leyendo el Kardex directo (paginado igual que sbGet, para no toparse
 // con el límite de 1000 filas de Supabase con meses de movimientos
 // acumulados). Se queda con el movimiento más reciente de cada producto
-// hasta esa fecha — su stock_nuevo ES el stock a ese momento.
+// hasta esa fecha — su stock_nuevo ES el stock a ese momento. Usa
+// 'fecha' (date) + 'created_at' como desempate entre movimientos del
+// mismo día — 'fecha' sola no alcanza para saber cuál fue último si hay
+// varios movimientos en la misma fecha (columnas verificadas contra el
+// esquema real de la tabla, no inventadas).
 async function _stockAFecha(fechaCorte){
   const PAGE_SIZE = 1000;
-  const corteISO = fechaCorte + 'T23:59:59';
   let from = 0;
   const ultimoPorProducto = {};
   while(true){
     const { data, error } = await SB.from('kardex')
-      .select('producto_id, fecha_hora, stock_nuevo')
+      .select('producto_id, fecha, created_at, stock_nuevo')
       .eq('tienda_id', STORE.id)
-      .lte('fecha_hora', corteISO)
-      .order('fecha_hora', {ascending:true})
+      .lte('fecha', fechaCorte)
+      .order('fecha', {ascending:true})
+      .order('created_at', {ascending:true})
       .range(from, from+PAGE_SIZE-1);
     if(error) throw error;
     if(!data || !data.length) break;
-    data.forEach(m=>{
-      const actual = ultimoPorProducto[m.producto_id];
-      if(!actual || m.fecha_hora >= actual.fecha_hora) ultimoPorProducto[m.producto_id] = m;
-    });
+    // Viene ordenado ascendente (más viejo -> más nuevo), así que el
+    // último que pisa cada producto_id en el loop es siempre el más
+    // reciente hasta la fecha de corte.
+    data.forEach(m=>{ ultimoPorProducto[m.producto_id] = m; });
     if(data.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
