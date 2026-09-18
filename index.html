@@ -864,7 +864,13 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <button onclick="abrirModalReimputar()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:600;cursor:pointer">🔄 Reimputar medio de pago</button>
       </div>
     </div>
-    <div style="margin-top:16px">
+    <div style="margin-top:16px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <input type="date" id="busqueda-cierres-desde" style="flex:1;min-width:120px;padding:8px;border-radius:8px;border:1.5px solid #ddd;font-size:12px">
+      <input type="date" id="busqueda-cierres-hasta" style="flex:1;min-width:120px;padding:8px;border-radius:8px;border:1.5px solid #ddd;font-size:12px">
+      <button onclick="buscarCierres()" style="padding:8px 14px;border-radius:8px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:12px;font-weight:600;cursor:pointer">🔍 Buscar</button>
+      <button onclick="limpiarBusquedaCierres()" style="padding:8px 14px;border-radius:8px;border:1.5px solid #ddd;background:#fff;color:#666;font-size:12px;font-weight:600;cursor:pointer">Ver recientes</button>
+    </div>
+    <div style="margin-top:12px">
       <div style="font-size:13px;font-weight:600;margin-bottom:8px">Historial de cierres de turno (hoy y recientes)</div>
       <div id="historial-cierres-turno"></div>
     </div>
@@ -14239,8 +14245,13 @@ function renderCaja(){
 
   // Historial cierres
   const cl=document.getElementById('cierres-list');
-  if(!cierres.length){cl.innerHTML='<div class="empty">Sin cierres anteriores</div>';return;}
-  cl.innerHTML=cierres.map(c=>`
+  const _buscandoOficiales = !!(_busquedaCierresDesde || _busquedaCierresHasta);
+  const _cierresOrdenados = [...cierres].sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
+  const cierresAMostrar = _buscandoOficiales
+    ? _cierresOrdenados.filter(c => (!_busquedaCierresDesde || c.fecha >= _busquedaCierresDesde) && (!_busquedaCierresHasta || c.fecha <= _busquedaCierresHasta))
+    : _cierresOrdenados.slice(0, 7);
+  if(!cierresAMostrar.length){cl.innerHTML=`<div class="empty">${_buscandoOficiales?'Sin cierres en ese rango.':'Sin cierres anteriores'}</div>`;return;}
+  cl.innerHTML=cierresAMostrar.map(c=>`
     <div class="cierre-card" onclick="this.classList.toggle('open')">
       <div class="cc-top">
         <div><div class="cc-fecha">${c.fecha} ${c.reabierto?'<span style="background:#fdecea;color:#c0392b;border-radius:5px;padding:1px 7px;font-size:10px;font-weight:700;vertical-align:middle">REABIERTO</span>':''}</div><div style="font-size:11px;color:var(--muted)">${c.ventas_count} ventas</div></div>
@@ -15534,11 +15545,54 @@ async function confirmarCierreTurno(){
   }
 }
 
+// Búsqueda de cierres por rango de fechas — compartida entre "Cierres
+// anteriores" (cierres_caja, ya está todo cargado en memoria, se filtra
+// directo) y "Historial de cierres de turno" (cierres_turno solo trae las
+// últimas 100 por default, así que una búsqueda de meses viejos va
+// directo a la base en vez de depender de lo que ya esté cargado).
+let _busquedaCierresDesde = '';
+let _busquedaCierresHasta = '';
+let _busquedaCierresTurnoResultados = null; // null = sin búsqueda activa (ver recientes)
+
+async function buscarCierres(){
+  const desde = document.getElementById('busqueda-cierres-desde')?.value || '';
+  const hasta = document.getElementById('busqueda-cierres-hasta')?.value || '';
+  if(!desde && !hasta){ showToast('Elegí al menos una fecha', 'err'); return; }
+  _busquedaCierresDesde = desde;
+  _busquedaCierresHasta = hasta;
+  try{
+    let q = SB.from('cierres_turno').select('*').eq('tienda_id', STORE.id).order('created_at', {ascending:false}).limit(300);
+    if(desde) q = q.gte('fecha', desde);
+    if(hasta) q = q.lte('fecha', hasta);
+    const { data, error } = await q;
+    if(error) throw error;
+    _busquedaCierresTurnoResultados = data || [];
+  } catch(e){
+    console.error('buscarCierres', e);
+    showToast('Error al buscar cierres de turno', 'err');
+    _busquedaCierresTurnoResultados = [];
+  }
+  renderHistorialCierresTurno();
+  renderCaja();
+}
+
+function limpiarBusquedaCierres(){
+  _busquedaCierresDesde = '';
+  _busquedaCierresHasta = '';
+  _busquedaCierresTurnoResultados = null;
+  const de=document.getElementById('busqueda-cierres-desde'), ha=document.getElementById('busqueda-cierres-hasta');
+  if(de) de.value=''; if(ha) ha.value='';
+  renderHistorialCierresTurno();
+  renderCaja();
+}
+
 function renderHistorialCierresTurno(){
   const el = document.getElementById('historial-cierres-turno');
   if(!el) return;
-  const items = (cierresTurno||[]).slice(0, 15);
-  if(!items.length){ el.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0">Todavía no hay cierres de turno registrados.</div>'; return; }
+  const buscando = _busquedaCierresTurnoResultados !== null;
+  const items = buscando ? _busquedaCierresTurnoResultados : (cierresTurno||[]).slice(0, 7);
+  window._ultimosCierresTurnoRenderizados = items;
+  if(!items.length){ el.innerHTML = `<div style="font-size:12px;color:var(--muted);padding:8px 0">${buscando?'Sin cierres de turno en ese rango.':'Todavía no hay cierres de turno registrados.'}</div>`; return; }
   el.innerHTML = items.map((c, i) => {
     const hora = c.created_at ? new Date(c.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '';
     const dif = c.diferencia || 0;
@@ -15552,7 +15606,7 @@ function renderHistorialCierresTurno(){
           <div style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${Math.round(dif).toLocaleString('es-AR')}</div>
           <div style="color:var(--muted)">diferencia</div>
         </div>
-        <span onclick="exportarCierreTurnoPDF(cierresTurno[${i}])" title="Imprimir este cierre" style="cursor:pointer;font-size:18px">🖨️</span>
+        <span onclick="exportarCierreTurnoPDF(window._ultimosCierresTurnoRenderizados[${i}])" title="Imprimir este cierre" style="cursor:pointer;font-size:18px">🖨️</span>
       </div>
     </div>`;
   }).join('');
