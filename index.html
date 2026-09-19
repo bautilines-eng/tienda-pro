@@ -12,6 +12,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%92%3C/text%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
@@ -905,7 +906,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div style="padding:16px 20px 0">
       <div class="chart-t">🕐 Ventas por hora del día</div>
       <div style="font-size:12px;margin:8px 0 10px" id="r-horas-resumen"></div>
-      <div class="bar-chart" id="r-chart-horas" style="height:100px"></div>
+      <div class="top-card" style="height:220px;padding:14px 10px 4px">
+        <canvas id="r-chart-horas-canvas"></canvas>
+      </div>
     </div>
     <!-- REPORTE VENTAS DIARIAS (para la contadora) -->
     <div style="padding:22px 20px 0">
@@ -3275,6 +3278,7 @@ let STORE = null;
 // ══ STATE ══
 let prods=[], sales=[], clients=[], compras=[], cierres=[], cierresTurno=[], gastos=[], proveedores=[], minutas=[], pagosDeuda=[], notasCredito=[], reclasificaciones=[], notasDebito=[];
 let qtys={}, activeCat='all', filtered=[], method='Efectivo', periodo='semana';
+let _chartVentasHoras = null;
 let stockFilter='all', histFilter='all';
 
 // ══ INIT ══
@@ -14426,9 +14430,9 @@ function renderReportes(){
   // Se agrupa por la hora local de cada venta (created_at) y se muestra
   // solo el rango entre la primera y la última hora con actividad, así
   // no se llena de barras vacías de la madrugada si el local no abre 24hs.
-  const horaChartEl = document.getElementById('r-chart-horas');
+  const horaCanvasEl = document.getElementById('r-chart-horas-canvas');
   const horaResumenEl = document.getElementById('r-horas-resumen');
-  if(horaChartEl){
+  if(horaCanvasEl){
     const horaData = Array(24).fill(0).map(()=>({cant:0, total:0}));
     filt.forEach(s=>{
       if(!s.created_at) return;
@@ -14437,17 +14441,13 @@ function renderReportes(){
       horaData[h].total += (s.total||0);
     });
     const horasConVentas = horaData.map((d,h)=>({h,...d})).filter(d=>d.cant>0);
+    if(_chartVentasHoras){ _chartVentasHoras.destroy(); _chartVentasHoras=null; }
     if(!horasConVentas.length){
-      horaChartEl.innerHTML='';
       if(horaResumenEl) horaResumenEl.innerHTML='<div class="empty" style="padding:8px 0">Sin datos suficientes en este período.</div>';
     } else {
       const desde=horasConVentas[0].h, hasta=horasConVentas[horasConVentas.length-1].h;
       const rango=[]; for(let h=desde; h<=hasta; h++) rango.push({h,...horaData[h]});
       const maxCant=Math.max(...rango.map(d=>d.cant),1);
-      horaChartEl.innerHTML=rango.map(d=>{
-        const pct = d.cant ? Math.round(d.cant/maxCant*80)+5 : 3;
-        return `<div class="bw"><div class="bar${d.cant>0?' hi':''}" style="height:${pct}%" title="${String(d.h).padStart(2,'0')}:00 — ${d.cant} venta(s), $${Math.round(d.total).toLocaleString('es-AR')}"></div><div class="bl">${String(d.h).padStart(2,'0')}</div></div>`;
-      }).join('');
       const minCant=Math.min(...rango.map(d=>d.cant));
       const horasFlacas=rango.filter(d=>d.cant===minCant);
       const horasPico=rango.filter(d=>d.cant===maxCant);
@@ -14455,6 +14455,57 @@ function renderReportes(){
       if(horaResumenEl) horaResumenEl.innerHTML =
         `<span style="color:var(--pine);font-weight:600">🔼 Hora pico: ${String(mejor.h).padStart(2,'0')}:00</span> (${mejor.cant} ventas, $${Math.round(mejor.total).toLocaleString('es-AR')})${horasPico.length>1?` — y ${horasPico.length-1} hora(s) más igual de fuertes`:''}`
         + `<br><span style="color:var(--red);font-weight:600">🔽 Hora más floja: ${String(peor.h).padStart(2,'0')}:00</span> (${peor.cant} ventas, $${Math.round(peor.total).toLocaleString('es-AR')})${horasFlacas.length>1?` — y ${horasFlacas.length-1} hora(s) más igual de flojas`:''}`;
+
+      const ctx = horaCanvasEl.getContext('2d');
+      const barColors = rango.map(d => d.cant===maxCant ? '#1a5c38' : d.cant===minCant ? '#c94040' : '#c94f1a99');
+      _chartVentasHoras = new Chart(ctx, {
+        data: {
+          labels: rango.map(d=>String(d.h).padStart(2,'0')+'hs'),
+          datasets: [
+            {
+              type: 'bar',
+              label: 'Ventas',
+              data: rango.map(d=>d.cant),
+              backgroundColor: barColors,
+              borderRadius: 5,
+              yAxisID: 'yCant',
+              order: 2,
+            },
+            {
+              type: 'line',
+              label: 'Facturado',
+              data: rango.map(d=>d.total),
+              borderColor: '#1a5ec9',
+              backgroundColor: '#1a5ec9',
+              tension: 0.35,
+              pointRadius: 3,
+              pointBackgroundColor: '#1a5ec9',
+              yAxisID: 'yTotal',
+              order: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: true, position: 'top', labels: { boxWidth: 10, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => ctx.dataset.label === 'Facturado'
+                  ? `Facturado: $${Math.round(ctx.parsed.y).toLocaleString('es-AR')}`
+                  : `Ventas: ${ctx.parsed.y}`,
+              },
+            },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+            yCant: { position: 'left', beginAtZero: true, ticks: { precision: 0, font: { size: 10 } }, title: { display: true, text: 'Ventas', font: { size: 10 } } },
+            yTotal: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, ticks: { font: { size: 10 }, callback: (v)=>'$'+(v/1000).toFixed(0)+'k' }, title: { display: true, text: 'Facturado', font: { size: 10 } } },
+          },
+        },
+      });
     }
   }
 }
