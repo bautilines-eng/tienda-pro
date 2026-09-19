@@ -902,6 +902,11 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <div style="padding:16px 20px 0"><div class="chart-t">Top productos</div><div class="top-card" id="r-top"></div></div>
     <div style="padding:16px 20px 0"><div class="chart-t">Por método de pago</div><div class="top-card" id="r-methods"></div></div>
+    <div style="padding:16px 20px 0">
+      <div class="chart-t">🕐 Ventas por hora del día</div>
+      <div style="font-size:12px;margin:8px 0 10px" id="r-horas-resumen"></div>
+      <div class="bar-chart" id="r-chart-horas" style="height:100px"></div>
+    </div>
     <!-- REPORTE VENTAS DIARIAS (para la contadora) -->
     <div style="padding:22px 20px 0">
       <div class="chart-t">📅 Reporte de ventas diarias</div>
@@ -14417,6 +14422,41 @@ function renderReportes(){
   const mxQ=tp[0]?tp[0][1].qty:1;
   document.getElementById('r-top').innerHTML=tp.length?tp.map(([n,d],i)=>`<div class="top-row"><div class="top-n">${i+1}</div><div class="top-em">${d.em}</div><div class="top-name">${n.split(' ').slice(0,3).join(' ')}</div><div class="top-bw"><div class="top-b" style="width:${Math.round(d.qty/mxQ*100)}%"></div></div><div class="top-val">${d.qty}u</div></div>`).join(''):'<div class="empty" style="padding:16px 0">Sin datos</div>';
   document.getElementById('r-methods').innerHTML=Object.entries(byM).sort((a,b)=>b[1]-a[1]).map(([m,t])=>`<div class="top-row"><div class="top-n">${{Efectivo:'💵',Transferencia:'🏦',Tarjeta:'💳'}[m]||'💰'}</div><div class="top-name">${m}</div><div class="top-bw"><div class="top-b" style="width:${total?Math.round(t/total*100):0}%"></div></div><div class="top-val" style="width:80px;font-size:9px">$${t.toLocaleString('es-AR')}</div></div>`).join('')||'<div class="empty" style="padding:16px 0">Sin datos</div>';
+  // Ventas por hora del día — para decidir horario de apertura/cierre.
+  // Se agrupa por la hora local de cada venta (created_at) y se muestra
+  // solo el rango entre la primera y la última hora con actividad, así
+  // no se llena de barras vacías de la madrugada si el local no abre 24hs.
+  const horaChartEl = document.getElementById('r-chart-horas');
+  const horaResumenEl = document.getElementById('r-horas-resumen');
+  if(horaChartEl){
+    const horaData = Array(24).fill(0).map(()=>({cant:0, total:0}));
+    filt.forEach(s=>{
+      if(!s.created_at) return;
+      const h = new Date(s.created_at).getHours();
+      horaData[h].cant++;
+      horaData[h].total += (s.total||0);
+    });
+    const horasConVentas = horaData.map((d,h)=>({h,...d})).filter(d=>d.cant>0);
+    if(!horasConVentas.length){
+      horaChartEl.innerHTML='';
+      if(horaResumenEl) horaResumenEl.innerHTML='<div class="empty" style="padding:8px 0">Sin datos suficientes en este período.</div>';
+    } else {
+      const desde=horasConVentas[0].h, hasta=horasConVentas[horasConVentas.length-1].h;
+      const rango=[]; for(let h=desde; h<=hasta; h++) rango.push({h,...horaData[h]});
+      const maxCant=Math.max(...rango.map(d=>d.cant),1);
+      horaChartEl.innerHTML=rango.map(d=>{
+        const pct = d.cant ? Math.round(d.cant/maxCant*80)+5 : 3;
+        return `<div class="bw"><div class="bar${d.cant>0?' hi':''}" style="height:${pct}%" title="${String(d.h).padStart(2,'0')}:00 — ${d.cant} venta(s), $${Math.round(d.total).toLocaleString('es-AR')}"></div><div class="bl">${String(d.h).padStart(2,'0')}</div></div>`;
+      }).join('');
+      const minCant=Math.min(...rango.map(d=>d.cant));
+      const horasFlacas=rango.filter(d=>d.cant===minCant);
+      const horasPico=rango.filter(d=>d.cant===maxCant);
+      const peor=horasFlacas[0], mejor=horasPico[0];
+      if(horaResumenEl) horaResumenEl.innerHTML =
+        `<span style="color:var(--pine);font-weight:600">🔼 Hora pico: ${String(mejor.h).padStart(2,'0')}:00</span> (${mejor.cant} ventas, $${Math.round(mejor.total).toLocaleString('es-AR')})${horasPico.length>1?` — y ${horasPico.length-1} hora(s) más igual de fuertes`:''}`
+        + `<br><span style="color:var(--red);font-weight:600">🔽 Hora más floja: ${String(peor.h).padStart(2,'0')}:00</span> (${peor.cant} ventas, $${Math.round(peor.total).toLocaleString('es-AR')})${horasFlacas.length>1?` — y ${horasFlacas.length-1} hora(s) más igual de flojas`:''}`;
+    }
+  }
 }
 
 // ══ STOCK ══
