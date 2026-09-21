@@ -886,10 +886,16 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="ht">Reportes</div>
       <div class="hs">Rendimiento de tu negocio</div>
     </div>
-    <div style="display:flex;gap:6px;padding:14px 20px 0">
+    <div style="display:flex;gap:6px;padding:14px 20px 0;flex-wrap:wrap" id="rep-periodos">
       <div class="ps on" onclick="setPer('semana',this)">7 días</div>
       <div class="ps" onclick="setPer('mes',this)">30 días</div>
       <div class="ps" onclick="setPer('todo',this)">Todo</div>
+      <div class="ps" onclick="setPer('custom',this)">📅 Personalizado</div>
+    </div>
+    <div id="rep-custom-range" style="display:none;gap:8px;margin:10px 20px 0;align-items:flex-end">
+      <div style="flex:1"><div class="flabel">Desde</div><input type="date" id="rep-desde" class="inp" style="font-size:12px"></div>
+      <div style="flex:1"><div class="flabel">Hasta</div><input type="date" id="rep-hasta" class="inp" style="font-size:12px"></div>
+      <button onclick="aplicarReporteCustom()" style="padding:10px 16px;border-radius:9px;border:none;background:var(--ink);color:var(--paper);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Aplicar</button>
     </div>
     <div class="kpis">
       <div class="kpi dark"><div class="kpi-l">Ingresos</div><div class="kpi-v" id="r-total">$0</div><div class="kpi-sub" id="r-period">Últimos 7 días</div></div>
@@ -14399,18 +14405,46 @@ async function confirmarCierre(){
 }
 
 // ══ REPORTES ══
-function setPer(p,el){periodo=p;document.querySelectorAll('.ps').forEach(b=>b.classList.remove('on'));el.classList.add('on');renderReportes();}
+let repCustomDesde = '', repCustomHasta = '';
+function setPer(p,el){
+  document.querySelectorAll('#rep-periodos .ps').forEach(b=>b.classList.remove('on'));
+  if(el) el.classList.add('on');
+  const customEl = document.getElementById('rep-custom-range');
+  if(p==='custom'){
+    periodo='custom';
+    if(customEl) customEl.style.display='flex';
+    return; // espera a que toquen "Aplicar"
+  }
+  if(customEl) customEl.style.display='none';
+  periodo=p;
+  renderReportes();
+}
+function aplicarReporteCustom(){
+  const d=document.getElementById('rep-desde')?.value;
+  const h=document.getElementById('rep-hasta')?.value;
+  if(!d || !h){ showToast('Elegí ambas fechas','err'); return; }
+  if(d>h){ showToast('"Desde" no puede ser posterior a "Hasta"','err'); return; }
+  repCustomDesde=d; repCustomHasta=h; periodo='custom';
+  renderReportes();
+}
 function renderReportes(){
   const now=new Date();
-  const days=periodo==='semana'?7:periodo==='mes'?30:3650;
-  const cutoff=new Date(now-days*86400000).toISOString().split('T')[0];
-  const filt=periodo==='todo'?sales:sales.filter(s=>s.fecha>=cutoff);
+  let filt, periodLabel;
+  if(periodo==='custom' && repCustomDesde && repCustomHasta){
+    filt = sales.filter(s=>s.fecha>=repCustomDesde && s.fecha<=repCustomHasta);
+    periodLabel = `${repCustomDesde} al ${repCustomHasta}`;
+  } else {
+    const days=periodo==='semana'?7:periodo==='mes'?30:3650;
+    const cutoff=new Date(now-days*86400000).toISOString().split('T')[0];
+    filt=periodo==='todo'?sales:sales.filter(s=>s.fecha>=cutoff);
+    periodLabel = periodo==='semana'?'Últimos 7 días':periodo==='mes'?'Últimos 30 días':'Todo el tiempo';
+  }
   const total=filt.reduce((s,v)=>s+(v.total||0),0);
   const avg=filt.length?Math.round(total/filt.length):0;
   document.getElementById('r-total').textContent=`$${total.toLocaleString('es-AR')}`;
   document.getElementById('r-count').textContent=filt.length;
   document.getElementById('r-avg').textContent=`$${avg.toLocaleString('es-AR')}`;
-  document.getElementById('r-period').textContent=periodo==='semana'?'Últimos 7 días':periodo==='mes'?'Últimos 30 días':'Todo el tiempo';
+  document.getElementById('r-period').textContent=periodLabel;
   const byM={};filt.forEach(s=>{if(s.metodo_pago)byM[s.metodo_pago]=(byM[s.metodo_pago]||0)+(s.total||0);});
   const bestM=Object.entries(byM).sort((a,b)=>b[1]-a[1])[0];
   if(bestM){const pct=Math.round(bestM[1]/(total||1)*100);document.getElementById('r-method').textContent={Efectivo:'💵',Transferencia:'🏦',Tarjeta:'💳'}[bestM[0]]||bestM[0];document.getElementById('r-method-pct').textContent=`${pct}% del total`;}
