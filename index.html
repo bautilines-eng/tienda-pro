@@ -2455,6 +2455,22 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div id="aud-resumen" style="margin-top:14px"></div>
       </div>
 
+      <!-- Salud del sistema (chequeo de integridad de datos, no de usuarios) -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:700">🩺 Salud del Sistema</div>
+          <button onclick="ejecutarAuditoriaSalud()"
+            style="padding:6px 12px;border-radius:8px;border:1.5px solid #e0e0e0;background:#fff;font-size:11px;font-weight:600;cursor:pointer">
+            🔄 Verificar
+          </button>
+        </div>
+        <div id="salud-results">
+          <div style="text-align:center;font-size:12px;color:#aaa;padding:16px">
+            Tocá "Verificar" para chequear cuentas huérfanas, asientos desbalanceados, productos sin costo y stock negativo
+          </div>
+        </div>
+      </div>
+
       <!-- Filtros forenses -->
       <div style="background:#f8f8f8;border-radius:12px;padding:14px;margin-bottom:14px">
         <div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
@@ -10074,6 +10090,88 @@ async function cargarAlertas() {
       </div>`).join('');
   } catch(e) {
     el.innerHTML = '<div style="font-size:12px;color:#aaa;padding:12px">Error al cargar alertas</div>';
+  }
+}
+
+// ══════════════════════════════════
+// SALUD DEL SISTEMA — consolida en un botón los chequeos de integridad
+// que veníamos haciendo a mano con SQL cada vez que algo no cerraba:
+// cuentas mapeadas que apuntan a un código inexistente, asientos que no
+// balancean, productos sin costo cargado, stock negativo, y cierres de
+// caja con una diferencia demasiado grande para ser normal. Es de solo
+// lectura — no modifica nada, solo avisa.
+// ══════════════════════════════════
+async function _auditCuentasOrfanas(){
+  const { data: mapeos, error } = await SB.from('mapeo_contable').select('tipo_mapeo, clave, cuenta_codigo').eq('tienda_id', STORE.id);
+  if (error) throw error;
+  const codigosReales = new Set((PLAN_CUENTAS||[]).map(c=>c.codigo));
+  return (mapeos||[]).filter(m => !codigosReales.has(m.cuenta_codigo));
+}
+
+function _auditAsientosDesbalanceados(mesAno){
+  let asientos = [];
+  try { asientos = generarAsientosPeriodo(mesAno) || []; } catch(e) { console.error('_auditAsientosDesbalanceados', e); }
+  return asientos.filter(a => {
+    const d = a.total_debe, h = a.total_haber;
+    return isNaN(d) || isNaN(h) || Math.abs((d||0)-(h||0)) > 0.5;
+  }).map(a => ({tipo:a.tipo, fecha:a.fecha, comprobante:a.comprobante, debe:a.total_debe, haber:a.total_haber}));
+}
+
+function _auditProductosSinCosto(){
+  return (prods||[]).filter(p => !p.is_deleted && !p.es_combo && (p.stock||0) > 0 && !(p.costo > 0));
+}
+
+function _auditStockNegativo(){
+  return (prods||[]).filter(p => !p.is_deleted && (p.stock||0) < 0);
+}
+
+function _auditCierresConDiferenciaGrande(){
+  const UMBRAL = 50000;
+  return (cierres||[]).filter(c => Math.abs(c.diferencia||0) > UMBRAL)
+    .sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''))
+    .slice(0, 20)
+    .map(c => ({fecha:c.fecha, diferencia:c.diferencia}));
+}
+
+async function ejecutarAuditoriaSalud(){
+  const el = document.getElementById('salud-results');
+  if (!el) return;
+  el.innerHTML = '<div style="text-align:center;padding:20px;font-size:12px;color:#aaa">Verificando...</div>';
+  try {
+    const mesActual = fechaHoyLocal().slice(0,7);
+    const [orfanas] = await Promise.all([_auditCuentasOrfanas()]);
+    const desbalanceados = _auditAsientosDesbalanceados(mesActual);
+    const sinCosto = _auditProductosSinCosto();
+    const stockNeg = _auditStockNegativo();
+    const cierresRaros = _auditCierresConDiferenciaGrande();
+
+    const items = [
+      { titulo: 'Cuentas mapeadas sin cuenta real en el plan', icono: '🔴', datos: orfanas,
+        render: o => `${esc(o.tipo_mapeo)} → "${esc(o.clave)}" apunta a la cuenta ${esc(o.cuenta_codigo)}, que no existe o está inactiva.` },
+      { titulo: `Asientos desbalanceados (${mesActual})`, icono: '🔴', datos: desbalanceados,
+        render: a => `${esc(a.tipo||'')} · ${esc(a.fecha||'')} · ${esc(a.comprobante||'')} — Debe $${(a.debe||0).toLocaleString('es-AR')} / Haber $${(a.haber||0).toLocaleString('es-AR')}` },
+      { titulo: 'Productos con stock pero sin costo cargado', icono: '🟡', datos: sinCosto,
+        render: p => `${esc(p.nombre)} — stock ${p.stock}` },
+      { titulo: 'Productos con stock negativo', icono: '🔴', datos: stockNeg,
+        render: p => `${esc(p.nombre)} — stock ${p.stock}` },
+      { titulo: 'Cierres de caja con diferencia mayor a $50.000', icono: '🟡', datos: cierresRaros,
+        render: c => `${esc(c.fecha||'')} — diferencia $${Math.round(c.diferencia||0).toLocaleString('es-AR')}` },
+    ];
+
+    const totalProblemas = items.reduce((s,i)=>s+i.datos.length, 0);
+    let html = `<div style="text-align:center;padding:12px;font-size:13px;font-weight:700;color:${totalProblemas?'#c94040':'#1a5c38'}">${totalProblemas ? '⚠️ '+totalProblemas+' cosa(s) para revisar' : '✅ Todo en orden'}</div>`;
+    items.forEach(item => {
+      if (!item.datos.length) return;
+      html += `<div style="background:#fff8f0;border:1.5px solid #f0d0a0;border-radius:10px;padding:12px;margin-bottom:10px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:6px">${item.icono} ${esc(item.titulo)} (${item.datos.length})</div>
+        ${item.datos.slice(0,10).map(d=>`<div style="font-size:11px;color:#555;padding:3px 0;border-top:1px solid #f0e0d0">${item.render(d)}</div>`).join('')}
+        ${item.datos.length>10 ? `<div style="font-size:10px;color:#999;margin-top:4px">y ${item.datos.length-10} más...</div>` : ''}
+      </div>`;
+    });
+    el.innerHTML = html;
+  } catch(e) {
+    console.error('ejecutarAuditoriaSalud', e);
+    el.innerHTML = '<div style="font-size:12px;color:#c94040;padding:12px">Error al verificar: '+esc(e.message||'')+'</div>';
   }
 }
 
