@@ -6670,6 +6670,67 @@ function _comprasDelMismoRemito(compraBase) {
   return [compraBase];
 }
 
+// Deshacer una anulación errónea. Directo mostrando este botón: solo
+// aparece en compras que ya están anuladas (ver render de la lista), así
+// que no compite con "anular" en la UI. Reusa mover_stock_con_kardex con
+// cantidad positiva — el mismo mecanismo seguro que ya usa el resto del
+// sistema, no una inserción manual al Kardex.
+function abrirDeshacerAnulacion(compraId) {
+  if (!_esRolAdmin()) {
+    showToast('Solo dueños o administrativos pueden deshacer una anulación', 'err');
+    return;
+  }
+  const co = compras.find(c => c.id === compraId);
+  if (!co) { showToast('Compra no encontrada', 'err'); return; }
+  if (!co.anulada) { showToast('Esta compra no está anulada', 'err'); return; }
+
+  const prod = prods.find(p => p.id === co.producto_id);
+  const stockActual = prod ? (prod.stock||0) : 0;
+
+  if (!confirm(
+    '¿Deshacer la anulación de esta compra?\n\n' +
+    'Producto: ' + (co.producto_nombre||'') + '\n' +
+    'Cantidad a restaurar: +' + co.cantidad + '\n' +
+    'Stock actual: ' + stockActual + ' → pasará a ' + (stockActual + co.cantidad) + '\n\n' +
+    'Esto reactiva la compra (vuelve a contar en la contabilidad) y le devuelve el stock.'
+  )) return;
+
+  _confirmarDeshacerAnulacion(co);
+}
+
+async function _confirmarDeshacerAnulacion(co) {
+  try {
+    const prodRef = prods.find(p => p.id === co.producto_id);
+    const { data: kResult, error: kErr } = await SB.rpc('mover_stock_con_kardex', {
+      p_tienda_id:   STORE.id,
+      p_producto_id: co.producto_id,
+      p_cantidad:    co.cantidad, // positivo = entrada, revierte la salida de la anulación
+      p_tipo_mov:    'AJUSTE_ENTRADA',
+      p_doc_tipo:    'REVERSION_ANULACION',
+      p_doc_id:      co.id,
+      p_doc_nro:     'REV-' + (co.numero_factura || String(co.id).slice(0, 8)),
+      p_costo_unit:  co.precio_unitario || 0,
+      p_precio_unit: (prodRef && prodRef.precio) || 0,
+      p_observacion: 'Reversión de anulación — la compra era válida'
+    });
+    if (kErr || (kResult && kResult.exito === false)) {
+      throw new Error((kErr && kErr.message) || (kResult && kResult.error) || 'Error al mover el stock');
+    }
+
+    const { error: updErr } = await SB.from('compras').update({ anulada: false }).eq('id', co.id).eq('tienda_id', STORE.id);
+    if (updErr) throw updErr;
+
+    co.anulada = false;
+    if (prodRef) prodRef.stock = (prodRef.stock||0) + co.cantidad;
+
+    showToast('✅ Anulación revertida — stock restaurado', 'ok');
+    if (typeof renderCompras === 'function') renderCompras();
+  } catch(e) {
+    console.error('_confirmarDeshacerAnulacion', e);
+    showToast('Error al deshacer la anulación: ' + (e.message||''), 'err');
+  }
+}
+
 function abrirAnularCompra(compraId) {
   if (!_esRolAdmin()) {
     showToast('Solo dueños o administrativos pueden anular compras', 'err');
@@ -15478,10 +15539,12 @@ function renderCompraList(){
       ? `<button onclick="abrirEditarCompra('${co.id}');event.stopPropagation()" style="font-size:10px;background:#eef6ff;color:#1565c0;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #cfe2f7;cursor:pointer" title="Editar compra">✏️ Editar</button>`
       : '';
 
-    // Boton anular: para remito anula todo el grupo; para compra individual, esa sola
-    const btnAnular = _esRolAdmin()
-      ? `<button onclick="abrirAnularCompra('${co.id}');event.stopPropagation()" style="font-size:10px;background:#fef2f2;color:#c94040;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #fecaca;cursor:pointer" title="${g.esRemito?'Anular remito':'Anular compra'}">🗑️</button>`
-      : '';
+    // Boton anular / deshacer: para remito anula todo el grupo; para compra
+    // individual, esa sola. Si ya está anulada, ofrece deshacerla en vez de
+    // un botón que solo tira error al tocarlo.
+    const btnAnular = !_esRolAdmin() ? '' : (co.anulada
+      ? `<button onclick="abrirDeshacerAnulacion('${co.id}');event.stopPropagation()" style="font-size:10px;background:#eafaf0;color:#1a5c38;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #b8e6c9;cursor:pointer" title="Deshacer anulación">↩️ Deshacer</button>`
+      : `<button onclick="abrirAnularCompra('${co.id}');event.stopPropagation()" style="font-size:10px;background:#fef2f2;color:#c94040;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #fecaca;cursor:pointer" title="${g.esRemito?'Anular remito':'Anular compra'}">🗑️</button>`);
 
     return `<div class="ccard${g.esRemito?' expandible':''}" ${g.esRemito?`onclick="this.classList.toggle('open')"`:''} style="border-left:3px solid ${esTraspaso?'#6d28d9':(esSinFactura?'#64748b':(tieneFac?'#16a34a':'#dc2626'))}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -16230,6 +16293,21 @@ async function guardarGasto() {
   if (esCC && selectedGasCat === 'Proveedores') {
     showToast('⚠️ Para facturas de mercadería con proveedores, usá Compras → Cargar Factura (con Cta. Cte.)', 'err');
     return;
+  }
+  // Aviso preventivo: si la categoría no tiene una cuenta contable real
+  // asociada, el gasto se va a guardar bien en Gastos pero desaparece del
+  // Mayor y del Balance en silencio (mismo problema que encontramos con
+  // 22 categorías sin cuenta creada). Se avisa acá, en el momento de
+  // cargar, en vez de que aparezca meses después como un descuadre.
+  const ctaGasto = (typeof GASTO_CUENTA !== 'undefined' && GASTO_CUENTA[selectedGasCat]) || '51117003';
+  const cuentaExiste = (PLAN_CUENTAS||[]).some(c => c.codigo === ctaGasto);
+  if (!cuentaExiste) {
+    const seguir = confirm(
+      '⚠️ La categoría "' + selectedGasCat + '" no tiene una cuenta contable válida cargada en el plan de cuentas.\n\n' +
+      'Si guardás este gasto igual, NO va a aparecer en el Mayor ni en el Balance hasta que se corrija el mapeo contable.\n\n' +
+      '¿Guardar de todos modos?'
+    );
+    if (!seguir) return;
   }
   try {
     const g = await sbInsert('gastos', {
