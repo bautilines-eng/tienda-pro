@@ -10162,11 +10162,21 @@ async function cargarAlertas() {
 // caja con una diferencia demasiado grande para ser normal. Es de solo
 // lectura — no modifica nada, solo avisa.
 // ══════════════════════════════════
-async function _auditCuentasOrfanas(){
+// Claves de tipo_mapeo='especial' que el código realmente usa (verificado
+// contra todas las apariciones de CUENTAS_ESPECIALES[...] en el código,
+// no de memoria). Si a una tienda nueva le falta alguna de estas filas,
+// el sistema cae en el default hardcodeado del código — que puede no
+// existir en el plan de cuentas de ESA tienda en particular.
+const _CLAVES_ESPECIALES_REQUERIDAS = ['ventas','iva_debito','iva_credito','mercaderias','proveedores','acreedores_varios','fondos_a_rendir','perc_iva_compras','ventas_sin_comprobante'];
+
+async function _auditMapeoContable(){
   const { data: mapeos, error } = await SB.from('mapeo_contable').select('tipo_mapeo, clave, cuenta_codigo').eq('tienda_id', STORE.id);
   if (error) throw error;
   const codigosReales = new Set((PLAN_CUENTAS||[]).map(c=>c.codigo));
-  return (mapeos||[]).filter(m => !codigosReales.has(m.cuenta_codigo));
+  const orfanas = (mapeos||[]).filter(m => !codigosReales.has(m.cuenta_codigo));
+  const clavesCargadas = new Set((mapeos||[]).filter(m => m.tipo_mapeo === 'especial').map(m => m.clave));
+  const faltantes = _CLAVES_ESPECIALES_REQUERIDAS.filter(clave => !clavesCargadas.has(clave));
+  return { orfanas, faltantes };
 }
 
 function _auditAsientosDesbalanceados(mesAno){
@@ -10200,13 +10210,15 @@ async function ejecutarAuditoriaSalud(){
   el.innerHTML = '<div style="text-align:center;padding:20px;font-size:12px;color:#aaa">Verificando...</div>';
   try {
     const mesActual = fechaHoyLocal().slice(0,7);
-    const [orfanas] = await Promise.all([_auditCuentasOrfanas()]);
+    const { orfanas, faltantes } = await _auditMapeoContable();
     const desbalanceados = _auditAsientosDesbalanceados(mesActual);
     const sinCosto = _auditProductosSinCosto();
     const stockNeg = _auditStockNegativo();
     const cierresRaros = _auditCierresConDiferenciaGrande();
 
     const items = [
+      { titulo: 'Claves contables obligatorias sin cargar', icono: '🔴', datos: faltantes,
+        render: clave => `Falta la fila 'especial' → "${esc(clave)}" en mapeo_contable — el sistema está usando un valor por defecto que puede no existir en el plan de cuentas de esta tienda.` },
       { titulo: 'Cuentas mapeadas sin cuenta real en el plan', icono: '🔴', datos: orfanas,
         render: o => `${esc(o.tipo_mapeo)} → "${esc(o.clave)}" apunta a la cuenta ${esc(o.cuenta_codigo)}, que no existe o está inactiva.` },
       { titulo: `Asientos desbalanceados (${mesActual})`, icono: '🔴', datos: desbalanceados,
