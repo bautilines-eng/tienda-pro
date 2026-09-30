@@ -286,6 +286,7 @@
           .from('productos_catalogo_publico_v')
           .select('*')
           .eq('tienda_id', tiendaId)
+          .eq('disponible', true) // solo lo que tiene stock
           .order('categoria', { ascending: true })
           .order('nombre', { ascending: true })
           .order('id', { ascending: true }) // desempate estable entre páginas
@@ -351,26 +352,18 @@
 
     el.innerHTML = filtrados.map(p => {
       const enCarrito = carrito[p.id]?.cantidad || 0;
-      const disponible = !!p.disponible;
-      let derecha;
-      if (!disponible) {
-        derecha = `<button class="btn-agregar" disabled>Sin stock</button>`;
-      } else if (enCarrito > 0) {
-        derecha = `
-          <div class="stepper">
+      const derecha = enCarrito > 0
+        ? `<div class="stepper">
             <button onclick="cambiarCantidad('${p.id}', -1)">−</button>
             <div class="cant">${enCarrito}</div>
             <button onclick="cambiarCantidad('${p.id}', 1)">+</button>
-          </div>`;
-      } else {
-        derecha = `<button class="btn-agregar" onclick="cambiarCantidad('${p.id}', 1)">Agregar</button>`;
-      }
+          </div>`
+        : `<button class="btn-agregar" onclick="cambiarCantidad('${p.id}', 1)">Agregar</button>`;
       return `
         <div class="fila">
           <div class="fila-info">
             <div class="fila-nombre">${esc(p.nombre)}</div>
             <div class="fila-cat">${esc(p.categoria||'')}</div>
-            <div class="fila-badge${disponible?'':' agotado'}">${disponible?'Disponible':'Sin stock'}</div>
           </div>
           <div class="fila-derecha">
             <div class="fila-precio">${formatoMoneda(p.precio)}</div>
