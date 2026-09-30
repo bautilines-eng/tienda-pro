@@ -2901,6 +2901,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <button class="btn btn-rust btn-full" onclick="openModal('ov-nueva-tienda')">+ Crear nueva tienda</button>
     </div>
     <div class="slabel"><span class="slabel-t">Tiendas activas</span><span class="slabel-b" id="admin-count">0</span></div>
+    <div style="padding:0 20px 10px" id="admin-salud-resumen"></div>
     <div style="padding:0 20px;display:flex;flex-direction:column;gap:8px" id="admin-tiendas-list">
       <div class="empty"><div class="spin"></div>Cargando tiendas...</div>
     </div>
@@ -17881,6 +17882,38 @@ async function checkAdmin(){
   }
 }
 
+// Chequeo de salud LIVIANO para el panel multi-tienda del Admin — a
+// propósito NO incluye asientos desbalanceados (eso requeriría cargar
+// toda la contabilidad de CADA tienda en memoria, inviable para ver 5+
+// tiendas de un vistazo). Para ese chequeo completo, entrar a la
+// Auditoría de esa tienda puntual. Reusa _CLAVES_ESPECIALES_REQUERIDAS
+// ya definida para el Panel de Salud de una sola tienda.
+async function _auditTiendaRapido(tiendaId){
+  const [mapeoRes, planRes, prodsRes, cierresRes] = await Promise.all([
+    SB.from('mapeo_contable').select('tipo_mapeo, clave, cuenta_codigo').eq('tienda_id', tiendaId),
+    SB.from('plan_cuentas').select('codigo').eq('tienda_id', tiendaId).eq('activo', true),
+    SB.from('productos').select('nombre, stock, costo, es_combo, is_deleted').eq('tienda_id', tiendaId),
+    SB.from('cierres_caja').select('fecha, diferencia').eq('tienda_id', tiendaId).order('fecha', {ascending:false}).limit(30),
+  ]);
+  const mapeos = mapeoRes.data || [];
+  const codigosReales = new Set((planRes.data||[]).map(c=>c.codigo));
+  const orfanas = mapeos.filter(m => !codigosReales.has(m.cuenta_codigo));
+  const clavesCargadas = new Set(mapeos.filter(m=>m.tipo_mapeo==='especial').map(m=>m.clave));
+  const faltantes = _CLAVES_ESPECIALES_REQUERIDAS.filter(c => !clavesCargadas.has(c));
+
+  const prodsActivos = (prodsRes.data||[]).filter(p => !p.is_deleted);
+  const sinCosto = prodsActivos.filter(p => !p.es_combo && (p.stock||0)>0 && !(p.costo>0));
+  const stockNeg = prodsActivos.filter(p => (p.stock||0)<0);
+
+  const cierresRaros = (cierresRes.data||[]).filter(c => Math.abs(c.diferencia||0) > 50000);
+
+  return {
+    orfanas: orfanas.length, faltantes: faltantes.length,
+    sinCosto: sinCosto.length, stockNeg: stockNeg.length, cierresRaros: cierresRaros.length,
+    total: orfanas.length + faltantes.length + sinCosto.length + stockNeg.length + cierresRaros.length,
+  };
+}
+
 async function loadAdminTiendas(){
   try{
     const {data,error} = await SB.from('tiendas').select('*').order('created_at',{ascending:false}).limit(100);
@@ -17895,6 +17928,7 @@ async function loadAdminTiendas(){
           <div>
             <div style="font-size:13px;font-weight:600">${esc(t.name||'Sin nombre')}</div>
             <div style="font-size:11px;color:var(--muted)">${esc(t.email||'')}</div>
+            <div id="salud-badge-${t.id}" style="font-size:11px;margin-top:4px;color:#aaa">🩺 Verificando...</div>
           </div>
           <div style="font-size:10px;font-family:DM Mono,monospace;color:var(--muted)">${new Date(t.created_at).toLocaleDateString('es-AR')}</div>
         </div>
@@ -17903,6 +17937,37 @@ async function loadAdminTiendas(){
           <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="desactivarTienda('${t.id}','${t.name}')">🔴 Desactivar</button>
         </div>
       </div>`).join('');
+
+    // Chequeo de salud por tienda, en paralelo — no bloquea el render de
+    // la lista (ya está en pantalla), solo actualiza cada badge cuando
+    // termina y arma el resumen agregado de arriba.
+    const resumenEl = document.getElementById('admin-salud-resumen');
+    let tiendasConProblemas = 0, chequeosHechos = 0;
+    list.forEach(t => {
+      _auditTiendaRapido(t.id).then(r => {
+        const badge = document.getElementById('salud-badge-'+t.id);
+        chequeosHechos++;
+        if (r.total > 0) tiendasConProblemas++;
+        if (badge) {
+          badge.style.color = r.total ? '#c94040' : '#1a5c38';
+          badge.textContent = r.total
+            ? `🔴 ${r.total} cosa(s) para revisar`
+            : '✅ Todo en orden';
+          badge.title = r.total
+            ? `Cuentas faltantes: ${r.faltantes} · Cuentas huérfanas: ${r.orfanas} · Sin costo: ${r.sinCosto} · Stock negativo: ${r.stockNeg} · Cierres raros: ${r.cierresRaros}`
+            : '';
+        }
+        if (resumenEl && chequeosHechos === list.length) {
+          resumenEl.innerHTML = tiendasConProblemas
+            ? `<div style="background:#fff8f0;border:1.5px solid #f0d0a0;border-radius:10px;padding:10px 12px;font-size:12px;font-weight:600;color:#c94040">⚠️ ${tiendasConProblemas} de ${list.length} tienda(s) con algo para revisar</div>`
+            : `<div style="background:#eaf5ee;border:1.5px solid #b8e6c9;border-radius:10px;padding:10px 12px;font-size:12px;font-weight:600;color:#1a5c38">✅ Las ${list.length} tiendas están en orden</div>`;
+        }
+      }).catch(e => {
+        console.error('_auditTiendaRapido', t.id, e);
+        const badge = document.getElementById('salud-badge-'+t.id);
+        if (badge) { badge.textContent = '⚠️ No se pudo verificar'; badge.style.color = '#c97f1a'; }
+      });
+    });
   }catch(e){ console.error('loadAdminTiendas',e); }
 }
 
