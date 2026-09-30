@@ -6725,7 +6725,7 @@ async function _confirmarDeshacerAnulacion(co) {
     if (prodRef) prodRef.stock = (prodRef.stock||0) + co.cantidad;
 
     showToast('✅ Anulación revertida — stock restaurado', 'ok');
-    if (typeof renderCompras === 'function') renderCompras();
+    if (typeof renderCompraList === 'function') renderCompraList();
   } catch(e) {
     console.error('_confirmarDeshacerAnulacion', e);
     showToast('Error al deshacer la anulación: ' + (e.message||''), 'err');
@@ -8730,6 +8730,141 @@ function actualizarSeleccionLote(provKey){
 // ══════════════════════════════════════════
 let ordenItems = [];
 
+// ══════════════════════════════════
+// REPOSICIÓN INTELIGENTE
+// ROP (Punto de Reorden) + Stock de Seguridad con nivel de servicio 95%,
+// clasificación ABC por contribución real a la facturación, y ciclo de
+// reposición estimado de compras históricas reales (no inventado).
+//
+// Aclaración honesta: lo que se mide de `compras` es el CICLO real entre
+// compras consecutivas del mismo producto — no el lead time real del
+// proveedor (tiempo entre pedir y recibir), porque Tienda Pro no registra
+// fecha de pedido por separado de fecha de recepción. Se usa como
+// aproximación práctica de "cuánto tenés que cubrir hasta la próxima
+// reposición", válido para un negocio que compra en ciclos, no on-demand.
+// ══════════════════════════════════
+function _construirDemandaDiariaTodos(dias){
+  const hoy = new Date();
+  const fechasEnVentana = [];
+  for (let i = 0; i < dias; i++) fechasEnVentana.push(fechaHoyLocal(new Date(hoy - i*86400000)));
+  const desde = fechasEnVentana[fechasEnVentana.length - 1];
+  const setFechas = new Set(fechasEnVentana);
+
+  const porProducto = {};
+  (sales||[]).filter(s => s.fecha >= desde && setFechas.has(s.fecha)).forEach(s => {
+    const items = typeof s.items === 'string' ? JSON.parse(s.items||'[]') : (s.items||[]);
+    const itemsReales = items.some(it=>it.es_combo) ? _descomponerItemsCombo(items) : items;
+    itemsReales.forEach(item => {
+      const pid = item.producto_id;
+      if (!pid) return;
+      if (!porProducto[pid]) porProducto[pid] = {};
+      porProducto[pid][s.fecha] = (porProducto[pid][s.fecha]||0) + (item.cantidad||0);
+    });
+  });
+
+  const resultado = {};
+  Object.keys(porProducto).forEach(pid => {
+    const valores = fechasEnVentana.map(f => porProducto[pid][f] || 0);
+    const promedio = valores.reduce((a,b)=>a+b, 0) / valores.length;
+    const varianza = valores.reduce((a,b)=>a+Math.pow(b-promedio, 2), 0) / valores.length;
+    resultado[pid] = { promedio, desviacion: Math.sqrt(varianza) };
+  });
+  return resultado;
+}
+
+function _cicloReposicionEstimado(productoId){
+  const CICLO_DEFAULT = 7;
+  const fechas = (compras||[])
+    .filter(c => c.producto_id === productoId && !c.anulada)
+    .map(c => c.fecha)
+    .sort();
+  if (fechas.length < 2) return { dias: CICLO_DEFAULT, estimado: false };
+  let sumaDiffs = 0, count = 0;
+  for (let i = 1; i < fechas.length; i++) {
+    const diffDias = (new Date(fechas[i]) - new Date(fechas[i-1])) / 86400000;
+    if (diffDias > 0 && diffDias < 90) { sumaDiffs += diffDias; count++; }
+  }
+  return count ? { dias: Math.max(1, Math.round(sumaDiffs/count)), estimado: true } : { dias: CICLO_DEFAULT, estimado: false };
+}
+
+function calcularReposicionSugerida(proveedorId){
+  const VENTANA_DIAS = 60;
+  const Z_SERVICIO = 1.65; // 95% de nivel de servicio
+
+  const demandaPorProducto = _construirDemandaDiariaTodos(VENTANA_DIAS);
+  const todosActivos = (prods||[]).filter(p => !p.is_deleted && !p.es_combo);
+
+  // Clasificación ABC sobre TODO el negocio (no solo el proveedor
+  // filtrado), así la prioridad refleja la importancia real del producto.
+  const conValor = todosActivos.map(p => {
+    const d = demandaPorProducto[p.id] || { promedio: 0, desviacion: 0 };
+    return { id: p.id, valor: d.promedio * VENTANA_DIAS * (p.precio||0) };
+  }).sort((a,b) => b.valor - a.valor);
+  const totalValor = conValor.reduce((s,x)=>s+x.valor, 0);
+  let acumulado = 0;
+  const clasificacionABC = {};
+  conValor.forEach(x => {
+    acumulado += x.valor;
+    const pct = totalValor > 0 ? acumulado/totalValor*100 : 100;
+    clasificacionABC[x.id] = pct <= 80 ? 'A' : (pct <= 95 ? 'B' : 'C');
+  });
+
+  const candidatos = todosActivos.filter(p => !proveedorId || p.proveedor_id === proveedorId);
+
+  const resultados = candidatos.map(p => {
+    const d = demandaPorProducto[p.id] || { promedio: 0, desviacion: 0 };
+    const ciclo = _cicloReposicionEstimado(p.id);
+    const stockSeguridad = Z_SERVICIO * d.desviacion * Math.sqrt(ciclo.dias);
+    const puntoReorden = d.promedio * ciclo.dias + stockSeguridad;
+    const necesitaReponer = d.promedio > 0 && (p.stock||0) <= puntoReorden;
+    const upb = p.unidades_por_bulto || 1;
+    const objetivoStock = d.promedio * (ciclo.dias * 2) + stockSeguridad; // colchón de 2 ciclos
+    const cantidadCruda = Math.max(0, objetivoStock - (p.stock||0));
+    const cantidadSugerida = Math.ceil(cantidadCruda / upb) * upb;
+    return {
+      id: p.id, nombre: p.nombre, proveedor_id: p.proveedor_id,
+      stockActual: p.stock||0, demandaDiaria: d.promedio, desviacion: d.desviacion,
+      cicloDias: ciclo.dias, cicloEstimado: ciclo.estimado,
+      stockSeguridad, puntoReorden, necesitaReponer,
+      cantidadSugerida, unidadesPorBulto: upb,
+      costo: p.costo||0, iva_alicuota: p.iva_alicuota,
+      clasificacionABC: clasificacionABC[p.id] || 'C',
+    };
+  }).filter(r => r.necesitaReponer && r.cantidadSugerida > 0);
+
+  const ordenABC = { A:0, B:1, C:2 };
+  resultados.sort((a,b) => {
+    if (ordenABC[a.clasificacionABC] !== ordenABC[b.clasificacionABC]) return ordenABC[a.clasificacionABC]-ordenABC[b.clasificacionABC];
+    const coberturaA = a.demandaDiaria>0 ? a.stockActual/a.demandaDiaria : 999;
+    const coberturaB = b.demandaDiaria>0 ? b.stockActual/b.demandaDiaria : 999;
+    return coberturaA - coberturaB;
+  });
+  return resultados;
+}
+
+function cargarSugeridosOrden(){
+  const nombreProv = (document.getElementById('orden-prov')?.value || '').trim().toLowerCase();
+  if (!nombreProv) { showToast('Elegí un proveedor primero', 'err'); return; }
+  const prov = (proveedores||[]).find(p => (p.razon_social||p.nombre||'').trim().toLowerCase() === nombreProv);
+  if (!prov) { showToast('No encontré ese proveedor en tu lista de proveedores', 'err'); return; }
+
+  const sugeridos = calcularReposicionSugerida(prov.id);
+  if (!sugeridos.length) { showToast('No hay productos de este proveedor que necesiten reposición ahora', 'ok'); return; }
+
+  let agregados = 0;
+  sugeridos.forEach(r => {
+    if (ordenItems.find(i => i.id === r.id)) return; // ya está en la orden, no duplicar
+    ordenItems.push({
+      id: r.id, nombre: r.nombre, cantidad: r.cantidadSugerida,
+      precio_unitario: r.costo || 0,
+      iva_alicuota: (r.iva_alicuota == null ? 21 : +r.iva_alicuota),
+    });
+    agregados++;
+  });
+  renderOrdenItemsList();
+  showToast(`✅ ${agregados} producto(s) sugerido(s) agregado(s) — revisá cantidades antes de generar el PDF`, 'ok');
+}
+
 function renderOrdenCompra() {
   const el = document.getElementById('co-orden-panel');
   if (!el) return;
@@ -8744,6 +8879,9 @@ function renderOrdenCompra() {
         <datalist id="orden-prov-list">
           ${[...new Set(compras.map(c=>c.proveedor).filter(Boolean))].map(p=>`<option value="${esc(p)}">`).join('')}
         </datalist>
+        <button onclick="cargarSugeridosOrden()" style="width:100%;margin-top:8px;padding:10px;border-radius:9px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:12px;font-weight:700;cursor:pointer">
+          🔮 Cargar sugeridos de este proveedor
+        </button>
       </div>
 
       <div class="fgroup" style="margin-bottom:12px">
