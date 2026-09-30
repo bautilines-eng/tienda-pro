@@ -274,15 +274,28 @@
       return;
     }
     try {
-      const { data, error } = await SB
-        .from('productos_catalogo_publico_v')
-        .select('*')
-        .eq('tienda_id', tiendaId)
-        .order('categoria', { ascending: true })
-        .order('nombre', { ascending: true });
+      // Paginado con .range() en loop — la API de Supabase corta en 1000
+      // filas por página por default, y una tienda puede tener miles de
+      // productos (TODO PYMES tiene ~4800). Sin esto, todo lo que cae
+      // después de la fila 1000 en el orden desaparece en silencio.
+      const PAGE = 1000;
+      let desde = 0;
+      productos = [];
+      while (true) {
+        const { data, error } = await SB
+          .from('productos_catalogo_publico_v')
+          .select('*')
+          .eq('tienda_id', tiendaId)
+          .order('categoria', { ascending: true })
+          .order('nombre', { ascending: true })
+          .order('id', { ascending: true }) // desempate estable entre páginas
+          .range(desde, desde + PAGE - 1);
 
-      if (error) throw error;
-      productos = data || [];
+        if (error) throw error;
+        productos = productos.concat(data || []);
+        if (!data || data.length < PAGE) break;
+        desde += PAGE;
+      }
 
       if (!productos.length) {
         document.getElementById('lista').innerHTML =
