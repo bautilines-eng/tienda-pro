@@ -2309,12 +2309,21 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 
     <div style="padding:14px 20px 0">
       <div class="card" style="background:var(--pine-l);border-color:var(--pine)">
-        <div style="font-size:13px;font-weight:600;color:var(--pine);margin-bottom:10px">🔗 Catálogo público de tu tienda</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">Compartí este link por WhatsApp para que tus clientes vean tus productos y hagan pedidos directamente.</div>
-        <div id="cfg-link" style="background:var(--cream);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:11px;font-family:DM Mono,monospace;color:var(--ink);word-break:break-all;margin-bottom:12px">Cargando...</div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-pine btn-full" onclick="copiarLink()">📋 Copiar link</button>
-          <button class="btn btn-full" style="background:#25d366;color:#fff" onclick="compartirWhatsApp()">💬 Compartir por WhatsApp</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:600;color:var(--pine)">🔗 Catálogo público de tu tienda</div>
+          <label style="position:relative;display:inline-block;width:42px;height:24px;flex:0 0 auto">
+            <input type="checkbox" id="cfg-catalogo-activo" onchange="toggleCatalogoPublico(this.checked)" style="opacity:0;width:0;height:0">
+            <span id="cfg-catalogo-switch" style="position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:24px;transition:.2s"></span>
+          </label>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">Compartí este link por WhatsApp para que tus clientes vean tus productos y hagan pedidos directamente. Nunca muestra costos ni datos de proveedores — solo nombre, precio y disponibilidad.</div>
+        <div id="cfg-catalogo-apagado" style="font-size:12px;color:var(--muted);font-style:italic">El catálogo está apagado — tus clientes no pueden verlo todavía.</div>
+        <div id="cfg-catalogo-prendido" style="display:none">
+          <div id="cfg-link" style="background:var(--cream);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:11px;font-family:DM Mono,monospace;color:var(--ink);word-break:break-all;margin-bottom:12px">Cargando...</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-pine btn-full" onclick="copiarLink()">📋 Copiar link</button>
+            <button class="btn btn-full" style="background:#25d366;color:#fff" onclick="compartirWhatsApp()">💬 Compartir por WhatsApp</button>
+          </div>
         </div>
       </div>
     </div>
@@ -17064,6 +17073,34 @@ async function loadConfig(){
   document.getElementById('cfg-desc').value = STORE.descripcion || '';
   const link = `https://sistema-tiendapro.com/catalogo.html?tienda=${STORE.id}`;
   document.getElementById('cfg-link').textContent = link;
+  _aplicarEstadoCatalogoUI(!!STORE.catalogo_publico_activo);
+}
+
+function _aplicarEstadoCatalogoUI(activo){
+  document.getElementById('cfg-catalogo-activo').checked = activo;
+  document.getElementById('cfg-catalogo-switch').style.background = activo ? '#1a5c38' : '#ccc';
+  document.getElementById('cfg-catalogo-apagado').style.display = activo ? 'none' : 'block';
+  document.getElementById('cfg-catalogo-prendido').style.display = activo ? 'block' : 'none';
+}
+
+async function toggleCatalogoPublico(activo){
+  if(!STORE?.id){ showToast('Iniciá sesión primero','err'); return; }
+  if (activo && !(STORE.telefono||'').trim()) {
+    showToast('⚠️ Cargá un teléfono de WhatsApp antes de activar el catálogo, si no tus clientes no van a poder mandarte el pedido', 'err');
+    document.getElementById('cfg-catalogo-activo').checked = false;
+    return;
+  }
+  try {
+    const { error } = await SB.from('tiendas').update({ catalogo_publico_activo: activo }).eq('id', STORE.id);
+    if (error) throw error;
+    STORE = { ...STORE, catalogo_publico_activo: activo };
+    _aplicarEstadoCatalogoUI(activo);
+    showToast(activo ? '✅ Catálogo activado — ya podés compartir el link' : 'Catálogo desactivado', 'ok');
+  } catch(e) {
+    console.error('toggleCatalogoPublico', e);
+    showToast('Error al cambiar el estado del catálogo', 'err');
+    document.getElementById('cfg-catalogo-activo').checked = !activo;
+  }
 }
 
 async function guardarConfig(){
