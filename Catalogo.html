@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catálogo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.45.4/supabase.min.js"></script>
+<style>
+  :root{
+    --paper:#f5f0e8;
+    --paper-alt:#fffcf7;
+    --ink:#241d16;
+    --ink-soft:#6b5f52;
+    --rust:#c94f1a;
+    --rust-soft:#f3e2d8;
+    --linea:#e6ddce;
+    --ok:#3d6b4f;
+    --ok-bg:#e7f0e9;
+    --agotado:#a89c8c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Public Sans',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:90px;
+  }
+  .hero{
+    padding:28px 20px 20px;
+    background:var(--paper-alt);
+    border-bottom:1px solid var(--linea);
+  }
+  .hero h1{
+    font-family:'Fraunces',serif;
+    font-weight:600;
+    font-size:clamp(26px,7vw,34px);
+    margin:0 0 4px;
+    letter-spacing:-.01em;
+    line-height:1.1;
+  }
+  .hero p{
+    margin:0;
+    color:var(--ink-soft);
+    font-size:14px;
+  }
+  .buscador{
+    padding:16px 20px 10px;
+    position:sticky;
+    top:0;
+    background:var(--paper);
+    z-index:5;
+  }
+  .buscador input{
+    width:100%;
+    padding:13px 16px;
+    border-radius:10px;
+    border:1.5px solid var(--linea);
+    background:var(--paper-alt);
+    font-size:15px;
+    font-family:inherit;
+    color:var(--ink);
+  }
+  .buscador input:focus{outline:2px solid var(--rust);outline-offset:1px}
+  .categorias{
+    display:flex;
+    gap:8px;
+    overflow-x:auto;
+    padding:12px 20px 4px;
+    scrollbar-width:none;
+  }
+  .categorias::-webkit-scrollbar{display:none}
+  .chip{
+    flex:0 0 auto;
+    padding:7px 14px;
+    border-radius:20px;
+    border:1.5px solid var(--linea);
+    background:var(--paper-alt);
+    color:var(--ink-soft);
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .chip.activo{
+    background:var(--rust);
+    border-color:var(--rust);
+    color:#fff;
+  }
+  .lista{padding:8px 20px 20px}
+  .fila{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+    padding:14px 0;
+    border-bottom:1px solid var(--linea);
+  }
+  .fila-info{min-width:0}
+  .fila-nombre{
+    font-size:15px;
+    font-weight:600;
+    line-height:1.3;
+  }
+  .fila-cat{
+    font-size:12px;
+    color:var(--ink-soft);
+    margin-top:2px;
+  }
+  .fila-badge{
+    display:inline-block;
+    font-size:11px;
+    font-weight:600;
+    padding:2px 8px;
+    border-radius:6px;
+    margin-top:6px;
+    background:var(--ok-bg);
+    color:var(--ok);
+  }
+  .fila-badge.agotado{
+    background:#f0ece4;
+    color:var(--agotado);
+  }
+  .fila-derecha{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:6px;
+    flex:0 0 auto;
+  }
+  .fila-precio{
+    font-size:16px;
+    font-weight:700;
+    font-variant-numeric:tabular-nums;
+  }
+  .stepper{
+    display:flex;
+    align-items:center;
+    gap:0;
+    border:1.5px solid var(--linea);
+    border-radius:9px;
+    overflow:hidden;
+  }
+  .stepper button{
+    width:30px;
+    height:30px;
+    border:none;
+    background:var(--paper-alt);
+    color:var(--rust);
+    font-size:17px;
+    font-weight:700;
+    cursor:pointer;
+    line-height:1;
+  }
+  .stepper button:disabled{color:var(--agotado);cursor:default}
+  .stepper .cant{
+    width:28px;
+    text-align:center;
+    font-size:14px;
+    font-weight:700;
+    font-variant-numeric:tabular-nums;
+  }
+  .btn-agregar{
+    padding:7px 14px;
+    border-radius:9px;
+    border:1.5px solid var(--rust);
+    background:#fff;
+    color:var(--rust);
+    font-size:13px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  .btn-agregar:disabled{
+    border-color:var(--agotado);
+    color:var(--agotado);
+    cursor:default;
+  }
+  .vacio, .cargando, .error-estado{
+    text-align:center;
+    padding:60px 24px;
+    color:var(--ink-soft);
+    font-size:14px;
+    line-height:1.6;
+  }
+  .vacio strong, .error-estado strong{
+    display:block;
+    color:var(--ink);
+    font-family:'Fraunces',serif;
+    font-size:19px;
+    font-weight:600;
+    margin-bottom:6px;
+  }
+  .carrito-barra{
+    position:fixed;
+    left:0;right:0;bottom:0;
+    background:var(--ink);
+    color:#fff;
+    padding:14px 20px;
+    display:none;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    box-shadow:0 -6px 24px rgba(0,0,0,.18);
+  }
+  .carrito-barra.visible{display:flex}
+  .carrito-resumen{font-size:13px;color:#d9d2c6}
+  .carrito-total{font-size:17px;font-weight:700;color:#fff;margin-top:1px}
+  .btn-whatsapp{
+    padding:12px 20px;
+    border-radius:10px;
+    border:none;
+    background:var(--rust);
+    color:#fff;
+    font-size:14px;
+    font-weight:700;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+
+  <div class="hero">
+    <h1 id="tienda-nombre">Catálogo</h1>
+    <p id="tienda-sub">Elegí lo que necesitás y armá tu pedido</p>
+  </div>
+
+  <div class="buscador">
+    <input type="text" id="buscar" placeholder="Buscar producto…" oninput="onBuscar(this.value)">
+  </div>
+  <div class="categorias" id="categorias"></div>
+
+  <div class="lista" id="lista">
+    <div class="cargando">Cargando catálogo…</div>
+  </div>
+
+  <div class="carrito-barra" id="carrito-barra">
+    <div>
+      <div class="carrito-resumen" id="carrito-resumen">0 productos</div>
+      <div class="carrito-total" id="carrito-total">$0</div>
+    </div>
+    <button class="btn-whatsapp" onclick="enviarPedido()">Enviar pedido por WhatsApp</button>
+  </div>
+
+<script>
+  const SUPABASE_URL = 'https://ieibxbrcvlrrnfchyooa.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImllaWJ4YnJjdmxycm5mY2h5b29hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5ODMzMDYsImV4cCI6MjA5NTU1OTMwNn0.DRYagMqkDT3qVcRl4gGp9NgXfAtTOXMwizfB3k5QtPQ';
+  const SB = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const params = new URLSearchParams(window.location.search);
+  const tiendaId = params.get('tienda');
+
+  let productos = [];
+  let categoriaActiva = 'Todas';
+  let busqueda = '';
+  let carrito = {}; // { productoId: {nombre, precio, cantidad} }
+  let tiendaTelefono = '';
+
+  function esc(s){
+    return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function formatoMoneda(n){
+    return '$' + Number(n||0).toLocaleString('es-AR', {minimumFractionDigits:0, maximumFractionDigits:0});
+  }
+
+  async function init(){
+    if (!tiendaId) {
+      document.getElementById('lista').innerHTML =
+        '<div class="error-estado"><strong>Falta el link completo</strong>Pedile a la tienda el enlace completo del catálogo.</div>';
+      return;
+    }
+    try {
+      const { data, error } = await SB
+        .from('productos_catalogo_publico_v')
+        .select('*')
+        .eq('tienda_id', tiendaId)
+        .order('categoria', { ascending: true })
+        .order('nombre', { ascending: true });
+
+      if (error) throw error;
+      productos = data || [];
+
+      if (!productos.length) {
+        document.getElementById('lista').innerHTML =
+          '<div class="vacio"><strong>Este catálogo todavía no tiene productos</strong>Volvé a intentar más tarde.</div>';
+        return;
+      }
+
+      document.getElementById('tienda-nombre').textContent = productos[0].tienda_nombre || 'Catálogo';
+      tiendaTelefono = productos[0].tienda_telefono || '';
+      if (!tiendaTelefono) {
+        document.getElementById('tienda-sub').textContent = 'Consultá disponibilidad y precios';
+      }
+
+      renderCategorias();
+      renderLista();
+    } catch(e) {
+      console.error(e);
+      document.getElementById('lista').innerHTML =
+        '<div class="error-estado"><strong>No pudimos cargar el catálogo</strong>Probá de nuevo en un momento.</div>';
+    }
+  }
+
+  function renderCategorias(){
+    const cats = ['Todas', ...new Set(productos.map(p => p.categoria).filter(Boolean))];
+    document.getElementById('categorias').innerHTML = cats.map(c =>
+      `<button class="chip${c===categoriaActiva?' activo':''}" onclick="setCategoria('${esc(c).replace(/'/g,"\\'")}')">${esc(c)}</button>`
+    ).join('');
+  }
+
+  function setCategoria(c){
+    categoriaActiva = c;
+    renderCategorias();
+    renderLista();
+  }
+
+  function onBuscar(v){
+    busqueda = v.trim().toLowerCase();
+    renderLista();
+  }
+
+  function renderLista(){
+    const filtrados = productos.filter(p => {
+      const pasaCategoria = categoriaActiva === 'Todas' || p.categoria === categoriaActiva;
+      const pasaBusqueda = !busqueda || p.nombre.toLowerCase().includes(busqueda);
+      return pasaCategoria && pasaBusqueda;
+    });
+
+    const el = document.getElementById('lista');
+    if (!filtrados.length) {
+      el.innerHTML = '<div class="vacio"><strong>No encontramos productos</strong>Probá con otra búsqueda o categoría.</div>';
+      return;
+    }
+
+    el.innerHTML = filtrados.map(p => {
+      const enCarrito = carrito[p.id]?.cantidad || 0;
+      const disponible = !!p.disponible;
+      let derecha;
+      if (!disponible) {
+        derecha = `<button class="btn-agregar" disabled>Sin stock</button>`;
+      } else if (enCarrito > 0) {
+        derecha = `
+          <div class="stepper">
+            <button onclick="cambiarCantidad('${p.id}', -1)">−</button>
+            <div class="cant">${enCarrito}</div>
+            <button onclick="cambiarCantidad('${p.id}', 1)">+</button>
+          </div>`;
+      } else {
+        derecha = `<button class="btn-agregar" onclick="cambiarCantidad('${p.id}', 1)">Agregar</button>`;
+      }
+      return `
+        <div class="fila">
+          <div class="fila-info">
+            <div class="fila-nombre">${esc(p.nombre)}</div>
+            <div class="fila-cat">${esc(p.categoria||'')}</div>
+            <div class="fila-badge${disponible?'':' agotado'}">${disponible?'Disponible':'Sin stock'}</div>
+          </div>
+          <div class="fila-derecha">
+            <div class="fila-precio">${formatoMoneda(p.precio)}</div>
+            ${derecha}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function cambiarCantidad(id, delta){
+    const prod = productos.find(p => p.id === id);
+    if (!prod) return;
+    const actual = carrito[id]?.cantidad || 0;
+    const nueva = Math.max(0, actual + delta);
+    if (nueva === 0) delete carrito[id];
+    else carrito[id] = { nombre: prod.nombre, precio: prod.precio, cantidad: nueva };
+    renderLista();
+    renderCarrito();
+  }
+
+  function renderCarrito(){
+    const items = Object.values(carrito);
+    const barra = document.getElementById('carrito-barra');
+    if (!items.length) { barra.classList.remove('visible'); return; }
+    barra.classList.add('visible');
+    const totalItems = items.reduce((s,i)=>s+i.cantidad, 0);
+    const totalMonto = items.reduce((s,i)=>s+i.cantidad*i.precio, 0);
+    document.getElementById('carrito-resumen').textContent =
+      totalItems === 1 ? '1 producto' : `${totalItems} productos`;
+    document.getElementById('carrito-total').textContent = formatoMoneda(totalMonto);
+  }
+
+  function enviarPedido(){
+    const items = Object.values(carrito);
+    if (!items.length) return;
+    const nombreTienda = document.getElementById('tienda-nombre').textContent;
+    let msg = `Hola! Quiero hacer un pedido de ${nombreTienda}:\n\n`;
+    items.forEach(i => {
+      msg += `• ${i.cantidad} x ${i.nombre} — ${formatoMoneda(i.cantidad*i.precio)}\n`;
+    });
+    const total = items.reduce((s,i)=>s+i.cantidad*i.precio, 0);
+    msg += `\nTotal: ${formatoMoneda(total)}`;
+
+    if (tiendaTelefono) {
+      const numeroLimpio = tiendaTelefono.replace(/[^\d]/g, '');
+      window.open(`https://wa.me/${numeroLimpio}?text=${encodeURIComponent(msg)}`, '_blank');
+    } else {
+      // Sin teléfono cargado: copiamos el pedido para que lo pueda pegar donde haga falta
+      navigator.clipboard?.writeText(msg);
+      alert('Esta tienda todavía no cargó un WhatsApp. Copiamos tu pedido — pegalo donde corresponda para enviarlo.');
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>
