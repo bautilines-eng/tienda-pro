@@ -926,6 +926,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div id="vd-content"></div>
       <button onclick="exportarVentasDiariasExcel()" style="width:100%;margin-top:10px;padding:11px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:700;cursor:pointer">📊 Exportar resumen diario a Excel</button>
       <button onclick="exportarVentasDetalleExcel()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:600;cursor:pointer">🧾 Exportar detalle (venta por venta) a Excel</button>
+      <button onclick="exportarCuentaCorrienteClientes()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:600;cursor:pointer">👥 Exportar Cuenta Corriente por Cliente (agrupado)</button>
     </div>
     <div style="height:80px"></div>
   </div>
@@ -4477,6 +4478,52 @@ function exportarVentasDiariasExcel(){
   rows.push([_csvCell('TOTALES'),_csvCell(T.cant),_csvNum(T.neto),_csvNum(T.iva),_csvNum(T.nograv),_csvNum(T.iibb),_csvNum(T.total)].join(SEP));
   _descargarCSV(rows, 'ventas_diarias_'+(desde||'desde')+'_'+(hasta||'hasta')+'.csv');
   showToast('Resumen diario exportado ✅','ok');
+}
+
+// Mismo dato base que exportarVentasDetalleExcel, pero agrupado por cliente
+// con subtotal por cliente y total general — lo que la contadora armaba a
+// mano en Excel cada mes para el seguimiento de Cuenta Corriente. Mismos
+// helpers (_csvCell, _csvNum, _descargarCSV) para que el formato de salida
+// sea consistente con el resto de los exports.
+function exportarCuentaCorrienteClientes(){
+  const desde = document.getElementById('vd-desde')?.value || '';
+  const hasta = document.getElementById('vd-hasta')?.value || '';
+  const vs = _ventasFiltradas(desde, hasta)
+    .filter(v => v.metodo_pago === 'Cuenta Corriente')
+    .sort((a,b) => (a.razon_social||a.cliente||'').localeCompare(b.razon_social||b.cliente||'') || a.fecha.localeCompare(b.fecha));
+
+  if (!vs.length) { showToast('Sin ventas en Cuenta Corriente en ese período', 'err'); return; }
+
+  const grupos = {};
+  const orden = [];
+  vs.forEach(v => {
+    const clave = v.razon_social || v.cliente || '(sin nombre)';
+    if (!grupos[clave]) { grupos[clave] = []; orden.push(clave); }
+    grupos[clave].push(v);
+  });
+
+  const SEP = ';';
+  const rows = [['Comprobante Tipo','Cliente','CUIT','Metodo pago','Neto gravado','IVA','No gravado','Perc IIBB','Total'].join(SEP)];
+  const totalGeneral = { neto:0, iva:0, nograv:0, iibb:0, total:0 };
+
+  orden.forEach(cliente => {
+    const vsCliente = grupos[cliente];
+    const sub = { neto:0, iva:0, nograv:0, iibb:0, total:0 };
+    vsCliente.forEach(v => {
+      sub.neto+=v.neto_gravado||0; sub.iva+=v.importe_iva||0; sub.nograv+=v.no_gravado||0; sub.iibb+=v.perc_iibb||0; sub.total+=v.total||0;
+      rows.push([
+        _csvCell(_labelCbte(v.tipo_cbte)), _csvCell(cliente), _csvCell(v.cuit_comprador||''), _csvCell(v.metodo_pago||''),
+        _csvNum(v.neto_gravado), _csvNum(v.importe_iva), _csvNum(v.no_gravado), _csvNum(v.perc_iibb), _csvNum(v.total)
+      ].join(SEP));
+    });
+    rows.push(['','','','',_csvNum(sub.neto),_csvNum(sub.iva),_csvNum(sub.nograv),_csvNum(sub.iibb),_csvNum(sub.total)].join(SEP));
+    rows.push(''); // separador entre clientes
+    totalGeneral.neto+=sub.neto; totalGeneral.iva+=sub.iva; totalGeneral.nograv+=sub.nograv; totalGeneral.iibb+=sub.iibb; totalGeneral.total+=sub.total;
+  });
+
+  rows.push(['','','','TOTAL GENERAL',_csvNum(totalGeneral.neto),_csvNum(totalGeneral.iva),_csvNum(totalGeneral.nograv),_csvNum(totalGeneral.iibb),_csvNum(totalGeneral.total)].join(SEP));
+  _descargarCSV(rows, 'cuenta_corriente_clientes_'+(desde||'desde')+'_'+(hasta||'hasta')+'.csv');
+  showToast('Cuenta Corriente por cliente exportada ✅', 'ok');
 }
 
 function exportarVentasDetalleExcel(){
