@@ -5191,8 +5191,15 @@ function asientoNotaCreditoProveedor(ncp){
   // que tu propio código ya tenía prevista (ver comentario en asientoVenta)
   // pero nunca conectada a ningún asiento hasta ahora.
   const cuentaPercIva = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES['perc_iva_compras']) || '11403018';
+  // Si la NC es un reintegro en efectivo (factura original Contado, sin
+  // deuda que bajar), el Debe va al medio de pago por el que volvió la
+  // plata — no a Proveedores, que acá no tiene ningún saldo que tocar.
+  const cuentaDebe = ncp.reintegro_efectivo
+    ? ((typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[ncp.medio_reintegro||'Efectivo']) || '11101001')
+    : cuentaProv;
+  const nombreDebe = ncp.reintegro_efectivo ? (ncp.medio_reintegro||'Efectivo') : 'Proveedores';
   const lineas = [
-    { debe:true,  cuenta:cuentaProv, nombre:'Proveedores',        importe:ncp.total, detalle:'NC '+(ncp.nro_nota||'')+' — '+(ncp.proveedor||'Proveedor') },
+    { debe:true,  cuenta:cuentaDebe, nombre:nombreDebe,        importe:ncp.total, detalle:'NC '+(ncp.nro_nota||'')+' — '+(ncp.proveedor||'Proveedor') },
     { debe:false, cuenta:cuentaMerc, nombre:'Mercaderías',        importe:ncp.neto,  detalle:'Devolución mercadería — '+(ncp.nro_nota||'') },
   ];
   if(ncp.iva>0) lineas.push({ debe:false, cuenta:cuentaIVA, nombre:'IVA Crédito Fiscal', importe:ncp.iva, detalle:'Reversión CF — '+(ncp.nro_nota||'') });
@@ -6417,6 +6424,28 @@ function _deudasProveedor(proveedorId, proveedorNombre){
   return [...abiertas, ...pagadas];
 }
 
+// Facturas Contado del proveedor elegido, para cuando la devolución se
+// cobra en efectivo en el momento (no hay deuda que bajar, porque nunca
+// hubo una — se pagó todo de una). Se une por compra_id → compras.proveedor_id
+// (confiable, mismo patrón que _deudasProveedor) y se cruza con el gasto
+// real (gastos.factura_id) para saber en qué medio de pago volvió la plata.
+// Si esa factura fue convertida después a Cuenta Corriente (como pasó con
+// PDEV), el gasto original queda is_deleted=true y por lo tanto no aparece
+// acá — en ese caso ya tiene su deuda y sale en la lista de arriba.
+function _facturasContadoProveedor(proveedorId, proveedorNombre){
+  return (facturas||[]).filter(f=>{
+    if(f.forma_pago!=='Contado' || f.anulada) return false;
+    if(f.compra_id){
+      const co = (compras||[]).find(c=>c.id===f.compra_id);
+      if(co && co.proveedor_id) return co.proveedor_id === proveedorId;
+    }
+    return !!proveedorNombre && (f.proveedor||'').trim().toLowerCase() === proveedorNombre.trim().toLowerCase();
+  }).map(f=>{
+    const gasto = (gastos||[]).find(g=>g.factura_id===f.id && !g.is_deleted);
+    return { ...f, _medioPago: gasto ? gasto.medio_pago : null };
+  }).filter(f=>!!f._medioPago);
+}
+
 function onNCPProveedorChange(){
   const provId = document.getElementById('ncp-prov')?.value;
   const prov = (proveedores||[]).find(p=>p.id===provId);
@@ -6428,11 +6457,20 @@ function onNCPProveedorChange(){
     return;
   }
   const lista = _deudasProveedor(provId, prov?.razon_social);
-  sel.innerHTML = '<option value="">No aplicar contra ninguna factura</option>' +
-    lista.map(d=>{
+  const contado = _facturasContadoProveedor(provId, prov?.razon_social);
+  let html = '<option value="">No aplicar contra ninguna factura</option>';
+  if(lista.length){
+    html += lista.map(d=>{
       const estadoTxt = d.estado==='pagado' ? ' (ya pagada)' : '';
-      return `<option value="${d.id}">${esc(d.descripcion||d.nombre_cliente||'Deuda')}${estadoTxt} — saldo ${_money2(d.monto||0)}</option>`;
+      return `<option value="D:${d.id}">${esc(d.descripcion||d.nombre_cliente||'Deuda')}${estadoTxt} — saldo ${_money2(d.monto||0)}</option>`;
     }).join('');
+  }
+  if(contado.length){
+    html += '<optgroup label="Facturas Contado — reintegro en efectivo">' + contado.map(f=>{
+      return `<option value="FC:${f.id}">Factura ${esc(f.numero||'')} — reintegro en ${esc(f._medioPago)} (factura original ${_money2(f.total||0)})</option>`;
+    }).join('') + '</optgroup>';
+  }
+  sel.innerHTML = html;
   recalcNCPTotales();
 }
 
@@ -6527,12 +6565,18 @@ function _totalesNCP(){
 function recalcNCPTotales(){
   const el = document.getElementById('ncp-totales'); if(!el) return;
   const { neto, iva, percIva, total } = _totalesNCP();
-  const deudaId = document.getElementById('ncp-deuda')?.value;
+  const selValue = document.getElementById('ncp-deuda')?.value || '';
+  const deudaId = selValue.startsWith('D:') ? selValue.slice(2) : null;
   const deuda = deudaId ? (deudas||[]).find(d=>d.id===deudaId) : null;
+  const facturaContadoId = selValue.startsWith('FC:') ? selValue.slice(3) : null;
+  const facturaContado = facturaContadoId ? (facturas||[]).find(f=>f.id===facturaContadoId) : null;
 
   let aplicacionHTML = '';
   if(total>0){
-    if(deuda){
+    if(facturaContado){
+      const gasto = (gastos||[]).find(g=>g.factura_id===facturaContado.id && !g.is_deleted);
+      aplicacionHTML = `<div style="font-size:11px;color:#1a5ec9;margin-top:6px">💵 Reintegro en efectivo — vas a recibir ${_money2(total)} de vuelta en ${esc(gasto?.medio_pago||'Efectivo')}, no se toca ninguna deuda (esta factura se pagó al contado).</div>`;
+    } else if(deuda){
       // Según la contadora: se baja el saldo de la factura por el total de
       // la NC, sin importar si queda negativo — eso es saldo a favor, se
       // descuenta solo del próximo pago a ese proveedor.
@@ -6564,7 +6608,9 @@ async function guardarNCProveedor(){
   const fecha = document.getElementById('ncp-fecha')?.value;
   const facturaRel = document.getElementById('ncp-factura')?.value.trim();
   const motivo = document.getElementById('ncp-motivo')?.value.trim();
-  const deudaId = document.getElementById('ncp-deuda')?.value || null;
+  const selValue = document.getElementById('ncp-deuda')?.value || '';
+  const deudaId = selValue.startsWith('D:') ? selValue.slice(2) : null;
+  const facturaContadoId = selValue.startsWith('FC:') ? selValue.slice(3) : null;
 
   if(!provId){ showToast('Elegí el proveedor','err'); return; }
   if(!fecha){ showToast('Elegí la fecha','err'); return; }
@@ -6575,12 +6621,17 @@ async function guardarNCProveedor(){
   if(total<=0){ showToast('El total tiene que ser mayor a 0 — revisá los costos','err'); return; }
 
   const deuda = deudaId ? (deudas||[]).find(d=>d.id===deudaId) : null;
+  const facturaContado = facturaContadoId ? (facturas||[]).find(f=>f.id===facturaContadoId) : null;
+  const gastoContado = facturaContado ? (gastos||[]).find(g=>g.factura_id===facturaContado.id && !g.is_deleted) : null;
   // Según la contadora: si hay una factura/deuda elegida, la NC se aplica
   // SIEMPRE completa contra su saldo — aunque quede negativo. Ese negativo
   // es saldo a favor con el proveedor, se descuenta solo en el próximo pago.
+  // Si en cambio es una factura Contado, no hay deuda que tocar — es un
+  // reintegro directo en efectivo/el medio que corresponda.
   // Solo queda "pendiente de contabilizar" si no se eligió ninguna factura
   // (ahí sí no hay dato para saber contra qué cuenta va).
-  const cubreTotal = !!deuda;
+  const esReintegroEfectivo = !!facturaContado;
+  const cubreTotal = !!deuda || esReintegroEfectivo;
   const montoAplicado = cubreTotal ? total : 0;
   const saldoSinAplicar = total - montoAplicado;
   const contabilizada = cubreTotal;
@@ -6637,9 +6688,12 @@ async function guardarNCProveedor(){
       fecha, motivo: motivo || null,
       items: lineas.map(l=>({ producto_id:l.prodId, producto_nombre:l.nombre, cantidad:l.cantidad, costo_unitario:l.costoUnit, alicuota:l.alicuota })),
       neto: Math.round(neto*100)/100, iva: Math.round(iva*100)/100, perc_iva: Math.round(percIva*100)/100, total: Math.round(total*100)/100,
-      deuda_id: cubreTotal ? deudaId : null,
+      deuda_id: deuda ? deudaId : null,
       monto_aplicado_deuda: montoAplicado, saldo_sin_aplicar: saldoSinAplicar,
       contabilizada,
+      reintegro_efectivo: esReintegroEfectivo,
+      medio_reintegro: esReintegroEfectivo ? (gastoContado?.medio_pago || 'Efectivo') : null,
+      factura_proveedor_id: esReintegroEfectivo ? facturaContado.id : null,
       created_by: USER?.email || null,
     });
     notasCreditoProveedor.unshift(ncp);
@@ -6652,7 +6706,9 @@ async function guardarNCProveedor(){
     if(typeof checkAlertBar==='function') checkAlertBar();
     renderNCPList();
 
-    if(contabilizada){
+    if(esReintegroEfectivo){
+      showToast('✅ NC registrada: stock revertido y reintegro de '+_money2(total)+' en '+(gastoContado?.medio_pago||'Efectivo')+' contabilizado', 'ok');
+    } else if(contabilizada){
       const saldoFinal = deuda ? deuda.monto : 0;
       showToast(saldoFinal < 0
         ? '✅ NC registrada y contabilizada — te quedó un saldo a favor de '+_money2(Math.abs(saldoFinal))+' con ese proveedor'
