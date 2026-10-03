@@ -6641,6 +6641,22 @@ async function guardarNCProveedor(){
   if(btn){ btn.disabled=true; btn.textContent='Procesando...'; }
 
   try{
+    // 0. Chequeo de idempotencia: si esta NC ya revirtió el stock antes (por
+    // ejemplo, si el paso final de guardado falló por algún error y se
+    // reintentó desde cero), NO volver a revertirlo — eso fue exactamente
+    // lo que pasó con la NC de QUILPE del 02/10: el insert final falló por
+    // una columna que todavía no existía, el reintento volvió a correr
+    // toda la función desde el principio, y el stock se revirtió dos veces.
+    const docNro = nro || ('NCP-'+fecha);
+    const { data: yaRevertido, error: errCheck } = await SB.from('kardex')
+      .select('id').eq('tienda_id', STORE.id)
+      .eq('documento_nro', docNro).eq('tipo_movimiento', 'DEVOLUCION_PROVEEDOR')
+      .limit(1);
+    if(errCheck) throw errCheck;
+    if(yaRevertido && yaRevertido.length){
+      throw new Error('Ya existe un movimiento de stock para "'+docNro+'" — esta NC probablemente ya se procesó antes y falló al guardar el registro final. Revisá el Kardex de los productos antes de reintentar, para no revertir el stock dos veces.');
+    }
+
     // 1. Revertir stock por kardex, línea por línea — mismo control que la
     // anulación de compras: si esa mercadería ya se vendió, se aborta con
     // un mensaje claro en vez de dejar el stock descuadrado.
