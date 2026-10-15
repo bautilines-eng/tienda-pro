@@ -625,12 +625,13 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div><div class="flabel" id="np-min-lbl">Stock mínimo</div><input class="inp" id="np-min" type="number" placeholder="10"></div>
       <div></div>
     </div>
+    </div>
+    <div id="np-alta-hint" style="display:none;margin-bottom:12px;padding:10px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:12px;color:#9a3412">📦 El stock y el precio de venta se cargan al registrar la <b>compra</b> del proveedor.</div>
+    <!-- Se vende por peso: SIEMPRE visible (con o sin proveedor) -->
     <label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;background:#f0faf4;border:1.5px solid #bfe0cb;border-radius:10px;cursor:pointer;font-size:12px;line-height:1.4;color:#1a5c38">
       <input type="checkbox" id="np-pesable" onchange="onPesableToggle()" style="margin-top:2px;width:15px;height:15px;cursor:pointer">
       <span><b>⚖️ Se vende por peso</b> (fiambres, quesos, granel…)<br><span style="color:#4a7a5a">El precio y el costo son <b>por kilo</b> y el stock se lleva en <b>kilos</b>. En la caja se pesa y se cobra según los gramos.</span></span>
     </label>
-    </div>
-    <div id="np-alta-hint" style="display:none;margin-bottom:12px;padding:10px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:12px;color:#9a3412">📦 El stock y el precio de venta se cargan al registrar la <b>compra</b> del proveedor.</div>
     <!-- Unidades por bulto: característica del producto, SIEMPRE visible (con o sin proveedor) -->
     <div class="frow" style="margin-bottom:10px">
       <div><div class="flabel">Unidades por bulto</div><input class="inp" id="np-bulto" type="number" min="1" placeholder="1" oninput="calcStockDesdeBultos()"></div>
