@@ -447,6 +447,30 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<!-- INFORME DE COBROS QR / TARJETA -->
+<div class="overlay" id="ov-informe-cobros">
+  <div class="modal" style="position:relative;max-height:88vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-informe-cobros')">✕</button>
+    <div class="modal-title">📊 Informe de cobros</div>
+    <div style="font-size:12px;color:var(--muted);margin:-8px 0 14px;line-height:1.5">Descarga un Excel con las transferencias marcadas “QR” y las ventas con tarjeta: resumen por mes, totales y detalle de cada operación.</div>
+    <div class="fbar" style="padding:0 0 12px">
+      <div class="fb on" data-p="mes" onclick="setInfPreset('mes')">Este mes</div>
+      <div class="fb" data-p="mesant" onclick="setInfPreset('mesant')">Mes anterior</div>
+      <div class="fb" data-p="todo" onclick="setInfPreset('todo')">Todo</div>
+    </div>
+    <div class="frow">
+      <div class="fgroup"><div class="flabel">Desde</div><input class="inp" type="date" id="inf-desde" onchange="document.querySelectorAll('#ov-informe-cobros .fb').forEach(b=>b.classList.remove('on'))"></div>
+      <div class="fgroup"><div class="flabel">Hasta</div><input class="inp" type="date" id="inf-hasta" onchange="document.querySelectorAll('#ov-informe-cobros .fb').forEach(b=>b.classList.remove('on'))"></div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--ink);margin:4px 0 16px;cursor:pointer;line-height:1.4">
+      <input type="checkbox" id="inf-efectivo" checked style="margin-top:2px">
+      <span>Incluir hoja aparte con ventas en <b>efectivo</b> que tienen nota “QR” <span style="color:var(--muted)">(solo referencia, no suma en los totales)</span></span>
+    </label>
+    <button class="btn btn-pine btn-full" id="inf-btn" onclick="generarInformeCobros()">Descargar Excel</button>
+  </div>
+</div>
+
 <div class="overlay" id="ov-add-prov">
   <div class="modal" style="position:relative">
     <div class="modal-handle"></div>
@@ -785,6 +809,9 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="fb" onclick="filtH('Efectivo',this)">💵 Efectivo</div>
       <div class="fb" onclick="filtH('Transferencia',this)">🏦 Transferencia</div>
       <div class="fb" onclick="filtH('Tarjeta',this)">💳 Tarjeta</div>
+    </div>
+    <div style="padding:10px 20px 0">
+      <button class="btn btn-sm btn-outline" style="width:100%;justify-content:center;border-color:var(--pine);color:var(--pine);font-weight:700" onclick="abrirInformeCobros()">📊 Informe Excel · QR y Tarjeta</button>
     </div>
     <div class="slabel"><span class="slabel-t">Ventas</span><span class="slabel-b" id="h-count">0</span></div>
     <div class="hlist" id="hlist"></div>
@@ -14279,6 +14306,250 @@ ${document.getElementById('ticket-content').innerHTML}
 <\/script>
 </body></html>`);
   w.document.close();
+}
+
+// ══ INFORME DE COBROS QR / TARJETA (Excel con formato) ══
+// Hoja Resumen + una hoja por grupo (Transferencias con nota "QR", Tarjeta y,
+// opcional, Efectivo con nota "QR" como referencia). Usa ExcelJS (carga bajo demanda)
+// porque SheetJS community no permite estilos.
+function _cargarExcelJS(){
+  if(window.ExcelJS) return Promise.resolve();
+  return new Promise((res,rej)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+    s.onload=res;
+    s.onerror=()=>rej(new Error('No se pudo cargar la librería de Excel. Revisá la conexión a internet.'));
+    document.head.appendChild(s);
+  });
+}
+function abrirInformeCobros(){
+  setInfPreset('mes');
+  openModal('ov-informe-cobros');
+}
+function setInfPreset(p){
+  const hoy=fechaHoyLocal();
+  const [y,m]=hoy.split('-').map(Number);
+  const pad=n=>String(n).padStart(2,'0');
+  let d=hoy,h=hoy;
+  if(p==='mes') d=`${y}-${pad(m)}-01`;
+  else if(p==='mesant'){
+    const pm=m===1?12:m-1, py=m===1?y-1:y;
+    d=`${py}-${pad(pm)}-01`; h=`${py}-${pad(pm)}-${pad(new Date(py,pm,0).getDate())}`;
+  } else if(p==='todo'){
+    d=(sales||[]).reduce((mn,s)=>(s.fecha&&s.fecha<mn)?s.fecha:mn,hoy);
+  }
+  document.getElementById('inf-desde').value=d;
+  document.getElementById('inf-hasta').value=h;
+  document.querySelectorAll('#ov-informe-cobros .fb').forEach(b=>b.classList.toggle('on',b.dataset.p===p));
+}
+// Monto cobrado con un método (soporta pago dividido)
+function _infMonto(s,metodo){
+  try{
+    if(typeof _esPagoDividido==='function' && _esPagoDividido(s)){
+      const pg=typeof s.pagos==='string'?JSON.parse(s.pagos):s.pagos;
+      return (pg||[]).filter(p=>p.metodo===metodo).reduce((a,p)=>a+(+p.monto||0),0);
+    }
+  }catch(e){}
+  return s.metodo_pago===metodo ? (+s.total||0) : 0;
+}
+function _infFila(s,monto){
+  let items=[]; try{ items=typeof s.items==='string'?JSON.parse(s.items||'[]'):(s.items||[]); }catch(e){}
+  const d=new Date(s.created_at||Date.now());
+  const f=(s.fecha||fechaHoyLocal(d)).split('-').map(Number);
+  return {
+    fecha:new Date(Date.UTC(f[0],f[1]-1,f[2])),
+    mes:f[0]+'-'+String(f[1]).padStart(2,'0'),
+    hora:(d.getHours()*60+d.getMinutes())/1440,
+    nro:s.nro_comprobante||'', tipo:s.tipo_cbte||'', cae:s.cae?String(s.cae):'',
+    productos:items.map(i=>`${i.nombre} ×${i.cantidad}`).join(', '),
+    monto:Math.round(monto*100)/100,
+    anulada:!!s.anulada,
+    nota:String(s.nota||'').trim()
+  };
+}
+// Arma el libro. Función pura (recibe ExcelJS y los datos) para poder probarla aparte.
+function _infConstruirLibro(ExcelJS,G,meta){
+  const PINE='FF1A5C38',PINE_L='FFEAF5EE',INK='FF12100E',RUST='FFC94F1A',RUST_L='FFFDF0EA',RED='FFC94040',
+        SKY='FF1A5EC9',SKY_L='FFEAF0FD',GRAY='FF6B6B6B',BAND='FFF7F8F4',LINE='FFE3E6DF',WHITE='FFFFFFFF';
+  const FONT='Arial', MONEY='"$"#,##0.00';
+  const fill=c=>({type:'pattern',pattern:'solid',fgColor:{argb:c}});
+  const thin=c=>({style:'thin',color:{argb:c}});
+  const mesTxt=k=>{const [y,m]=k.split('-').map(Number);const t=new Date(Date.UTC(y,m-1,1)).toLocaleDateString('es-AR',{month:'long',year:'numeric',timeZone:'UTC'});return t.charAt(0).toUpperCase()+t.slice(1);};
+  const fmtF=s=>s.split('-').reverse().join('/');
+  const wb=new ExcelJS.Workbook();
+  wb.creator='Tienda Pro'; wb.created=new Date();
+  const resumen=wb.addWorksheet('Resumen',{properties:{tabColor:{argb:PINE}},views:[{showGridLines:false}],
+    pageSetup:{orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9}});
+  const periodo=`Período: ${fmtF(meta.desde)} al ${fmtF(meta.hasta)}`;
+  const ref={}; // celdas de totales de cada hoja de detalle
+
+  function hojaDetalle(clave,nombre,titulo,rows,tab){
+    const ws=wb.addWorksheet(nombre,{properties:{tabColor:{argb:tab}},views:[{state:'frozen',ySplit:4,showGridLines:false}],
+      pageSetup:{orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9,printTitlesRow:'4:4'}});
+    const cols=[['Fecha',12],['Hora',8],['N° comprobante',18],['Tipo',7],['CAE',17],['Productos',60],['Ítems',9],['Monto',16],['Estado',12],['Nota',42],['Mes',10]];
+    cols.forEach((c,i)=>{ws.getColumn(i+1).width=c[1];});
+    ws.getColumn(11).hidden=true;
+    ws.mergeCells('A1:J1');
+    const t=ws.getCell('A1'); t.value=titulo; t.font={name:FONT,size:15,bold:true,color:{argb:WHITE}}; t.fill=fill(PINE); t.alignment={vertical:'middle',indent:1};
+    ws.getRow(1).height=34;
+    ws.mergeCells('A2:J2');
+    const sb=ws.getCell('A2'); sb.value=`${meta.tienda} · ${periodo} · ${rows.length} operaciones`; sb.font={name:FONT,size:10,color:{argb:GRAY}}; sb.fill=fill(PINE_L); sb.alignment={vertical:'middle',indent:1};
+    ws.getRow(2).height=20; ws.getRow(3).height=6;
+    const hr=ws.getRow(4); hr.height=26;
+    cols.forEach((c,i)=>{const cell=hr.getCell(i+1);cell.value=c[0];cell.font={name:FONT,size:10,bold:true,color:{argb:WHITE}};cell.fill=fill(INK);
+      cell.alignment={vertical:'middle',horizontal:[1,2,4,7,9].includes(i+1)?'center':(i+1===8?'right':'left'),indent:(i+1===6||i+1===10||i+1===3)?1:0};});
+    let r=5;
+    rows.forEach((x,i)=>{
+      const row=ws.getRow(r);
+      row.values=[x.fecha,x.hora,x.nro,x.tipo,x.cae,x.productos,x.cantItems,x.monto,x.anulada?'ANULADA':'Vigente',x.nota,x.mes];
+      row.eachCell({includeEmpty:true},(c,n)=>{
+        if(n>11) return;
+        c.font={name:FONT,size:10,color:{argb:x.anulada?RED:INK}};
+        c.fill=fill(x.anulada?RUST_L:(i%2?BAND:WHITE));
+        c.border={bottom:thin(LINE)};
+        c.alignment={vertical:'middle',wrapText:(n===6||n===10),horizontal:[1,2,4,7,9].includes(n)?'center':(n===8?'right':'left'),indent:(n===6||n===10||n===3)?1:0};
+      });
+      row.getCell(1).numFmt='dd/mm/yyyy'; row.getCell(2).numFmt='hh:mm'; row.getCell(8).numFmt=MONEY; row.getCell(5).numFmt='@';
+      if(x.anulada) row.getCell(9).font={name:FONT,size:10,bold:true,color:{argb:RED}};
+      else row.getCell(9).font={name:FONT,size:10,color:{argb:PINE}};
+      r++;
+    });
+    const last=r-1, first=5;
+    const vig=rows.filter(x=>!x.anulada), anu=rows.filter(x=>x.anulada);
+    const sum=a=>Math.round(a.reduce((s,x)=>s+x.monto,0)*100)/100;
+    const rng=(c)=>`${c}${first}:${c}${Math.max(last,first)}`;
+    // fila de totales
+    const tr=ws.getRow(r+1); tr.height=24;
+    ws.mergeCells(`A${r+1}:F${r+1}`);
+    tr.getCell(1).value='TOTAL — ventas vigentes'; 
+    tr.getCell(7).value={formula:`COUNTIFS(${rng('I')},"Vigente")`,result:vig.length};
+    tr.getCell(8).value={formula:`SUMIFS(${rng('H')},${rng('I')},"Vigente")`,result:sum(vig)};
+    for(let n=1;n<=10;n++){const c=tr.getCell(n);c.fill=fill(PINE);c.font={name:FONT,size:11,bold:true,color:{argb:WHITE}};c.alignment={vertical:'middle',horizontal:n===1?'right':(n===8?'right':'center'),indent:n===1?1:0};}
+    tr.getCell(7).numFmt='0" ops"'; tr.getCell(8).numFmt=MONEY;
+    const ar=ws.getRow(r+2); ar.height=20;
+    ws.mergeCells(`A${r+2}:F${r+2}`);
+    ar.getCell(1).value='Anuladas (no suman en el total)';
+    ar.getCell(7).value={formula:`COUNTIFS(${rng('I')},"Anulada")`,result:anu.length};
+    ar.getCell(8).value={formula:`SUMIFS(${rng('H')},${rng('I')},"Anulada")`,result:sum(anu)};
+    for(let n=1;n<=10;n++){const c=ar.getCell(n);c.fill=fill(RUST_L);c.font={name:FONT,size:10,italic:true,color:{argb:RUST}};c.alignment={vertical:'middle',horizontal:n===1?'right':(n===8?'right':'center'),indent:n===1?1:0};}
+    ar.getCell(7).numFmt='0" ops"'; ar.getCell(8).numFmt=MONEY;
+    if(rows.length) ws.autoFilter={from:'A4',to:`J${last}`};
+    ref[clave]={n:`'${nombre}'!G${r+1}`,t:`'${nombre}'!H${r+1}`,nv:vig.length,tv:sum(vig),na:anu.length,ta:sum(anu)};
+  }
+  // preparar filas
+  const prep=a=>a.map(x=>({...x,cantItems:x.cantItems}));
+  hojaDetalle('qr','Transferencias QR','Transferencias cobradas por QR',prep(G.qr),'FF1A5EC9');
+  hojaDetalle('tj','Tarjeta','Operaciones con tarjeta',prep(G.tj),'FF7C3AED');
+  if(meta.incluirEfectivo) hojaDetalle('ef','Efectivo con nota QR','Referencia: ventas en efectivo con nota "QR"',prep(G.ef),'FFC97F1A');
+
+  // ---- RESUMEN ----
+  [30,14,18,14,18,18].forEach((w,i)=>{resumen.getColumn(i+1).width=w;});
+  resumen.mergeCells('A1:F1');
+  let c=resumen.getCell('A1'); c.value='Informe de cobros · QR y Tarjeta'; c.font={name:FONT,size:18,bold:true,color:{argb:WHITE}}; c.fill=fill(PINE); c.alignment={vertical:'middle',indent:1};
+  resumen.getRow(1).height=42;
+  resumen.mergeCells('A2:F2');
+  c=resumen.getCell('A2'); c.value=`${meta.tienda} · ${periodo}`; c.font={name:FONT,size:10,color:{argb:GRAY}}; c.fill=fill(PINE_L); c.alignment={vertical:'middle',indent:1};
+  resumen.getRow(2).height=22; resumen.getRow(3).height=10;
+  const tot=ref.qr.tv+ref.tj.tv, totN=ref.qr.nv+ref.tj.nv;
+  const cards=[
+    {a:'A',b:'B',lab:'TRANSFERENCIAS QR',val:{formula:ref.qr.t,result:ref.qr.tv},n:ref.qr.n,nv:ref.qr.nv,tv:ref.qr.tv,bg:SKY_L,fg:SKY,lc:SKY},
+    {a:'C',b:'D',lab:'TARJETA',val:{formula:ref.tj.t,result:ref.tj.tv},n:ref.tj.n,nv:ref.tj.nv,tv:ref.tj.tv,bg:PINE_L,fg:PINE,lc:PINE},
+    {a:'E',b:'F',lab:'TOTAL QR + TARJETA',val:{formula:`${ref.qr.t}+${ref.tj.t}`,result:tot},n:`${ref.qr.n}+${ref.tj.n}`,nv:totN,tv:tot,bg:INK,fg:WHITE,lc:'FFCFCFCF'}
+  ];
+  cards.forEach(k=>{
+    [4,5,6].forEach(rr=>resumen.mergeCells(`${k.a}${rr}:${k.b}${rr}`));
+    const l=resumen.getCell(`${k.a}4`); l.value=k.lab; l.font={name:FONT,size:9,bold:true,color:{argb:k.lc}}; l.alignment={vertical:'bottom',indent:1};
+    const v=resumen.getCell(`${k.a}5`); v.value=k.val; v.numFmt=MONEY; v.font={name:FONT,size:20,bold:true,color:{argb:k.fg}}; v.alignment={vertical:'middle',indent:1};
+    const s=resumen.getCell(`${k.a}6`);
+    s.value={formula:`${k.n}&" operaciones · ticket prom. "&TEXT(IF(${k.n}=0,0,${k.val.formula}/${k.n}),"$#,##0")`,result:`${k.nv} operaciones · ticket prom. $${k.nv?Math.round(k.tv/k.nv).toLocaleString('es-AR'):0}`};
+    s.font={name:FONT,size:9,color:{argb:k.lc}}; s.alignment={vertical:'top',indent:1};
+    [4,5,6].forEach(rr=>[k.a,k.b].forEach(col=>{const cc=resumen.getCell(`${col}${rr}`);cc.fill=fill(k.bg);cc.border={left:col===k.a?{style:'thick',color:{argb:WHITE}}:undefined,right:col===k.b?{style:'thick',color:{argb:WHITE}}:undefined};}));
+  });
+  resumen.getRow(4).height=22; resumen.getRow(5).height=36; resumen.getRow(6).height=22;
+  resumen.getRow(7).height=14;
+  // tabla por mes
+  resumen.mergeCells('A8:F8');
+  c=resumen.getCell('A8'); c.value='Detalle por mes'; c.font={name:FONT,size:12,bold:true,color:{argb:PINE}}; c.alignment={vertical:'middle'};
+  resumen.getRow(8).height=24;
+  const hd=['Mes','QR · ops','QR · total','Tarjeta · ops','Tarjeta · total','Total'];
+  hd.forEach((h,i)=>{const cell=resumen.getRow(9).getCell(i+1);cell.value=h;cell.font={name:FONT,size:10,bold:true,color:{argb:WHITE}};cell.fill=fill(INK);cell.alignment={vertical:'middle',horizontal:i===0?'left':'right',indent:i===0?1:0};});
+  resumen.getRow(9).height=24;
+  const meses=[...new Set([...G.qr,...G.tj].map(x=>x.mes))].sort();
+  let r=10;
+  const agg=(a,m)=>{const v=a.filter(x=>x.mes===m&&!x.anulada);return [v.length,Math.round(v.reduce((s,x)=>s+x.monto,0)*100)/100];};
+  meses.forEach((m,i)=>{
+    const [qn,qt]=agg(G.qr,m),[tn,tt]=agg(G.tj,m);
+    const row=resumen.getRow(r); row.height=22;
+    row.values=[mesTxt(m),qn,qt,tn,tt,{formula:`C${r}+E${r}`,result:Math.round((qt+tt)*100)/100}];
+    row.eachCell((cell,n)=>{cell.font={name:FONT,size:10,bold:n===6,color:{argb:INK}};cell.fill=fill(i%2?BAND:WHITE);cell.border={bottom:thin(LINE)};cell.alignment={vertical:'middle',horizontal:n===1?'left':'right',indent:n===1?1:0};});
+    [3,5,6].forEach(n=>row.getCell(n).numFmt=MONEY); [2,4].forEach(n=>row.getCell(n).numFmt='#,##0');
+    r++;
+  });
+  if(!meses.length){resumen.mergeCells(`A${r}:F${r}`);const cc=resumen.getCell(`A${r}`);cc.value='Sin operaciones en el período elegido';cc.font={name:FONT,size:10,italic:true,color:{argb:GRAY}};cc.alignment={indent:1};r++;}
+  const f0=10,f1=r-1;
+  const trw=resumen.getRow(r); trw.height=24;
+  trw.values=['TOTAL',{formula:`SUM(B${f0}:B${f1})`,result:totalN(G.qr)},{formula:`SUM(C${f0}:C${f1})`,result:ref.qr.tv},{formula:`SUM(D${f0}:D${f1})`,result:totalN(G.tj)},{formula:`SUM(E${f0}:E${f1})`,result:ref.tj.tv},{formula:`SUM(F${f0}:F${f1})`,result:tot}];
+  function totalN(a){return a.filter(x=>!x.anulada).length;}
+  trw.eachCell((cell,n)=>{cell.font={name:FONT,size:11,bold:true,color:{argb:WHITE}};cell.fill=fill(PINE);cell.alignment={vertical:'middle',horizontal:n===1?'left':'right',indent:n===1?1:0};});
+  [3,5,6].forEach(n=>trw.getCell(n).numFmt=MONEY); [2,4].forEach(n=>trw.getCell(n).numFmt='#,##0');
+  r+=2;
+  // anuladas / referencia
+  const extra=[];
+  if(ref.qr.na||ref.tj.na) extra.push(['Ventas anuladas (no suman en los totales)',(ref.qr.na+ref.tj.na)+' operaciones · '+MONEYTXT(ref.qr.ta+ref.tj.ta)]);
+  if(meta.incluirEfectivo) extra.push(['Efectivo con nota "QR" (solo referencia, no suma)',ref.ef.nv+' operaciones · '+MONEYTXT(ref.ef.tv)]);
+  function MONEYTXT(n){return '$'+Number(n).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+  if(extra.length){
+    resumen.mergeCells(`A${r}:F${r}`); c=resumen.getCell(`A${r}`); c.value='Aparte'; c.font={name:FONT,size:12,bold:true,color:{argb:PINE}}; resumen.getRow(r).height=24; r++;
+    extra.forEach(e=>{
+      resumen.mergeCells(`A${r}:C${r}`); resumen.mergeCells(`D${r}:F${r}`);
+      const a=resumen.getCell(`A${r}`),b=resumen.getCell(`D${r}`);
+      a.value=e[0]; b.value=e[1];
+      a.font={name:FONT,size:10,color:{argb:INK}}; b.font={name:FONT,size:10,bold:true,color:{argb:RUST}}; b.alignment={horizontal:'right',indent:1}; a.alignment={indent:1};
+      for(let n=1;n<=6;n++){const cc=resumen.getRow(r).getCell(n);cc.fill=fill(RUST_L);cc.border={bottom:thin(LINE)};}
+      resumen.getRow(r).height=22; r++;
+    });
+    r++;
+  }
+  const notas=['Cómo se calcula',
+    '• "QR": ventas por transferencia cuya nota contiene "qr" (QR, PAGO QR, VENTA QR, etc.).',
+    '• Tarjeta: ventas cobradas con tarjeta (si la venta tuvo pago dividido, se toma solo la parte de tarjeta).',
+    '• Las ventas anuladas se marcan en naranja en cada hoja y no suman en los totales.'];
+  notas.forEach((t,i)=>{resumen.mergeCells(`A${r}:F${r}`);const cc=resumen.getCell(`A${r}`);cc.value=t;cc.font={name:FONT,size:i?9:10,bold:!i,color:{argb:i?GRAY:INK}};cc.alignment={vertical:'middle',wrapText:true,indent:1};r++;});
+  r++;
+  resumen.mergeCells(`A${r}:F${r}`);
+  c=resumen.getCell(`A${r}`); c.value='Generado por Tienda Pro · '+new Date().toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'}); c.font={name:FONT,size:8,italic:true,color:{argb:GRAY}}; c.alignment={horizontal:'right'};
+  return wb;
+}
+async function generarInformeCobros(){
+  const desde=document.getElementById('inf-desde').value, hasta=document.getElementById('inf-hasta').value;
+  if(!desde||!hasta||desde>hasta){ showToast('Elegí un período válido (desde ≤ hasta)','err'); return; }
+  const incluirEfectivo=document.getElementById('inf-efectivo').checked;
+  const btn=document.getElementById('inf-btn'); const txt0=btn.textContent;
+  btn.disabled=true; btn.textContent='Generando…';
+  try{
+    await _cargarExcelJS();
+    const re=/qr/i;
+    const base=(sales||[]).filter(s=>!s.is_deleted && s.fecha>=desde && s.fecha<=hasta)
+      .slice().sort((a,b)=>new Date(a.created_at||0)-new Date(b.created_at||0));
+    const mk=(met,soloQR)=>base.filter(s=>(!soloQR||re.test(s.nota||'')) && _infMonto(s,met)>0)
+      .map(s=>{const f=_infFila(s,_infMonto(s,met));
+        let n=0; try{const it=typeof s.items==='string'?JSON.parse(s.items||'[]'):(s.items||[]); n=it.reduce((a,i)=>a+(+i.cantidad||0),0);}catch(e){}
+        f.cantItems=n; return f;});
+    const G={qr:mk('Transferencia',true), tj:mk('Tarjeta',false), ef:incluirEfectivo?mk('Efectivo',true):[]};
+    if(!G.qr.length && !G.tj.length){ showToast('No hay transferencias QR ni ventas con tarjeta en ese período','err'); return; }
+    const meta={desde,hasta,incluirEfectivo,tienda:(typeof STORE!=='undefined'&&STORE&&STORE.nombre)||'Drugstore'};
+    const wb=_infConstruirLibro(window.ExcelJS,G,meta);
+    const buf=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download=`informe_qr_tarjeta_${desde}_a_${hasta}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    closeModal('ov-informe-cobros');
+    showToast(`✅ Informe generado: ${G.qr.length} QR y ${G.tj.length} tarjeta`,'ok');
+  }catch(e){
+    console.error('Informe cobros',e); showToast('No se pudo generar el informe: '+(e.message||e),'err');
+  }finally{ btn.disabled=false; btn.textContent=txt0; }
 }
 
 // ══ HISTORIAL ══
