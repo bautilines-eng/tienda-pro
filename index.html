@@ -447,6 +447,30 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<!-- VENTA POR PESO -->
+<div class="overlay" id="ov-peso">
+  <div class="modal" style="position:relative;max-height:90vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-peso')">✕</button>
+    <div class="modal-title">⚖️ <span id="peso-nombre">Pesar</span></div>
+    <div id="peso-info" style="font-size:12px;color:var(--muted);margin:-8px 0 14px;line-height:1.5"></div>
+    <div class="flabel">Peso que marca la balanza</div>
+    <div style="display:flex;gap:8px;align-items:stretch;margin-bottom:8px">
+      <input class="inp" id="peso-valor" type="text" inputmode="decimal" autocomplete="off" placeholder="0" oninput="onPesoInput()" onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarPeso();}" style="font-size:22px;font-family:'DM Mono',monospace;flex:1;min-width:0">
+      <div style="display:flex;border:1.5px solid var(--border,#d9d2c3);border-radius:10px;overflow:hidden">
+        <button type="button" id="peso-u-g" onclick="setPesoUnidad('g')" style="border:none;padding:0 14px;font-weight:700;cursor:pointer">g</button>
+        <button type="button" id="peso-u-kg" onclick="setPesoUnidad('kg')" style="border:none;padding:0 14px;font-weight:700;cursor:pointer">kg</button>
+      </div>
+    </div>
+    <div id="peso-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
+    <div class="flabel">…o cobrar por importe ($)</div>
+    <input class="inp" id="peso-importe" type="text" inputmode="decimal" autocomplete="off" placeholder="Ej: 5000" oninput="onPesoImporte()" onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarPeso();}" style="margin-bottom:14px">
+    <div id="peso-resumen" style="background:rgba(26,92,56,.07);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.6;color:var(--ink)"></div>
+    <button class="btn btn-pine btn-full" id="peso-btn" onclick="confirmarPeso()">Agregar al carrito</button>
+    <button class="btn btn-outline btn-full" id="peso-quitar" onclick="quitarPeso()" style="margin-top:8px;display:none">Quitar del carrito</button>
+  </div>
+</div>
+
 <!-- INFORME DE COBROS QR / TARJETA -->
 <div class="overlay" id="ov-informe-cobros">
   <div class="modal" style="position:relative;max-height:88vh;overflow-y:auto">
@@ -561,8 +585,8 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 <div id="np-pricing-block">
     <div class="frow" style="margin-bottom:10px">
       <div>
-        <div class="flabel">Precio de venta</div>
-        <input class="inp" id="np-price" type="number" placeholder="0" oninput="actualizarMargenPreview()">
+        <div class="flabel" id="np-price-lbl">Precio de venta</div>
+        <input class="inp" id="np-price" type="number" step="any" placeholder="0" oninput="actualizarMargenPreview()">
       </div>
       <div>
         <div class="flabel" style="display:flex;align-items:center;gap:4px">
@@ -592,15 +616,19 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div class="frow" style="margin-bottom:10px">
       <div><div class="flabel">Cantidad de bultos</div><input class="inp" id="np-cant-bultos" type="number" min="0" placeholder="0" oninput="calcStockDesdeBultos()"></div>
       <div>
-        <div class="flabel">Stock inicial (unidades)</div>
-        <input class="inp" id="np-stock" type="number" placeholder="0">
+        <div class="flabel" id="np-stock-lbl">Stock inicial (unidades)</div>
+        <input class="inp" id="np-stock" type="number" step="any" placeholder="0">
         <div id="np-stock-calc" style="display:none;font-size:11px;color:#1a5c38;margin-top:3px;font-weight:600"></div>
       </div>
     </div>
     <div class="frow" style="margin-bottom:10px">
-      <div><div class="flabel">Stock mínimo</div><input class="inp" id="np-min" type="number" placeholder="10"></div>
+      <div><div class="flabel" id="np-min-lbl">Stock mínimo</div><input class="inp" id="np-min" type="number" placeholder="10"></div>
       <div></div>
     </div>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;background:#f0faf4;border:1.5px solid #bfe0cb;border-radius:10px;cursor:pointer;font-size:12px;line-height:1.4;color:#1a5c38">
+      <input type="checkbox" id="np-pesable" onchange="onPesableToggle()" style="margin-top:2px;width:15px;height:15px;cursor:pointer">
+      <span><b>⚖️ Se vende por peso</b> (fiambres, quesos, granel…)<br><span style="color:#4a7a5a">El precio y el costo son <b>por kilo</b> y el stock se lleva en <b>kilos</b>. En la caja se pesa y se cobra según los gramos.</span></span>
+    </label>
     </div>
     <div id="np-alta-hint" style="display:none;margin-bottom:12px;padding:10px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:12px;color:#9a3412">📦 El stock y el precio de venta se cargan al registrar la <b>compra</b> del proveedor.</div>
     <!-- Unidades por bulto: característica del producto, SIEMPRE visible (con o sin proveedor) -->
@@ -1027,7 +1055,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div class="frow" style="margin-bottom:10px">
         <div style="flex:1">
           <div class="flabel">Stock físico contado</div>
-          <input class="inp" id="aj-stock" type="number" min="0" placeholder="0">
+          <input class="inp" id="aj-stock" type="number" min="0" step="any" placeholder="0">
         </div>
         <div style="flex:1;align-self:flex-end;padding-bottom:2px">
           <div id="aj-diferencia" style="font-size:12px;color:#888;padding:10px 0">
@@ -1120,7 +1148,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div class="fgroup" style="position:relative"><div class="flabel">Producto</div><input type="hidden" id="co-prod"><input type="text" class="inp" id="co-prod-search" autocomplete="off" placeholder="Buscar producto por nombre o código..." oninput="filtrarComboProd('co-prod', this.value)" onfocus="filtrarComboProd('co-prod', this.value)"><div id="co-prod-list" class="combo-list"></div></div>
         <div class="fgroup"><div class="flabel">Cantidad</div>
           <div style="display:flex;gap:8px">
-            <input class="inp" id="co-qty" type="number" min="1" placeholder="0" style="flex:1" oninput="actualizarCompraUnidades()">
+            <input class="inp" id="co-qty" type="number" min="0" step="any" placeholder="0" style="flex:1" oninput="actualizarCompraUnidades()">
             <select class="inp" id="co-modo" style="width:130px;cursor:pointer" onchange="actualizarCompraUnidades()">
               <option value="unidad">Unidades</option>
               <option value="bulto">Bultos</option>
@@ -1781,7 +1809,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
 
       <div class="frow" style="margin-bottom:10px">
-        <div><div class="flabel">Cantidad (unidades)</div><input class="inp" id="edc-qty" type="number" min="1" step="1" placeholder="0"></div>
+        <div><div class="flabel">Cantidad (unidades)</div><input class="inp" id="edc-qty" type="number" min="0" step="any" placeholder="0"></div>
         <div><div class="flabel">Costo unitario</div><input class="inp" id="edc-costo" type="number" min="0" step="0.01" placeholder="$0"></div>
       </div>
 
@@ -5021,7 +5049,7 @@ async function reintentarDevolucionStockNC(notaCreditoId){
         p_precio_unit: item.precio || p.precio || 0,
         p_observacion: `Devolución por nota de crédito ${nc.nro_nota} (reintento)`,
       });
-      p.stock += item.cantidad;
+      p.stock = redondearKg(p.stock + item.cantidad);
     }
     showToast(`✅ Stock devuelto (${pendientes.length} producto${pendientes.length>1?'s':''})`, 'ok');
     _ncSinDevolucionStock.delete(nc.nro_nota);
@@ -6058,7 +6086,7 @@ function agregarLineaRemito(pid){
   // (de una compra anterior), se respeta esa — es más confiable que un
   // valor genérico. Si es un producto nuevo, cae al selector de cabecera.
   const alicDefault = (p.iva_alicuota!=null) ? Number(p.iva_alicuota) : (parseFloat(document.getElementById('rem-alic')?.value)||21);
-  remitoLineas.push({uid:'L'+Date.now()+Math.floor(Math.random()*1000), prodId:pid, nombre:p.nombre, upb:p.unidades_por_bulto||1, cantidad:'1', modo:'bulto', costo:'', costoModo:'unidad', alicuota:alicDefault, impInterno:''});
+  remitoLineas.push({uid:'L'+Date.now()+Math.floor(Math.random()*1000), prodId:pid, nombre:p.nombre, upb:p.unidades_por_bulto||1, cantidad:(p.pesable?'':'1'), modo:(p.pesable?'unidad':'bulto'), costo:'', costoModo:'unidad', alicuota:alicDefault, impInterno:''});
   renderRemitoLineas();
 }
 function quitarLineaRemito(uid){
@@ -6092,7 +6120,7 @@ function renderRemitoLineas(){
       <div style="display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:7px;align-items:end">
         <div>
           <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">Cantidad</div>
-          <input type="number" id="rem-qty-${l.uid}" min="1" value="${escAttr(l.cantidad ?? '1')}" class="inp" style="padding:9px 10px" oninput="recalcRemitoTotales()">
+          <input type="number" id="rem-qty-${l.uid}" min="0" step="any" value="${escAttr(l.cantidad ?? '1')}" class="inp" style="padding:9px 10px" oninput="recalcRemitoTotales()">
         </div>
         <div>
           <div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px">En</div>
@@ -6275,7 +6303,7 @@ async function confirmarRemito(){
     const impInternoTotalLineaBruto=parseFloat(document.getElementById('rem-imp-interno-'+l.uid)?.value)||0;
     const internoIncluyeIva=!!document.getElementById('rem-interno-con-iva-'+l.uid)?.checked;
     if(qty<=0){ showToast('Revisá las cantidades (deben ser mayores a 0)','err'); return; }
-    const unidades = modo==='bulto'? qty*l.upb : qty;
+    const unidades = redondearKg(modo==='bulto'? qty*l.upb : qty); // pesables: kilos con hasta 3 decimales
     // Costo por unidad, tal como se tipeó (todavía sin decidir si es neto o
     // con IVA). Si lo cargó por bulto, se divide por upb primero.
     const costoUnitTalCual = costo>0
@@ -6877,7 +6905,7 @@ async function _confirmarDeshacerAnulacion(co) {
     if (updErr) throw updErr;
 
     co.anulada = false;
-    if (prodRef) prodRef.stock = (prodRef.stock||0) + co.cantidad;
+    if (prodRef) prodRef.stock = redondearKg((prodRef.stock||0) + co.cantidad);
 
     showToast('✅ Anulación revertida — stock restaurado', 'ok');
     if (typeof renderCompraList === 'function') renderCompraList();
@@ -12367,7 +12395,7 @@ function verComprasCliente(nombreCliente){
     items.forEach(it=>{
       filas.push({
         fecha: venta.fecha, nroComp, pagado,
-        nombre: it.nombre||'', cantidad: it.cantidad||0, precio: it.precio||0,
+        nombre: it.nombre||'', cantidad: it.cantidad||0, pesable: !!it.pesable, precio: it.precio||0,
         subtotal: (it.subtotal!=null ? it.subtotal : (it.precio||0)*(it.cantidad||0)),
       });
     });
@@ -12381,7 +12409,7 @@ function verComprasCliente(nombreCliente){
     <td>${esc(new Date(f.fecha+'T12:00:00').toLocaleDateString('es-AR'))}</td>
     <td>${esc(f.nroComp)}</td>
     <td>${esc(f.nombre)}</td>
-    <td style="text-align:center">${f.cantidad}</td>
+    <td style="text-align:center">${f.pesable?fmtPeso(f.cantidad):f.cantidad}</td>
     <td style="text-align:right">$${f.precio.toLocaleString('es-AR')}</td>
     <td style="text-align:right">$${f.subtotal.toLocaleString('es-AR')}</td>
     <td style="text-align:center">${f.pagado?'✅':'⏳'}</td>
@@ -12700,6 +12728,26 @@ async function loadCierresTurno(){
 const EMOJ={'Toallas':'🛁','Ropa de Cama':'🛏️','Cortinas':'🪟','Almohadas':'😴','Decoración':'🖼️','Protectores':'🛡️','Casa':'🏠','General':'📦'};
 function getEm(cat){return EMOJ[cat]||'📦';}
 
+// ══ VENTA POR PESO (fiambres, etc.) ══
+// Un producto "pesable" guarda su stock en KILOS (decimal, 3 decimales = gramo)
+// y su `precio` es el precio por KILO. En el carrito qtys[id] es la cantidad
+// en kilos (ej. 0.25 = 250 g), así que precio × cantidad sigue siendo el
+// subtotal y todo lo demás (totales, IVA, márgenes) funciona sin cambios.
+function esPesable(p){ return !!(p && p.pesable); }
+function redondearKg(n){ return Math.round((+n||0)*1000)/1000; }
+function fmtPeso(kg){
+  kg = redondearKg(kg);
+  if(kg>0 && kg<1) return Math.round(kg*1000).toLocaleString('es-AR')+' g';
+  return kg.toLocaleString('es-AR',{maximumFractionDigits:3})+' kg';
+}
+// Cantidad lista para mostrar: "250 g" / "1,5 kg" si es pesable, "3" si no.
+function fmtCant(n, pesable){ return pesable ? fmtPeso(n) : String(n); }
+// Stock listo para mostrar: "12,5 kg" / "40 uds".
+// Cantidad de un ítem de venta guardado: "×3" o "250 g" si fue por peso.
+function fmtItemCant(i){ return i && i.pesable ? fmtPeso(i.cantidad) : '×'+i.cantidad; }
+function stockMin(p){ return p.stock_minimo || (esPesable(p) ? 1 : 10); }
+function fmtStock(p){ return esPesable(p) ? fmtPeso(p.stock||0) : `${p.stock} uds`; }
+
 // ══ PRODUCTS ══
 function renderCats(){
   const cats=['all',...new Set(prods.map(p=>p.categoria).filter(Boolean))];
@@ -12722,32 +12770,36 @@ function renderProds(){
   if(!filtered.length){el.innerHTML='<div class="empty">Sin productos. Agregá uno desde Stock.</div>';return;}
   el.innerHTML=filtered.map(p=>{
     const q=qtys[p.id]||0,on=q>0;
-    const min=p.stock_minimo||10;
-    const sc=p.stock===0?'sout':p.stock<min?'slow':'sok';
-    const st=p.stock===0?'🔴 Sin stock':p.stock<min?`⚠️ ${p.stock} uds`:`✓ ${p.stock} uds`;
+    const pes=esPesable(p);
+    const min=stockMin(p);
+    const sc=p.stock<=0?'sout':p.stock<min?'slow':'sok';
+    const st=p.stock<=0?'🔴 Sin stock':p.stock<min?`⚠️ ${fmtStock(p)}`:`✓ ${fmtStock(p)}`;
     return `<div class="pc ${on?'on':''}" id="pc-${p.id}" data-prod-id="${p.id}">
       <div class="pc-em">${getEm(p.categoria)}</div>
       <div class="pc-info">
         <div class="pc-name">${esc(p.nombre)}</div>
         <div class="pc-meta">
           <span class="ptag">${esc(p.categoria||'—')}</span>
-          <span class="pprice">$${(p.precio||0).toLocaleString('es-AR')}</span>
+          <span class="pprice">$${(p.precio||0).toLocaleString('es-AR')}${pes?' /kg':''}</span>
           <span class="pstk ${sc}">${st}</span>
           ${p.barcode?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:#aaa;letter-spacing:.5px">${esc(p.barcode)}</span>`:''}
           ${p.codigo_proveedor?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:#8ab4a0;letter-spacing:.5px">#${esc(p.codigo_proveedor)}</span>`:''}
         </div>
       </div>
-      <div class="qc">
+      ${pes?`<div class="qc">
+        <button class="qb p" id="qp-${p.id}" onclick="abrirPeso('${p.id}')" ${p.stock<=0?'disabled':''} style="width:auto;min-width:78px;padding:0 12px;border-radius:16px;font-size:12px;font-weight:600;white-space:nowrap">${on?'⚖️ '+fmtPeso(q):'⚖️ Pesar'}</button>
+      </div>`:`<div class="qc">
         <button class="qb m" onclick="chQ('${p.id}',-1)" ${q===0?'disabled':''}>−</button>
         <div class="qn ${on?'on':''}" id="qn-${p.id}">${q}</div>
         <button class="qb p" onclick="chQ('${p.id}',1)" ${p.stock===0||q>=p.stock?'disabled':''}>+</button>
-      </div>
+      </div>`}
     </div>`;
   }).join('');
 }
 
 function chQ(id,d){
   const p=prods.find(x=>x.id==id);if(!p)return;
+  if(esPesable(p)){ abrirPeso(id); return; } // los pesables se cargan con la ventana ⚖️ Pesar
   const n=Math.max(0,Math.min(p.stock,(qtys[id]||0)+d));
   qtys[id]=n;
   const card=document.getElementById(`pc-${id}`),qn=document.getElementById(`qn-${id}`);
@@ -12764,6 +12816,7 @@ function chQ(id,d){
 function quitarDelCarrito(id){
   const p=prods.find(x=>x.id==id); if(!p) return;
   qtys[id]=0;
+  if(esPesable(p)){ _pintarCardPeso(id); updateCart(); return; }
   const card=document.getElementById(`pc-${id}`), qn=document.getElementById(`qn-${id}`);
   if(card){
     card.className='pc'; qn.textContent=0; qn.className='qn';
@@ -12772,6 +12825,102 @@ function quitarDelCarrito(id){
     if(b[1]) b[1].disabled=false;
   }
   updateCart();
+}
+
+// ── Ventana ⚖️ Pesar ──
+let _pesoId=null, _pesoUnidad='g';
+function _pintarCardPeso(id){
+  const p=prods.find(x=>x.id==id); if(!p) return;
+  const q=qtys[id]||0;
+  const card=document.getElementById(`pc-${id}`); if(card) card.className=`pc ${q>0?'on':''}`;
+  const b=document.getElementById(`qp-${id}`); if(b) b.textContent = q>0 ? '⚖️ '+fmtPeso(q) : '⚖️ Pesar';
+}
+function _numPeso(v){ return parseFloat(String(v||'').replace(',','.'))||0; }
+function abrirPeso(id){
+  const p=prods.find(x=>x.id==id); if(!p) return;
+  if(!(p.stock>0)){ showToast('Sin stock de '+p.nombre,'err'); return; }
+  _pesoId=id;
+  document.getElementById('peso-nombre').textContent=p.nombre;
+  document.getElementById('peso-info').innerHTML=`Precio: <b>$${(p.precio||0).toLocaleString('es-AR')} el kilo</b> · Stock: <b>${fmtPeso(p.stock)}</b>`;
+  const actual=qtys[id]||0;
+  document.getElementById('peso-btn').textContent = actual>0 ? 'Actualizar peso' : 'Agregar al carrito';
+  document.getElementById('peso-quitar').style.display = actual>0 ? 'block' : 'none';
+  // chips rápidos de pesos habituales
+  document.getElementById('peso-chips').innerHTML=[100,150,200,250,300,500,1000].map(g=>
+    `<button type="button" class="fb" onclick="pesoChip(${g})">${g>=1000?'1 kg':g+' g'}</button>`).join('');
+  _pesoUnidad='g'; _pintarUnidadPeso();
+  const v=document.getElementById('peso-valor');
+  v.value = actual>0 ? String(Math.round(actual*1000)) : '';
+  document.getElementById('peso-importe').value='';
+  onPesoInput();
+  openModal('ov-peso');
+  setTimeout(()=>{ v.focus(); v.select(); }, 120);
+}
+function _pintarUnidadPeso(){
+  [['g','peso-u-g'],['kg','peso-u-kg']].forEach(([u,id])=>{
+    const b=document.getElementById(id); if(!b) return;
+    const on=_pesoUnidad===u;
+    b.style.background = on ? 'var(--pine,#1a5c38)' : 'transparent';
+    b.style.color = on ? '#fff' : 'var(--ink,#222)';
+  });
+}
+function setPesoUnidad(u){
+  if(u===_pesoUnidad) return;
+  const kg=_pesoLeerKg();
+  _pesoUnidad=u; _pintarUnidadPeso();
+  document.getElementById('peso-valor').value = kg>0 ? (u==='g' ? String(Math.round(kg*1000)) : String(kg).replace('.',',')) : '';
+  onPesoInput();
+}
+function pesoChip(g){
+  _pesoUnidad='g'; _pintarUnidadPeso();
+  document.getElementById('peso-valor').value=String(g);
+  onPesoInput();
+}
+function _pesoLeerKg(){
+  const v=_numPeso(document.getElementById('peso-valor')?.value);
+  return redondearKg(_pesoUnidad==='g' ? v/1000 : v);
+}
+function _pesoRender(kg){
+  const p=prods.find(x=>x.id==_pesoId); if(!p) return;
+  const r=document.getElementById('peso-resumen');
+  const btn=document.getElementById('peso-btn');
+  if(!(kg>0)){ r.innerHTML='<span style="color:var(--muted)">Ingresá el peso o el importe</span>'; btn.disabled=true; return; }
+  const imp=Math.round(kg*(p.precio||0)*100)/100;
+  const falta = kg > p.stock + 1e-9;
+  r.innerHTML = `Peso: <b>${fmtPeso(kg)}</b><br>Importe: <b style="font-size:18px">$${imp.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}</b>`
+    + (falta ? `<br><span style="color:#c0392b">⚠️ Solo hay ${fmtPeso(p.stock)} en stock</span>` : '');
+  btn.disabled = falta;
+}
+function onPesoInput(){
+  const p=prods.find(x=>x.id==_pesoId); if(!p) return;
+  const kg=_pesoLeerKg();
+  const imp=document.getElementById('peso-importe');
+  if(imp && document.activeElement!==imp) imp.value = kg>0 ? String(Math.round(kg*(p.precio||0)*100)/100).replace('.',',') : '';
+  _pesoRender(kg);
+}
+function onPesoImporte(){
+  const p=prods.find(x=>x.id==_pesoId); if(!p||!(p.precio>0)) return;
+  const imp=_numPeso(document.getElementById('peso-importe').value);
+  const kg=redondearKg(imp/p.precio);
+  document.getElementById('peso-valor').value = kg>0 ? (_pesoUnidad==='g' ? String(Math.round(kg*1000)) : String(kg).replace('.',',')) : '';
+  _pesoRender(kg);
+}
+function confirmarPeso(){
+  const p=prods.find(x=>x.id==_pesoId); if(!p) return;
+  const kg=_pesoLeerKg();
+  if(!(kg>0)){ showToast('Ingresá un peso mayor a 0','err'); return; }
+  if(kg > p.stock + 1e-9){ showToast(`Solo hay ${fmtPeso(p.stock)} de ${p.nombre}`,'err'); return; }
+  qtys[p.id]=kg;
+  _pintarCardPeso(p.id);
+  updateCart();
+  closeModal('ov-peso');
+  showToast(`✅ ${p.nombre}: ${fmtPeso(kg)}`,'ok');
+  setTimeout(()=>document.getElementById('scan-input')?.focus(), 150);
+}
+function quitarPeso(){
+  if(_pesoId==null) return;
+  closeModal('ov-peso');
+  quitarDelCarrito(_pesoId);
 }
 
 // ══ METHOD ══
@@ -12806,7 +12955,7 @@ function _calcularPromosCantidad(sel, qtys){
   for(const promo of (promosCantidad||[])){
     if(!promo.activo) continue;
     const idsGrupo = new Set(promo.producto_ids||[]);
-    const itemsGrupo = sel.filter(p => idsGrupo.has(p.id) && (qtys[p.id]||0)>0);
+    const itemsGrupo = sel.filter(p => idsGrupo.has(p.id) && !p.pesable && (qtys[p.id]||0)>0);
     if(!itemsGrupo.length) continue;
     const totalUnidades = itemsGrupo.reduce((s,p)=>s+(qtys[p.id]||0),0);
     const grupos = Math.floor(totalUnidades / (promo.cantidad_grupo||1));
@@ -13191,10 +13340,13 @@ function updateCart(){
   const total=sub*(1-desc/100);
   document.getElementById('c-chips').innerHTML=sel.map(p=>{
     const pe = precioEfectivo(p);
+    const pes=esPesable(p);
     const precioTxt = ajustesCantidad[p.id]!=null
       ? `<s style="opacity:.5">$${(p.precio||0).toLocaleString('es-AR')}</s> $${pe.toLocaleString('es-AR',{maximumFractionDigits:0})} 🏷️`
-      : `$${(p.precio||0).toLocaleString('es-AR')}`;
-    return `<div class="chip">${getEm(p.categoria)} ${esc(p.nombre.split(' ')[0])} ×${qtys[p.id]} · ${precioTxt}<span onclick="quitarDelCarrito('${p.id}')" title="Quitar del carrito" style="cursor:pointer;margin-left:6px;font-weight:700;opacity:.7">✕</span></div>`;
+      : pes ? `$${(p.precio||0).toLocaleString('es-AR')}/kg = $${Math.round(p.precio*qtys[p.id]).toLocaleString('es-AR')}`
+            : `$${(p.precio||0).toLocaleString('es-AR')}`;
+    const cantTxt = pes ? `<span onclick="abrirPeso('${p.id}')" title="Cambiar el peso" style="cursor:pointer;text-decoration:underline dotted">${fmtPeso(qtys[p.id])}</span>` : `×${qtys[p.id]}`;
+    return `<div class="chip">${getEm(p.categoria)} ${esc(p.nombre.split(' ')[0])} ${cantTxt} · ${precioTxt}<span onclick="quitarDelCarrito('${p.id}')" title="Quitar del carrito" style="cursor:pointer;margin-left:6px;font-weight:700;opacity:.7">✕</span></div>`;
   }).join('');
   document.getElementById('c-total').textContent=`$${Math.round(total).toLocaleString('es-AR')}`;
   const descLabel = (promoAplicada && _promoEsValidaHoy(promoAplicada).ok) ? `${desc}% ${promoAplicada.codigo}` : (desc>0?`${desc}% desc`:'');
@@ -13334,8 +13486,8 @@ async function _verificarStockDisponible(sel, qtys){
     const actual = data.find(d => d.id === p.id);
     const disponible = actual ? actual.stock : 0;
     const pedido = qtys[p.id] || 0;
-    if (disponible < pedido) {
-      throw new Error(`Stock insuficiente para "${p.nombre}": disponible ${disponible}, solicitado ${pedido}`);
+    if (disponible + 1e-9 < pedido) {
+      throw new Error(`Stock insuficiente para "${p.nombre}": disponible ${fmtCant(disponible,p.pesable)}, solicitado ${fmtCant(pedido,p.pesable)}`);
     }
   }
 
@@ -13561,7 +13713,7 @@ async function registerSale(){
     if(promoValidaAhora) nota = (nota?nota+' ':'') + `[Promo: ${promoValidaAhora.codigo}]`;
     const items=sel.map(p=>{
       const pe = precioEfectivoVenta(p);
-      return {producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:pe,subtotal:pe*qtys[p.id],costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota),impuesto_interno_unitario:(p.impuesto_interno_unitario||0),es_combo:!!p.es_combo,combo_items:p.combo_items||null};
+      return {producto_id:p.id,nombre:p.nombre,cantidad:qtys[p.id],precio:pe,subtotal:(p.pesable?Math.round(pe*qtys[p.id]*100)/100:pe*qtys[p.id]),pesable:!!p.pesable,unidad:p.pesable?'kg':null,costo:p.costo||0,emoji:getEm(p.categoria),iva_alicuota:(p.iva_alicuota==null?21:+p.iva_alicuota),impuesto_interno_unitario:(p.impuesto_interno_unitario||0),es_combo:!!p.es_combo,combo_items:p.combo_items||null};
     });
     // Versión con cualquier combo descompuesto en sus productos reales —
     // necesaria para el desglose de IVA/ARCA y para la RPC de venta (ver
@@ -13735,7 +13887,7 @@ async function registerSale(){
     // itemsReales) — hay que reflejarlo ahí, no en el combo en sí (que
     // ahora es un valor calculado, ver _refrescarStockCombos).
     for(const p of sel){
-      if(!p.es_combo){ p.stock = Math.max(0, p.stock - qtys[p.id]); continue; }
+      if(!p.es_combo){ p.stock = Math.max(0, redondearKg(p.stock - qtys[p.id])); continue; }
       const comboItems = typeof p.combo_items==='string' ? JSON.parse(p.combo_items||'[]') : (p.combo_items||[]);
       for(const ci of comboItems){
         const prodReal = prods.find(x=>x.id===ci.id && !x.es_combo);
@@ -14035,7 +14187,7 @@ function _ivaContenidoTicket(s){
 
 function showTicket(s){
   const items=typeof s.items==='string'?JSON.parse(s.items):s.items||[];
-  const rows=items.map(i=>`<div class="ticket-row"><span>${i.emoji||''} ${esc(i.nombre)} ×${i.cantidad}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
+  const rows=items.map(i=>`<div class="ticket-row"><span>${i.emoji||''} ${esc(i.nombre)} ${fmtItemCant(i)}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
   const d=new Date(s.created_at||Date.now());
 
   // ── Punto 1: identificacion fiscal completa del comprobante ──
@@ -14361,7 +14513,7 @@ function _infFila(s,monto){
     mes:f[0]+'-'+String(f[1]).padStart(2,'0'),
     hora:(d.getHours()*60+d.getMinutes())/1440,
     nro:s.nro_comprobante||'', tipo:s.tipo_cbte||'', cae:s.cae?String(s.cae):'',
-    productos:items.map(i=>`${i.nombre} ×${i.cantidad}`).join(', '),
+    productos:items.map(i=>`${i.nombre} ${fmtItemCant(i)}`).join(', '),
     monto:Math.round(monto*100)/100,
     anulada:!!s.anulada,
     nota:String(s.nota||'').trim()
@@ -14533,7 +14685,7 @@ async function generarInformeCobros(){
       .slice().sort((a,b)=>new Date(a.created_at||0)-new Date(b.created_at||0));
     const mk=(met,soloQR)=>base.filter(s=>(!soloQR||re.test(s.nota||'')) && _infMonto(s,met)>0)
       .map(s=>{const f=_infFila(s,_infMonto(s,met));
-        let n=0; try{const it=typeof s.items==='string'?JSON.parse(s.items||'[]'):(s.items||[]); n=it.reduce((a,i)=>a+(+i.cantidad||0),0);}catch(e){}
+        let n=0; try{const it=typeof s.items==='string'?JSON.parse(s.items||'[]'):(s.items||[]); n=it.reduce((a,i)=>a+(i.pesable?1:(+i.cantidad||0)),0);}catch(e){}
         f.cantItems=n; return f;});
     const G={qr:mk('Transferencia',true), tj:mk('Tarjeta',false), ef:incluirEfectivo?mk('Efectivo',true):[]};
     if(!G.qr.length && !G.tj.length){ showToast('No hay transferencias QR ni ventas con tarjeta en ese período','err'); return; }
@@ -14572,7 +14724,7 @@ function renderHist(){
     const d=new Date(s.created_at||Date.now());
     const dStr=d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
     const mc=s.metodo_pago==='Efectivo'?'tef':s.metodo_pago==='Transferencia'?'ttr':'ttd';
-    const rows=items.map(i=>`<div class="hc-dr"><span>${i.emoji||''} ${esc(i.nombre)} ×${i.cantidad}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
+    const rows=items.map(i=>`<div class="hc-dr"><span>${i.emoji||''} ${esc(i.nombre)} ${fmtItemCant(i)}</span><span>$${(i.subtotal||i.precio*i.cantidad).toLocaleString('es-AR')}</span></div>`).join('');
     return `<div class="hcard" onclick="this.classList.toggle('open')">
       <div class="hc-top">
         <div><div class="hc-id">${s.nro_comprobante?`<span style="font-family:'DM Mono',monospace;font-size:10px;color:#888;margin-right:6px">${esc(s.nro_comprobante)}</span>`:''}${s.cliente?'👤 '+esc(s.cliente):'Venta anónima'}</div><div class="hc-date">${dStr}</div></div>
@@ -14589,7 +14741,7 @@ function renderHist(){
               `<span class="htag ${p.metodo==='Efectivo'?'tef':p.metodo==='Transferencia'?'ttr':'ttd'}">${esc(p.metodo)} $${Math.round(p.monto||0).toLocaleString('es-AR')}</span>`
             ).join('')
           : `<span class="htag ${mc}">${esc(s.metodo_pago||'—')}</span>`}
-        ${items.map(i=>`<span class="htag tprod">${i.emoji||''}${esc(i.nombre.split(' ')[0])} ×${i.cantidad}</span>`).join('')}
+        ${items.map(i=>`<span class="htag tprod">${i.emoji||''}${esc(i.nombre.split(' ')[0])} ${fmtItemCant(i)}</span>`).join('')}
         ${s.nota?`<span class="htag" style="background:var(--purple-l);color:var(--purple)">${esc(s.nota)}</span>`:''}
       </div>
       <div class="hc-detail">${rows}<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">
@@ -14711,7 +14863,7 @@ function abrirModalNotaCredito(ventaId) {
           <span style="font-family:'DM Mono',monospace;font-weight:700">$${(s.total||0).toLocaleString('es-AR')}</span>
         </div>
         <div style="color:#888;margin-top:2px">${s.fecha} · ${s.metodo_pago} · ${esc(s.cliente || 'Consumidor final')}</div>
-        <div style="margin-top:8px">${items.map(i => `<div>• ${esc(i.nombre)} ×${i.cantidad}</div>`).join('')}</div>
+        <div style="margin-top:8px">${items.map(i => `<div>• ${esc(i.nombre)} ${fmtItemCant(i)}</div>`).join('')}</div>
       </div>
       <div style="border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:11.5px;${esFiscal ? 'background:#fff3e0;color:#9a5b12' : 'background:#eaf5ee;color:#1a5c38'}">
         ${esFiscal
@@ -14800,7 +14952,7 @@ async function confirmarNotaCredito() {
             p_precio_unit: p.precio || 0,
             p_observacion: `Devolución por nota de crédito ${data.nro_nota}`
           });
-          p.stock += item.cantidad;
+          p.stock = redondearKg(p.stock + item.cantidad);
         }
       }
     } catch(eStock) {
@@ -14948,7 +15100,7 @@ function renderCaja(){
   // corresponde que infle el total de caja del día (eso se ve aparte).
   const total=ef+tr+td+mp;
   const avg=todaySales.length?Math.round(totalVentas/todaySales.length):0;
-  const totalProds=todaySales.reduce((s,v)=>{const items=typeof v.items==='string'?JSON.parse(v.items||'[]'):v.items||[];return s+items.reduce((a,i)=>a+(i.cantidad||0),0);},0);
+  const totalProds=todaySales.reduce((s,v)=>{const items=typeof v.items==='string'?JSON.parse(v.items||'[]'):v.items||[];return s+items.reduce((a,i)=>a+(i.pesable?1:(i.cantidad||0)),0);},0);
 
   document.getElementById('caja-total-hoy').textContent=`$${total.toLocaleString('es-AR')}`;
   document.getElementById('caja-ventas-hoy').textContent=`${todaySales.length} venta${todaySales.length!==1?'s':''} registrada${todaySales.length!==1?'s':''}`;
@@ -15225,10 +15377,10 @@ function renderReportes(){
   const dn=['L','M','M','J','V','S','D'];
   document.getElementById('r-chart').innerHTML=dayData.map((v,i)=>{const pct=Math.round(v/maxD*80)+5;const isT=i===cd-1;return `<div class="bw"><div class="bar ${isT?'today':v>0?'hi':''}" style="height:${pct}%"></div><div class="bl">${dn[(new Date().getDay()-cd+1+i+14)%7]}</div></div>`;}).join('');
   // Top products
-  const ps={};filt.forEach(s=>{const items=typeof s.items==='string'?JSON.parse(s.items||'[]'):s.items||[];items.forEach(i=>{if(!ps[i.nombre])ps[i.nombre]={qty:0,total:0,em:i.emoji||''};ps[i.nombre].qty+=i.cantidad;ps[i.nombre].total+=(i.subtotal||i.precio*i.cantidad);});});
+  const ps={};filt.forEach(s=>{const items=typeof s.items==='string'?JSON.parse(s.items||'[]'):s.items||[];items.forEach(i=>{if(!ps[i.nombre])ps[i.nombre]={qty:0,kg:0,pes:false,total:0,em:i.emoji||''};if(i.pesable){ps[i.nombre].pes=true;ps[i.nombre].kg+=i.cantidad;ps[i.nombre].qty+=1;}else ps[i.nombre].qty+=i.cantidad;ps[i.nombre].total+=(i.subtotal||i.precio*i.cantidad);});});
   const tp=Object.entries(ps).sort((a,b)=>b[1].qty-a[1].qty).slice(0,5);
   const mxQ=tp[0]?tp[0][1].qty:1;
-  document.getElementById('r-top').innerHTML=tp.length?tp.map(([n,d],i)=>`<div class="top-row"><div class="top-n">${i+1}</div><div class="top-em">${d.em}</div><div class="top-name">${n.split(' ').slice(0,3).join(' ')}</div><div class="top-bw"><div class="top-b" style="width:${Math.round(d.qty/mxQ*100)}%"></div></div><div class="top-val">${d.qty}u</div></div>`).join(''):'<div class="empty" style="padding:16px 0">Sin datos</div>';
+  document.getElementById('r-top').innerHTML=tp.length?tp.map(([n,d],i)=>`<div class="top-row"><div class="top-n">${i+1}</div><div class="top-em">${d.em}</div><div class="top-name">${n.split(' ').slice(0,3).join(' ')}</div><div class="top-bw"><div class="top-b" style="width:${Math.round(d.qty/mxQ*100)}%"></div></div><div class="top-val">${d.pes?fmtPeso(d.kg):d.qty+'u'}</div></div>`).join(''):'<div class="empty" style="padding:16px 0">Sin datos</div>';
   document.getElementById('r-methods').innerHTML=Object.entries(byM).sort((a,b)=>b[1]-a[1]).map(([m,t])=>`<div class="top-row"><div class="top-n">${{Efectivo:'💵',Transferencia:'🏦',Tarjeta:'💳'}[m]||'💰'}</div><div class="top-name">${m}</div><div class="top-bw"><div class="top-b" style="width:${total?Math.round(t/total*100):0}%"></div></div><div class="top-val" style="width:80px;font-size:9px">$${t.toLocaleString('es-AR')}</div></div>`).join('')||'<div class="empty" style="padding:16px 0">Sin datos</div>';
   // Ventas por hora del día — para decidir horario de apertura/cierre.
   // Se agrupa por la hora local de cada venta (created_at) y se muestra
@@ -15408,17 +15560,17 @@ function renderStock(f){
   _refrescarStockCombos();
   let list=[...prods].sort((a,b)=>a.stock-b.stock);
   if(window.STOCK_SOLO_DISPONIBLES) list=list.filter(p=>(p.stock||0)>0); // vendedor: solo disponibles
-  if(f==='out')list=list.filter(p=>p.stock===0);
-  else if(f==='low')list=list.filter(p=>p.stock>0&&p.stock<(p.stock_minimo||10));
-  else if(f==='ok')list=list.filter(p=>p.stock>=(p.stock_minimo||10));
+  if(f==='out')list=list.filter(p=>p.stock<=0);
+  else if(f==='low')list=list.filter(p=>p.stock>0&&p.stock<stockMin(p));
+  else if(f==='ok')list=list.filter(p=>p.stock>=stockMin(p));
   if(stockSearch)list=list.filter(p=>(p.nombre||'').toLowerCase().includes(stockSearch)||(p.barcode||'').toLowerCase().includes(stockSearch)||(p.codigo_proveedor||'').toLowerCase().includes(stockSearch));
   document.getElementById('s-count').textContent=list.length;
   const maxS=Math.max(...prods.map(p=>p.stock),1);
   const el=document.getElementById('slist');
   if(!list.length){el.innerHTML='<div class="empty">Sin productos en esta categoría</div>';return;}
   el.innerHTML=list.map(p=>{
-    const min=p.stock_minimo||10;
-    const isOut=p.stock===0,isLow=p.stock>0&&p.stock<min;
+    const min=stockMin(p);
+    const isOut=p.stock<=0,isLow=p.stock>0&&p.stock<min;
     const cls=isOut?'sout':isLow?'slow':'';
     const dc=isOut?'dout':isLow?'dlow':'dok';
     const nc=isOut?'sout':isLow?'slow':'sok';
@@ -15432,8 +15584,8 @@ function renderStock(f){
           ${['dueño','dueno','administrativo','admin'].includes((USER_ROL||'').toLowerCase()) ? `<button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteProduct('${p.id}','${esc(p.nombre)}')">🗑️</button>` : ''}
         </div>
       </div>
-      <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${p.stock} uds</div></div>
-      <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}</span><span>${esc(p.barcode?'🔖 '+p.barcode:'')}</span><span>${esc(p.codigo_proveedor?'#'+p.codigo_proveedor:'')}</span><span>${p.costo>0?((p.impuesto_interno_unitario>0?'Costo total (ya con IVA+interno): $':'Costo neto: $')+(p.costo||0).toLocaleString('es-AR')):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
+      <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${fmtStock(p)}</div></div>
+      <div class="sc-meta"><span>${esc(p.categoria||'—')}</span><span>Venta: $${(p.precio||0).toLocaleString('es-AR')}${esPesable(p)?' /kg':''}</span><span>${esc(p.barcode?'🔖 '+p.barcode:'')}</span><span>${esc(p.codigo_proveedor?'#'+p.codigo_proveedor:'')}</span><span>${p.costo>0?((p.impuesto_interno_unitario>0?'Costo total (ya con IVA+interno): $':'Costo neto: $')+(p.costo||0).toLocaleString('es-AR')):'<span style=\"color:#e65100;font-weight:600\">⚠️ Sin costo</span>'}</span></div>
       ${p.costo>0?(()=>{const cIva=_costoConIva(p);return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;padding:6px 8px;background:#f0faf4;border-radius:6px;font-size:11px">
         <span style="color:#666">Costo con IVA: $${cIva.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>
         <span style="color:#999">·</span>
@@ -15441,11 +15593,14 @@ function renderStock(f){
         <span style="color:#999">·</span>
         <span style="color:#1a5c38;font-weight:600">${cIva>0?Math.round(((p.precio-cIva)/cIva)*100):0}%</span>
       </div>`;})():''}
-      ${window.NO_PUEDE_AJUSTAR_STOCK ? '' : `<div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+      ${window.NO_PUEDE_AJUSTAR_STOCK ? '' : (esPesable(p) ? `<div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+        <span style="font-size:11px;color:var(--muted)">Stock en kilos:</span>
+        <button class="btn btn-sm" style="background:var(--pine-l);color:var(--pine);border:1.5px solid var(--pine);padding:4px 12px" onclick="ajustarStockPeso('${p.id}')">⚖️ Cargar / ajustar kg</button>
+      </div>` : `<div style="display:flex;align-items:center;gap:8px;margin-top:8px">
         <span style="font-size:11px;color:var(--muted)">Ajustar stock:</span>
         <button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red);padding:4px 10px" onclick="ajustarStock('${p.id}',-1)">−</button>
         <button class="btn btn-sm" style="background:var(--pine-l);color:var(--pine);border:1.5px solid var(--pine);padding:4px 10px" onclick="ajustarStock('${p.id}',1)">+</button>
-      </div>`}
+      </div>`)}
       ${isOut?'<div class="sc-alerta rojo">🔴 Sin stock</div>':isLow?'<div class="sc-alerta">⚠️ Stock bajo</div>':''}
     </div>`;
   }).join('');
@@ -15471,7 +15626,30 @@ async function ajustarStock(id, delta){
     }
     p.stock = ajResult.stock_nuevo ?? nuevoStock;
     renderStock(stockFilter);renderProds();checkAlertBar();
-    showToast(`Stock actualizado: ${p.stock} uds`,'ok');
+    showToast(`Stock actualizado: ${fmtStock(p)}`,'ok');
+  }catch(e){showToast('❌ Error al ajustar stock','err');console.error(e);}
+}
+
+// Pesables: en vez de ±1 (que sería 1 kg), se tipea el stock real en kilos.
+async function ajustarStockPeso(id){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden ajustar stock','err'); return; }
+  const p=prods.find(x=>x.id==id); if(!p) return;
+  const txt = prompt(`Stock REAL de "${p.nombre}" en kilos\n(ahora: ${fmtPeso(p.stock)}). Ej: 12,5 son 12 kg y medio:`, String(p.stock).replace('.',','));
+  if(txt===null) return;
+  const nuevo = redondearKg(parseFloat(String(txt).replace(',','.')));
+  if(isNaN(nuevo) || nuevo<0){ showToast('❌ Ingresá un número de kilos válido','err'); return; }
+  if(nuevo===redondearKg(p.stock)){ showToast('El stock ya coincide — sin cambios','ok'); return; }
+  const razon = prompt('Razón del ajuste (requerida para auditoría). Ej: ingreso de mercadería / conteo:');
+  if(!razon || !razon.trim()){ showToast('❌ La razón del ajuste es obligatoria','err'); return; }
+  try{
+    const { data: ajResult, error } = await SB.rpc('ajuste_manual_stock', {
+      p_tienda_id: STORE.id, p_producto_id: id, p_stock_real: nuevo,
+      p_razon: razon.trim(), p_autorizado_por: USER?.email
+    });
+    if(error || !ajResult?.exito){ showToast('❌ ' + (ajResult?.error || error?.message || 'Error en ajuste'), 'err'); return; }
+    p.stock = ajResult.stock_nuevo ?? nuevo;
+    renderStock(stockFilter);renderProds();checkAlertBar();
+    showToast(`✅ Stock actualizado: ${fmtPeso(p.stock)}`,'ok');
   }catch(e){showToast('❌ Error al ajustar stock','err');console.error(e);}
 }
 
@@ -15486,8 +15664,9 @@ function editProduct(id){
   document.getElementById('np-costo').value=p.costo||'';
   document.getElementById('np-vence').value=p.vence||'';
   document.getElementById('np-stock').value=p.stock||'';
+  { const _pz=document.getElementById('np-pesable'); if(_pz) _pz.checked=esPesable(p); onPesableToggle(); }
   document.getElementById('np-cat').value=p.categoria||'';
-  document.getElementById('np-min').value=p.stock_minimo||10;
+  document.getElementById('np-min').value=stockMin(p);
   { const _b=document.getElementById('np-bulto'); if(_b) _b.value=p.unidades_por_bulto||1; }
   { const _cb=document.getElementById('np-cant-bultos'); if(_cb) _cb.value=''; }
   { const _h=document.getElementById('np-stock-calc'); if(_h) _h.style.display='none'; }
@@ -15533,7 +15712,10 @@ async function updateProduct(id){
     // ningún error visible.
     const proveedor_id = document.getElementById('np-proveedor')?.value || null;
     const costoIncluyeIva = !!document.getElementById('np-costo-con-iva')?.checked;
-    const updates={nombre,precio:precioNuevo,barcode,codigo_proveedor:codigoProveedor,costo,impuesto_interno_unitario:impuestoInterno,vence,stock:parseInt(document.getElementById('np-stock').value)||0,categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||10,unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1,proveedor_id,costo_incluye_iva:costoIncluyeIva};
+    const esPesablePend = !!document.getElementById('np-pesable')?.checked;
+    const updates={nombre,precio:precioNuevo,barcode,codigo_proveedor:codigoProveedor,costo,impuesto_interno_unitario:impuestoInterno,vence,stock:(esPesablePend?redondearKg(parseFloat(document.getElementById('np-stock').value)||0):(parseInt(document.getElementById('np-stock').value)||0)),categoria:document.getElementById('np-cat').value||'General',stock_minimo:parseInt(document.getElementById('np-min').value)||(esPesablePend?1:10),unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1,proveedor_id,costo_incluye_iva:costoIncluyeIva};
+    // `pesable` solo se manda si se tildó o si el producto ya lo tenía (así no falla en bases sin la columna)
+    if(esPesablePend || (prodRef && prodRef.pesable!==undefined)) updates.pesable=esPesablePend;
     // Si cambió el precio a mano, bloquearlo para que las listas nuevas no lo pisen
     if(precioNuevo>0 && Math.abs(precioNuevo-precioAnterior)>0.01){
       updates.precio_bloqueado = true;
@@ -15595,6 +15777,7 @@ async function saveProduct(){
     const vence = document.getElementById('np-vence').value || null;
     const proveedor_id = document.getElementById('np-proveedor')?.value || null;
     const costoIncluyeIva = !!document.getElementById('np-costo-con-iva')?.checked;
+    const esPes = !!document.getElementById('np-pesable')?.checked;
     const p=await sbInsert('productos',{
       nombre,
       precio,
@@ -15603,12 +15786,13 @@ async function saveProduct(){
       codigo_proveedor: codigoProveedor,
       impuesto_interno_unitario: impuestoInterno,
       vence,
-      stock:parseInt(document.getElementById('np-stock').value)||0,
+      stock:(esPes?redondearKg(parseFloat(document.getElementById('np-stock').value)||0):(parseInt(document.getElementById('np-stock').value)||0)),
       categoria:document.getElementById('np-cat').value||'General',
-      stock_minimo:parseInt(document.getElementById('np-min').value)||10,
+      stock_minimo:parseInt(document.getElementById('np-min').value)||(esPes?1:10),
       unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1,
       proveedor_id,
       costo_incluye_iva: costoIncluyeIva,
+      ...(esPes?{pesable:true}:{}),
     });
     if(proveedor_id && p){
       try{ const {data:fresh}=await SB.from('productos').select('precio,costo').eq('id',p.id).single();
@@ -15620,6 +15804,7 @@ async function saveProduct(){
     showToast('✅ Producto agregado','ok');
     ['np-name','np-price','np-stock','np-cat','np-min','np-barcode','np-codprov','np-imp-interno'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
     { const _chk=document.getElementById('np-costo-con-iva'); if(_chk) _chk.checked=true; }
+    { const _pz=document.getElementById('np-pesable'); if(_pz) _pz.checked=false; onPesableToggle(); }
     _prodEditandoCostoConIva = true;
   }catch(e){showToast('❌ Error al guardar producto','err');console.error(e);}
 }
@@ -15634,6 +15819,7 @@ function abrirAltaProducto(){
   { const _b=document.getElementById('np-bulto'); if(_b) _b.value=''; }
   { const _cb=document.getElementById('np-cant-bultos'); if(_cb) _cb.value=''; }
   { const _h=document.getElementById('np-stock-calc'); if(_h) _h.style.display='none'; }
+  { const _pz=document.getElementById('np-pesable'); if(_pz) _pz.checked=false; onPesableToggle(); }
   const t=document.querySelector('#ov-add-prod .modal-title'); if(t) t.textContent='Nuevo Producto';
   const btn=document.querySelector('#ov-add-prod .btn-ink'); if(btn){ btn.textContent='Guardar producto'; btn.onclick=saveProduct; }
   const blk=document.getElementById('np-pricing-block'); if(blk) blk.style.display='';
@@ -15894,9 +16080,10 @@ function actualizarCompraUnidades(){
   if(!hint) return;
   const pid=document.getElementById('co-prod')?.value;
   const p=(prods||[]).find(x=>x.id===pid);
-  const qty=parseInt(document.getElementById('co-qty')?.value)||0;
+  const qty=parseFloat(document.getElementById('co-qty')?.value)||0;
   const modo=document.getElementById('co-modo')?.value||'unidad';
   if(!p){ hint.textContent=''; return; }
+  if(esPesable(p)){ hint.innerHTML = `⚖️ Producto por peso: cargá los <b>kilos</b> que ingresan (ej. 12,5)${qty>0?` · ingresarán <b style="color:var(--pine)">${fmtPeso(qty)}</b>`:''}`; return; }
   const upb=p.unidades_por_bulto||1;
   if(modo==='bulto'){
     hint.innerHTML = `Este producto trae <b>${upb}</b> u/bulto · ingresarán <b style="color:var(--pine)">${qty*upb}</b> unidades al stock`;
@@ -15953,8 +16140,8 @@ function onCoSinFacturaToggle(){
 
 async function doCompra(){
   const pid     = document.getElementById('co-prod').value;
-  const qtyInput = parseInt(document.getElementById('co-qty').value);
-  const modoCompra = document.getElementById('co-modo')?.value || 'unidad';
+  let qtyInput = parseFloat(String(document.getElementById('co-qty').value).replace(',','.'));
+  let modoCompra = document.getElementById('co-modo')?.value || 'unidad';
   const factura = document.getElementById('co-factura').value.trim();
   const provId  = document.getElementById('co-prov-select')?.value || '';
   const provObj = proveedores.find(x=>x.id===provId);
@@ -15975,7 +16162,9 @@ async function doCompra(){
   if(!p){ showToast('Producto no encontrado','err'); return; }
 
   // Convertir bultos → unidades reales para el stock (según unidades por bulto del producto)
-  const upbCompra = p.unidades_por_bulto || 1;
+  if(esPesable(p)){ modoCompra='unidad'; qtyInput=redondearKg(qtyInput); }  // pesables: siempre kilos
+  else if(!Number.isInteger(qtyInput)){ showToast('Este producto se compra por unidad entera (sin decimales)','err'); return; }
+  const upbCompra = esPesable(p) ? 1 : (p.unidades_por_bulto || 1);
   const qty = (modoCompra==='bulto') ? qtyInput * upbCompra : qtyInput;
 
   const today = new Date().toISOString().split('T')[0];
@@ -16032,8 +16221,8 @@ async function doCompra(){
     compras.unshift(compra);
 
     showToast(esSinFactura
-      ? `✅ +${qty} uds${modoCompra==='bulto'?` (${qtyInput} bultos × ${upbCompra})`:''} de ${esc(p.nombre.split(' ')[0])} ingresadas al stock, contabilizado como pagado (sin factura).`
-      : `✅ +${qty} uds${modoCompra==='bulto'?` (${qtyInput} bultos × ${upbCompra})`:''} de ${esc(p.nombre.split(' ')[0])} ingresadas al stock. Cargá la factura para registrar el costo y la deuda.`, 'ok');
+      ? `✅ +${esPesable(p)?fmtPeso(qty):qty+' uds'}${modoCompra==='bulto'?` (${qtyInput} bultos × ${upbCompra})`:''} de ${esc(p.nombre.split(' ')[0])} ingresadas al stock, contabilizado como pagado (sin factura).`
+      : `✅ +${esPesable(p)?fmtPeso(qty):qty+' uds'}${modoCompra==='bulto'?` (${qtyInput} bultos × ${upbCompra})`:''} de ${esc(p.nombre.split(' ')[0])} ingresadas al stock. Cargá la factura para registrar el costo y la deuda.`, 'ok');
 
     // Reset form
     ['co-prod','co-prod-search','co-qty','co-factura','co-costo'].forEach(id => {
@@ -16185,7 +16374,7 @@ function renderCompraList(){
 
 // ══ ALERTS ══
 function checkAlertBar(){
-  const alerts=prods.filter(p=>p.stock<(p.stock_minimo||10));
+  const alerts=prods.filter(p=>p.stock<stockMin(p));
   const bar=document.getElementById('v-alert');
   if(!alerts.length){bar.innerHTML='';return;}
   const outs=alerts.filter(p=>p.stock===0).length;
@@ -16194,9 +16383,9 @@ function checkAlertBar(){
 }
 
 function showAlerts(){
-  const alerts=prods.filter(p=>p.stock<(p.stock_minimo||10));
+  const alerts=prods.filter(p=>p.stock<stockMin(p));
   if(!alerts.length){showToast('Sin alertas de stock','ok');return;}
-  alert(alerts.map(p=>`${p.stock===0?'🔴':'⚠️'} ${esc(p.nombre)}: ${p.stock} uds (mín: ${p.stock_minimo||10})`).join('\n'));
+  alert(alerts.map(p=>`${p.stock<=0?'🔴':'⚠️'} ${esc(p.nombre)}: ${fmtStock(p)} (mín: ${stockMin(p)}${esPesable(p)?' kg':''})`).join('\n'));
 }
 
 // ══ MODALS ══
@@ -17093,6 +17282,11 @@ function onScannerKeydown(e) {
 
 function buscarPorBarcode(code) {
   const prod = prods.find(p => p.barcode && p.barcode.trim() === code.trim());
+  if (prod && esPesable(prod)) {
+    // Producto por peso: no se suma de a 1, se abre la ventana para pesar
+    abrirPeso(prod.id);
+    return;
+  }
   if (prod) {
     // Agregar al carrito
     qtys[prod.id] = (qtys[prod.id] || 0) + 1;
@@ -17301,6 +17495,16 @@ function toggleProvProducto(){
   const conProveedor = !!prov;
   if(blk)  blk.style.display  = conProveedor ? 'none' : '';
   if(hint) hint.style.display = conProveedor ? 'block' : 'none';
+}
+
+// Tilda/destilda "Se vende por peso" en la ficha: solo cambia las etiquetas
+// para que quede claro que precio, costo y stock van por KILO.
+function onPesableToggle(){
+  const on=!!document.getElementById('np-pesable')?.checked;
+  const set=(id,t)=>{const el=document.getElementById(id); if(el) el.textContent=t;};
+  set('np-price-lbl', on?'Precio de venta por KILO':'Precio de venta');
+  set('np-stock-lbl', on?'Stock inicial (kilos)':'Stock inicial (unidades)');
+  set('np-min-lbl',   on?'Stock mínimo (kilos)':'Stock mínimo');
 }
 
 // ── Autocalcular stock inicial: cantidad de bultos × unidades por bulto ──
@@ -18648,7 +18852,7 @@ document.getElementById('aj-prod')?.addEventListener('change', function() {
   const difEl   = document.getElementById('aj-diferencia');
   if (!prod || !difEl) return;
   if (stockEl) stockEl.value = prod.stock;
-  difEl.textContent = `Stock actual en sistema: ${prod.stock} uds`;
+  difEl.textContent = `Stock actual en sistema: ${fmtStock(prod)}`;
   difEl.style.color = '#555';
 });
 
@@ -18657,17 +18861,18 @@ document.getElementById('aj-stock')?.addEventListener('input', function() {
   const prod   = prods.find(p => p.id === prodId);
   const difEl  = document.getElementById('aj-diferencia');
   if (!prod || !difEl) return;
-  const nuevo = parseInt(this.value);
+  const nuevo = esPesable(prod) ? redondearKg(parseFloat(this.value)) : parseInt(this.value);
   if (isNaN(nuevo)) return;
-  const diff = nuevo - prod.stock;
-  difEl.textContent = `${diff > 0 ? '+' : ''}${diff} uds respecto al sistema`;
+  const diff = redondearKg(nuevo - prod.stock);
+  difEl.textContent = `${diff > 0 ? '+' : ''}${esPesable(prod) ? fmtPeso(diff) : diff + ' uds'} respecto al sistema`;
   difEl.style.color = diff > 0 ? '#1a5c38' : diff < 0 ? '#c94040' : '#888';
 });
 
 async function ejecutarAjusteManual() {
   if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden ajustar stock manualmente','err'); return; }
   const prodId = document.getElementById('aj-prod')?.value;
-  const stock  = parseInt(document.getElementById('aj-stock')?.value);
+  const _prodAj = prods.find(p => p.id === prodId);
+  const stock  = esPesable(_prodAj) ? redondearKg(parseFloat(document.getElementById('aj-stock')?.value)) : parseInt(document.getElementById('aj-stock')?.value);
   const razon  = document.getElementById('aj-razon')?.value?.trim();
 
   if (!prodId)          { showToast('Seleccioná un producto', 'err'); return; }
@@ -18679,7 +18884,7 @@ async function ejecutarAjusteManual() {
     showToast('El stock ya coincide — sin cambios', 'ok'); return;
   }
 
-  if (!confirm(`¿Confirmar ajuste de stock?\n\nProducto: ${esc(prod?.nombre)}\nStock sistema: ${prod?.stock}\nStock real: ${stock}\nDiferencia: ${stock - (prod?.stock||0)} uds\n\nRazón: ${razon}`)) return;
+  if (!confirm(`¿Confirmar ajuste de stock?\n\nProducto: ${esc(prod?.nombre)}\nStock sistema: ${prod?.stock}\nStock real: ${stock}\nDiferencia: ${redondearKg(stock - (prod?.stock||0))} ${esPesable(prod)?'kg':'uds'}\n\nRazón: ${razon}`)) return;
 
   try {
     const { data, error } = await SB.rpc('ajuste_manual_stock', {
