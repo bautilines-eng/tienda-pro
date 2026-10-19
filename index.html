@@ -11796,7 +11796,7 @@ let deudas = [];
 let consumosPersonal = [];
 
 async function loadDeudas(){
-  try{ deudas = await sbGet('deudas'); }
+  try{ deudas = (await sbGet('deudas')).filter(d => !d.is_deleted && d.estado !== 'anulado'); }
   catch(e){ deudas = []; }
 }
 
@@ -12648,6 +12648,7 @@ function verComprasCliente(nombreCliente){
     const nroComp = m[1];
     const venta = (sales||[]).find(v=>String(v.nro_comprobante)===nroComp);
     if(!venta){ sinDetalle++; return; }
+    if(venta.anulada) return;   // venta anulada con nota de crédito: no es compra
     const items = typeof venta.items==='string' ? JSON.parse(venta.items||'[]') : (venta.items||[]);
     const pagado = d.estado==='pagado';
     items.forEach(it=>{
@@ -15134,6 +15135,27 @@ function abrirModalNotaCredito(ventaId) {
   openModal('ov-nota-credito');
 }
 
+// Al anular una venta a Cuenta Corriente, su deuda tiene que desaparecer de
+// Deudores (la RPC emitir_nota_credito anula la venta pero no toca `deudas`).
+// Si la deuda ya tiene pagos parciales no se toca: hay que resolverlo a mano.
+async function _cancelarDeudaDeVentaAnulada(venta){
+  try{
+    const nro = String(venta.nro_comprobante||'');
+    const candidatas = (deudas||[]).filter(d =>
+      d.tipo === 'cliente' && d.estado !== 'pagado' && d.estado !== 'anulado' && !d.is_deleted &&
+      (d.venta_id === venta.id || (nro && new RegExp('Venta CC\\s+' + nro.replace(/[^0-9-]/g,'') + '(\\D|$)','i').test(String(d.descripcion||'')))));
+    let conPagos = 0, canceladas = 0;
+    for (const d of candidatas) {
+      const hayPagos = (pagosDeuda||[]).some(x => x.deuda_id === d.id) || (d.monto_original && d.monto !== d.monto_original);
+      if (hayPagos) { conPagos++; continue; }
+      await sbUpdate('deudas', d.id, { estado:'anulado', is_deleted:true, deleted_at:new Date().toISOString() });
+      d.estado = 'anulado'; d.is_deleted = true; canceladas++;
+    }
+    if (canceladas) { deudas = deudas.filter(d => !d.is_deleted && d.estado !== 'anulado'); if (typeof renderDeudas==='function') renderDeudas(); }
+    return { canceladas, conPagos };
+  }catch(e){ console.error('No se pudo cancelar la deuda de la venta anulada', e); return { canceladas:0, conPagos:0, error:true }; }
+}
+
 async function confirmarNotaCredito() {
   if (!_ventaAnularId) return;
   const motivo  = document.getElementById('nc-motivo')?.value;
@@ -15221,6 +15243,9 @@ async function confirmarNotaCredito() {
     s.anulada = true;
     s.nota_credito_id = data.nota_credito_id;
     if (!stockOk) _ncSinDevolucionStock.add(data.nro_nota);
+    // Cuenta Corriente: cancelar la deuda de esta venta
+    const resDeuda = await _cancelarDeudaDeVentaAnulada(s);
+    if (resDeuda.conPagos) showToast('⚠️ La venta tenía pagos parciales en su deuda: revisá Deudores, esa deuda no se canceló sola', 'err');
 
     closeModal('ov-nota-credito');
     renderHist(); renderProds(); renderStock(stockFilter); renderCaja();
