@@ -1827,6 +1827,61 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 </div>
 
 <!-- MODAL EDITAR COMPRA / LÍNEA DE REMITO (solo dueño/administrativo, solo antes de cargar factura) -->
+<div class="overlay" id="ov-editar-remito">
+  <div class="modal-content" style="max-width:500px;animation:slideUp .3s ease">
+    <div style="background:linear-gradient(135deg,#1a5c38,#0f3d25);padding:20px 24px;border-radius:16px 16px 0 0;color:#fff;position:relative">
+      <span class="modal-close" style="color:rgba(255,255,255,.7);right:20px;top:20px" onclick="closeModal('ov-editar-remito')">✕</span>
+      <div style="font-size:11px;opacity:.7;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">📦 Corrección de remito</div>
+      <div style="font-size:18px;font-weight:700">Editar remito completo</div>
+    </div>
+    <div style="padding:20px;overflow-y:auto;max-height:78vh">
+      <div id="er-info" style="margin-bottom:14px;padding:10px 12px;background:#eef6ff;border:1px solid #cfe2f7;border-radius:10px;font-size:12px;color:#1565c0"></div>
+
+      <div class="fgroup"><div class="flabel">Proveedor</div>
+        <select class="inp" id="er-prov" style="cursor:pointer" onchange="_erResumen()"><option value="">— Sin proveedor —</option></select>
+      </div>
+
+      <div class="frow" style="margin-bottom:10px">
+        <div><div class="flabel">N° remito</div><input class="inp" id="er-nro" placeholder="0000-00000000"></div>
+        <div><div class="flabel">Fecha</div><input class="inp" id="er-fecha" type="date"></div>
+      </div>
+
+      <div class="fgroup"><div class="flabel">Forma de pago</div>
+        <select class="inp" id="er-pago" style="cursor:pointer" onchange="onErPagoChange()">
+          <option value="Contado">💵 Contado</option>
+          <option value="Cuenta Corriente">📒 Cta. Cte. (a plazo)</option>
+          <option value="Transferencia">🏦 Transferencia</option>
+        </select>
+      </div>
+
+      <div id="er-vence-wrap" style="display:none;margin-bottom:10px">
+        <div class="flabel">Vence el pago</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input class="inp" id="er-vence" type="date" style="flex:1">
+          <button type="button" onclick="erSetVence(15)" style="padding:9px 10px;border-radius:10px;border:1.5px solid #ddd;background:#fff;font-size:12px;font-weight:600;cursor:pointer">15 d</button>
+          <button type="button" onclick="erSetVence(30)" style="padding:9px 10px;border-radius:10px;border:1.5px solid #ddd;background:#fff;font-size:12px;font-weight:600;cursor:pointer">30 d</button>
+          <button type="button" onclick="erSetVence(60)" style="padding:9px 10px;border-radius:10px;border:1.5px solid #ddd;background:#fff;font-size:12px;font-weight:600;cursor:pointer">60 d</button>
+        </div>
+      </div>
+
+      <label style="display:flex;align-items:flex-start;gap:9px;background:#f1f5f9;border:1.5px solid #cbd5e1;border-radius:10px;padding:10px 11px;margin-bottom:12px;cursor:pointer">
+        <input type="checkbox" id="er-sin-factura" onchange="_erResumen()" style="width:17px;height:17px;margin-top:1px;cursor:pointer;accent-color:#475569;flex-shrink:0">
+        <span style="font-size:11.5px;color:#334155;line-height:1.4"><b>🧾 Sin factura</b> — no se va a cargar factura (sin IVA crédito). Con <b>Cta. Cte.</b> queda como deuda a plazo en Proveedores.</span>
+      </label>
+
+      <div id="er-resumen" style="margin-bottom:14px;padding:10px 12px;background:#fff8e1;border:1px solid #ffe08a;border-radius:10px;font-size:12px;color:#7a5b00"></div>
+
+      <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">Motivo de la corrección *</label>
+      <textarea id="er-motivo" class="inp" rows="2" placeholder="Ej: remito sin factura, se paga a 30 días" style="margin-bottom:16px"></textarea>
+
+      <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px">
+        <button onclick="closeModal('ov-editar-remito')" style="padding:13px;border-radius:12px;border:1.5px solid #ddd;background:#fff;font-size:13px;font-weight:600;color:#666;cursor:pointer">Cancelar</button>
+        <button id="er-btn" onclick="guardarEdicionRemito()" style="padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,#1a5c38,#0f3d25);color:#fff;font-size:14px;font-weight:700;cursor:pointer">✏️ Guardar remito</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="ov-editar-compra">
   <div class="modal-content" style="max-width:500px;animation:slideUp .3s ease">
     <div style="background:linear-gradient(135deg,#1565c0,#0d3d6b);padding:20px 24px;border-radius:16px 16px 0 0;color:#fff;position:relative">
@@ -3938,7 +3993,11 @@ function asientoCompra(compra) {
   if (!esSF) {
     lineas.push({ debe: true, cuenta: CUENTAS_ESPECIALES['iva_credito']||'11403005', nombre: 'IVA Crédito Fiscal', importe: iva, detalle: 'IVA CF ' + ali + '%' });
   }
-  if (esSF) {
+  if (esSF && compra.forma_pago === 'Cuenta Corriente') {
+    const ctaProv = _cuentaCreditoCompra(compra);
+    const nombreProv = PLAN_CUENTAS.find(c => c.codigo === ctaProv)?.nombre || 'Proveedores';
+    lineas.push({ debe: false, cuenta: ctaProv, nombre: nombreProv, importe: total, detalle: 'A pagar sin factura — ' + (compra.proveedor || 'sin proveedor') });
+  } else if (esSF) {
     const cuentaPago = _cuentaPagoCompra(compra.forma_pago);
     const nombrePago = PLAN_CUENTAS.find(c => c.codigo === cuentaPago)?.nombre || 'Caja';
     lineas.push({ debe: false, cuenta: cuentaPago, nombre: nombrePago, importe: total, detalle: 'Pago ' + (compra.forma_pago||'Contado') + ' — sin factura (' + (compra.proveedor||'proveedor') + ')' });
@@ -4300,10 +4359,10 @@ function _movimientosCuenta(cuentaCod, filtro) {
     const _ctaMerc = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.mercaderias) || '11501008';
     const _ctaIvaCred = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.iva_credito) || '11403005';
     const _ctaProv = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.proveedores) || '21101001';
-    const cuentaCredito = esSF ? _cuentaPagoCompra(co.forma_pago) : _ctaProv;
+    const cuentaCredito = _cuentaCreditoCompra(co);
     if (cuentaCod===_ctaMerc) movs.push({fecha:co.fecha, desc:'Compra '+co.producto_nombre+(esSF?' (sin factura)':''), debe:neto, haber:0, origen:'Compra'});
     if (!esSF && cuentaCod===_ctaIvaCred) movs.push({fecha:co.fecha, desc:'CF IVA '+ali+'% — '+co.proveedor, debe:iva, haber:0, origen:'Compra'});
-    if (cuentaCod===cuentaCredito) movs.push({fecha:co.fecha, desc:(esSF?'Pago sin factura — ':'A pagar — ')+(co.proveedor||'Proveedor'), debe:0, haber:total, origen:'Compra'});
+    if (cuentaCod===cuentaCredito) movs.push({fecha:co.fecha, desc:((esSF && co.forma_pago!=='Cuenta Corriente')?'Pago sin factura — ':'A pagar — ')+(co.proveedor||'Proveedor'), debe:0, haber:total, origen:'Compra'});
   });
 
   // Minutas (egreso/ingreso — incluye Fondos a Rendir)
@@ -7002,6 +7061,8 @@ function abrirAnularCompra(compraId) {
       ${facAsociada || (esRemito && facAsociada) ? '<div>📄 Factura: se marcará como anulada</div>' : ''}
       ${co.es_traspaso_interno
         ? '<div>🔁 Traspaso interno: no genera deuda ni gasto (mismo CUIT) — solo se revierte el stock</div>'
+        : (co.es_sin_factura && co.forma_pago === 'Cuenta Corriente')
+          ? '<div>🧾 Sin factura a Cuenta Corriente: se cancela la deuda a pagar (no hay factura asociada)</div>'
         : co.es_sin_factura
           ? '<div>🧾 Sin factura: se revierte el pago directo a ' + (_cuentaPagoCompra(co.forma_pago) === (METODO_CUENTA['Efectivo']||'11101001') ? 'Caja' : 'Banco') + ' — no hay deuda ni factura asociada</div>'
           : (deudaAsociada || deudaRemito) ? '<div>💳 Deuda con proveedor: se cancelará</div>' : '<div>💰 Gasto contado: se eliminará</div>'}
@@ -7245,6 +7306,157 @@ function onEdcPagoChange(){
   if(pagoEl?.value === 'Cuenta Corriente' && sfEl?.checked){ sfEl.checked = false; }
 }
 
+// ══ EDITAR REMITO COMPLETO (proveedor / pago / vencimiento / sin factura) ══
+// Cambia los datos del remito entero de una vez (todas las líneas). Permite
+// "Sin factura + Cuenta Corriente": mercadería sin comprobante pero que se
+// paga a plazo → se crea una deuda manual en Proveedores (sin IVA, sin factura).
+let _editarRemitoIds = [];
+function _erTotal(lineas){ return redondear(lineas.reduce((s,c)=>s+(c.precio_unitario||0)*(c.cantidad||0),0),2); }
+function _erSumarDias(fechaStr, dias){
+  const d = new Date((fechaStr||new Date().toISOString().slice(0,10))+'T12:00:00');
+  d.setDate(d.getDate()+dias);
+  return d.toISOString().slice(0,10);
+}
+function erSetVence(dias){
+  const f = document.getElementById('er-fecha')?.value;
+  const el = document.getElementById('er-vence'); if(el) el.value = _erSumarDias(f, dias);
+}
+function onErPagoChange(){
+  const cc = document.getElementById('er-pago')?.value === 'Cuenta Corriente';
+  const w = document.getElementById('er-vence-wrap'); if(w) w.style.display = cc ? 'block' : 'none';
+  if(cc && !document.getElementById('er-vence')?.value) erSetVence(30);
+  _erResumen();
+}
+function _erResumen(){
+  const el = document.getElementById('er-resumen'); if(!el) return;
+  const lineas = compras.filter(c => _editarRemitoIds.includes(c.id));
+  const total = _erTotal(lineas);
+  const sf = document.getElementById('er-sin-factura')?.checked;
+  const cc = document.getElementById('er-pago')?.value === 'Cuenta Corriente';
+  const fmt = n => '$' + n.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  let txt;
+  if (sf && cc) txt = `🧾📒 Se registra como <b>deuda a pagar de ${fmt(total)}</b> (sin IVA, sin factura). Aparece en <b>Deudas → Proveedores</b> y se paga ahí cuando corresponda. Contablemente queda en Proveedores.`;
+  else if (sf) txt = `🧾 Pago directo de ${fmt(total)} (sin IVA ni deuda).`;
+  else if (cc) txt = `📒 Cuenta corriente: la deuda se genera al cargar la factura del proveedor.`;
+  else txt = `Compra normal: la factura se carga después desde "Cargar factura".`;
+  el.innerHTML = txt;
+}
+
+function abrirEditarRemito(compraId){
+  if (!_esRolAdmin()) { showToast('Solo dueños o administrativos pueden editar remitos','err'); return; }
+  const co = compras.find(c => c.id === compraId);
+  if (!co) { showToast('Remito no encontrado','err'); return; }
+  const grupo = _comprasDelMismoRemito(co);
+  if (grupo.some(c => c.factura_cargada)) {
+    showToast('Este remito ya tiene factura cargada — para corregirlo, anulalo y volvé a cargarlo.','err'); return;
+  }
+  if (grupo.some(c => c.es_traspaso_interno)) { showToast('Los traspasos internos no se editan así.','err'); return; }
+  _editarRemitoIds = grupo.map(c => c.id);
+
+  const provSel = document.getElementById('er-prov');
+  provSel.innerHTML = '<option value="">— Sin proveedor —</option>' +
+    (proveedores||[]).filter(p => !p.is_deleted)
+      .map(p => `<option value="${p.id}">${esc(p.razon_social || p.nombre || '')}</option>`).join('');
+  provSel.value = co.proveedor_id || '';
+  document.getElementById('er-nro').value = co.numero_factura || '';
+  document.getElementById('er-fecha').value = co.fecha || '';
+  document.getElementById('er-pago').value = co.forma_pago || 'Contado';
+  document.getElementById('er-vence').value = co.vence_pago || '';
+  document.getElementById('er-sin-factura').checked = !!co.es_sin_factura;
+  document.getElementById('er-motivo').value = '';
+  document.getElementById('er-info').innerHTML = `📦 <b>${grupo.length} producto${grupo.length!==1?'s':''}</b> · Total de costos ${'$'+_erTotal(grupo).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})} · ${esc(co.proveedor||'sin proveedor')}`;
+  onErPagoChange();
+  openModal('ov-editar-remito');
+}
+
+async function guardarEdicionRemito(){
+  if (!_editarRemitoIds.length) return;
+  if (!_esRolAdmin()) { showToast('Solo dueños o administrativos pueden editar remitos','err'); return; }
+  const lineas = compras.filter(c => _editarRemitoIds.includes(c.id));
+  if (!lineas.length) { showToast('Remito no encontrado','err'); return; }
+  if (lineas.some(c => c.factura_cargada)) { showToast('Este remito ya tiene factura cargada.','err'); return; }
+
+  const provId = document.getElementById('er-prov').value || '';
+  const provObj = (proveedores||[]).find(x => x.id === provId);
+  const provNombre = provObj ? (provObj.razon_social || provObj.nombre || '') : '';
+  const nro = document.getElementById('er-nro').value.trim() || null;
+  const fecha = document.getElementById('er-fecha').value || lineas[0].fecha;
+  const pago = document.getElementById('er-pago').value || 'Contado';
+  const sf = document.getElementById('er-sin-factura').checked;
+  const vence = pago === 'Cuenta Corriente' ? (document.getElementById('er-vence').value || null) : null;
+  const motivo = document.getElementById('er-motivo').value.trim();
+
+  if (!motivo) { showToast('Indicá el motivo de la corrección (queda en la auditoría)','err'); return; }
+  if (pago === 'Cuenta Corriente' && !vence) { showToast('Indicá la fecha de vencimiento del pago','err'); return; }
+  if (!sf && !provId) { showToast('Una compra con factura necesita proveedor. Si no tiene proveedor, tildá "Sin factura".','err'); return; }
+  const total = _erTotal(lineas);
+  if (sf && lineas.some(c => !(c.precio_unitario > 0))) { showToast('Hay productos sin costo cargado — sin factura, el costo se carga en el remito.','err'); return; }
+  if (sf && pago === 'Cuenta Corriente' && total <= 0) { showToast('El remito no tiene importe para generar la deuda','err'); return; }
+
+  // Deudas ya creadas para este remito (solo existen si fue sin factura + cta cte)
+  const deudasPrev = deudas.filter(d => d.tipo === 'proveedor' && !d.is_deleted && d.estado !== 'anulado' && _editarRemitoIds.includes(d.compra_id));
+  for (const d of deudasPrev) {
+    const abonos = (pagosDeuda||[]).some(x => x.deuda_id === d.id);
+    if (abonos || (d.monto_original && d.monto !== d.monto_original) || d.estado === 'pagado') {
+      showToast('La deuda de este remito ya tiene pagos registrados — no se puede editar. Anulá los pagos primero.','err'); return;
+    }
+  }
+
+  const btn = document.getElementById('er-btn');
+  const txt0 = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  try {
+    const old = { proveedor: lineas[0].proveedor, proveedor_id: lineas[0].proveedor_id, numero_factura: lineas[0].numero_factura,
+                  fecha: lineas[0].fecha, forma_pago: lineas[0].forma_pago, vence_pago: lineas[0].vence_pago, es_sin_factura: !!lineas[0].es_sin_factura };
+    const upd = { proveedor: provNombre || null, proveedor_id: provId || null, numero_factura: nro,
+                  fecha, forma_pago: pago, vence_pago: vence, es_sin_factura: sf };
+    for (const c of lineas) { await sbUpdate('compras', c.id, upd); Object.assign(c, upd); }
+
+    // Deuda manual (sin factura + cuenta corriente)
+    const quiereDeuda = sf && pago === 'Cuenta Corriente';
+    const acreedor = provNombre || ('Sin proveedor — Remito ' + (nro || 'S/N'));
+    const desc = `Compra sin factura — Remito ${nro || 'S/N'} (${lineas.length} producto${lineas.length!==1?'s':''})${motivo ? ' · ' + motivo : ''}`;
+    let deudaMsg = '';
+    if (quiereDeuda) {
+      if (deudasPrev.length) {
+        const d = deudasPrev[0];
+        const campos = { nombre_cliente: acreedor, monto: total, monto_original: total, descripcion: desc, fecha_limite: vence };
+        await sbUpdate('deudas', d.id, campos); Object.assign(d, campos);
+        for (const extra of deudasPrev.slice(1)) {
+          await sbUpdate('deudas', extra.id, { estado:'anulado', is_deleted:true, deleted_at:new Date().toISOString() });
+          extra.estado = 'anulado'; extra.is_deleted = true;
+        }
+      } else {
+        const nueva = await sbInsert('deudas', {
+          tienda_id: STORE.id, nombre_cliente: acreedor, monto: total, monto_original: total,
+          descripcion: desc, estado: 'pendiente', fecha_limite: vence, tipo: 'proveedor', compra_id: lineas[0].id
+        });
+        deudas.unshift(nueva);
+      }
+      deudaMsg = ` — Deuda de $${total.toLocaleString('es-AR')} (vence ${vence}) en Proveedores`;
+    } else {
+      for (const d of deudasPrev) {
+        await sbUpdate('deudas', d.id, { estado:'anulado', is_deleted:true, deleted_at:new Date().toISOString() });
+        d.estado = 'anulado'; d.is_deleted = true;
+      }
+    }
+
+    await auditLog('EDICION_REMITO', 'compras', lineas[0].remito_id || lineas[0].id,
+      { motivo, lineas: lineas.length, deuda: quiereDeuda ? total : 0 }, old, upd);
+
+    closeModal('ov-editar-remito');
+    _editarRemitoIds = [];
+    renderCompraList();
+    if (typeof renderDeudas === 'function') renderDeudas();
+    showToast('✅ Remito corregido' + deudaMsg, 'ok');
+  } catch (e) {
+    console.error('Error editando remito:', e);
+    showToast('❌ ' + (e.message || 'No se pudo guardar el remito'), 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = txt0; }
+  }
+}
+
 function abrirEditarCompra(compraId) {
   if (!_esRolAdmin()) {
     showToast('Solo dueños o administrativos pueden editar compras/remitos', 'err');
@@ -7255,6 +7467,11 @@ function abrirEditarCompra(compraId) {
   if (co.anulada) { showToast('Esta compra está anulada', 'err'); return; }
   if (co.factura_cargada) {
     showToast('Esta compra ya tiene factura cargada — para corregirla, anulá la compra/remito y volvé a cargarla (así se revierte también la deuda/gasto y la contabilidad).', 'err');
+    return;
+  }
+
+  if (co.es_sin_factura && co.forma_pago === 'Cuenta Corriente') {
+    showToast('Esta compra es "sin factura" con deuda a plazo. Para corregir proveedor, fecha, vencimiento o pago usá "Editar remito"; para cambiar productos o cantidades, anulá el remito y volvé a cargarlo (así la deuda queda consistente).', 'err');
     return;
   }
 
@@ -7604,7 +7821,7 @@ function renderBalance() {
     const _ctaProvB = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.proveedores) || '21101001';
     if (totales[_ctaMercB]) totales[_ctaMercB].debe += neto;
     if (!esSF && totales[_ctaIvaCredB]) totales[_ctaIvaCredB].debe += iva;   // todo el CF junto (decisión contadora)
-    const cuentaCredito = esSF ? _cuentaPagoCompra(co.forma_pago) : _ctaProvB;
+    const cuentaCredito = _cuentaCreditoCompra(co);
     if (totales[cuentaCredito])totales[cuentaCredito].haber += total;
   });
 
@@ -16757,6 +16974,10 @@ function renderCompraList(){
       ? `<button onclick="abrirEditarCompra('${co.id}');event.stopPropagation()" style="font-size:10px;background:#eef6ff;color:#1565c0;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #cfe2f7;cursor:pointer" title="Editar compra">✏️ Editar</button>`
       : '';
 
+    const btnEditarRemito = (_esRolAdmin() && !co.factura_cargada && g.esRemito && !esTraspaso)
+      ? `<button onclick="abrirEditarRemito('${co.id}');event.stopPropagation()" style="font-size:10px;background:#eafaf0;color:#1a5c38;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #b8e6c9;cursor:pointer" title="Editar proveedor, pago, vencimiento o sin factura de todo el remito">✏️ Editar remito</button>`
+      : '';
+
     // Boton anular / deshacer: para remito anula todo el grupo; para compra
     // individual, esa sola. Si ya está anulada, ofrece deshacerla en vez de
     // un botón que solo tira error al tocarlo.
@@ -16783,6 +17004,7 @@ function renderCompraList(){
         <div style="display:flex;gap:6px;align-items:center">
           ${facBadge}
           ${btnEditar}
+          ${btnEditarRemito}
           ${btnAnular}
         </div>
       </div>
@@ -17439,6 +17661,15 @@ function _ivaCompra(co){
 // Cuenta contable que corresponde acreditar cuando se paga una compra
 // "Sin factura" — es un pago directo (Caja/Banco), nunca una deuda a
 // Proveedores, porque no hay factura que la respalde formalmente.
+// Cuenta que se acredita al registrar una compra: factura normal -> Proveedores;
+// sin factura pagada -> Caja/Banco (pago directo); sin factura A CUENTA CORRIENTE
+// (deuda a plazo cargada a mano) -> Proveedores, así el pago posterior de la deuda
+// (Debe Proveedores / Haber medio) cierra el asiento.
+function _cuentaCreditoCompra(co){
+  const prov = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.proveedores) || '21101001';
+  if (!co.es_sin_factura) return prov;
+  return co.forma_pago === 'Cuenta Corriente' ? prov : _cuentaPagoCompra(co.forma_pago);
+}
 function _cuentaPagoCompra(formaPago){
   if (formaPago === 'Contado') return METODO_CUENTA['Efectivo'] || '11101001';
   return METODO_CUENTA[formaPago] || '11101001';
