@@ -471,6 +471,24 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
   </div>
 </div>
 
+<!-- INVENTARIO: DIFERENCIAS -->
+<div class="overlay" id="ov-inv-dif">
+  <div class="modal" style="position:relative;max-height:90vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('ov-inv-dif')">✕</button>
+    <div class="modal-title">📊 Diferencias del inventario</div>
+    <div id="inv-dif-body" style="font-size:13px"></div>
+    <button class="btn btn-pine btn-full" id="inv-btn-xlsx" onclick="invDescargarExcel()" style="margin-top:12px">Descargar Excel con todo</button>
+    <div style="margin-top:14px;padding:12px;border:1.5px solid #fdba74;background:#fff7ed;border-radius:10px">
+      <div style="font-size:12px;font-weight:700;color:#9a3412;margin-bottom:6px">Ajustar el stock del sistema a lo contado</div>
+      <label style="display:flex;gap:8px;font-size:12px;margin-bottom:4px;cursor:pointer"><input type="checkbox" id="inv-ap-falt" checked> Corregir <b>faltantes</b> (el sistema tiene más de lo que hay)</label>
+      <label style="display:flex;gap:8px;font-size:12px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="inv-ap-sobr" checked> Corregir <b>sobrantes</b> (hay más de lo que dice el sistema)</label>
+      <div style="font-size:11px;color:#9a3412;line-height:1.4;margin-bottom:8px">Cada ajuste queda en el Kardex con tu usuario. Las ventas hechas después de contar se respetan. Los productos no contados no se tocan. Descargá el Excel antes de aplicar.</div>
+      <button class="btn btn-full" id="inv-btn-aplicar" onclick="invAplicar()" style="background:#c94f1a;color:#fff">Aplicar ajustes</button>
+    </div>
+  </div>
+</div>
+
 <!-- INFORME DE COBROS QR / TARJETA -->
 <div class="overlay" id="ov-informe-cobros">
   <div class="modal" style="position:relative;max-height:88vh;overflow-y:auto">
@@ -1074,19 +1092,36 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </button>
     </div>
 
-    <!-- Recuento físico -->
+    <!-- Inventario físico (conteo en papel) -->
     <div id="panel-recuento" style="display:none;padding:0 4px">
-      <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;color:#9a3412">
-        📋 Contá el stock real de cada producto. Al aplicar, el sistema ajusta el stock al valor contado y registra cada cambio en el Kardex (con trazabilidad).
+      <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:10px 12px;margin:10px 0;font-size:12px;color:#9a3412;line-height:1.5">
+        📋 <b>Inventario general.</b> 1) Descargá la planilla, 2) contá en papel, 3) cargá lo contado acá (o subí la planilla completada en Excel), 4) mirá las diferencias y descargá el Excel. Podés seguir vendiendo: las ventas hechas después de contar cada producto se descuentan solas al calcular la diferencia.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <button onclick="invDescargarPlanilla()" id="inv-btn-planilla" style="flex:1;min-width:150px;padding:10px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:700;cursor:pointer">🖨️ Planilla para contar</button>
+        <button onclick="document.getElementById('inv-file').click()" style="flex:1;min-width:150px;padding:10px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:700;cursor:pointer">📥 Subir planilla completada</button>
+        <input type="file" id="inv-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="invImportarExcel(this)">
+      </div>
+      <div class="frow" style="margin-bottom:8px">
+        <div class="fgroup"><div class="flabel">Categoría</div><select class="inp" id="inv-cat" onchange="invCat=this.value;renderRecuento()" style="cursor:pointer"><option value="all">Todas</option></select></div>
+        <div class="fgroup"><div class="flabel">Mostrar</div>
+          <select class="inp" id="inv-ver" onchange="invVer=this.value;renderRecuento()" style="cursor:pointer">
+            <option value="todos">Todos</option><option value="pendientes">Pendientes de contar</option><option value="contados">Ya contados</option>
+          </select></div>
+      </div>
+      <div class="frow" style="margin-bottom:8px">
+        <div class="fgroup" style="flex:1"><div class="flabel">Hora en que se contó <span style="font-size:10px;color:#aaa;font-weight:400">(vacío = ahora)</span></div><input class="inp" type="datetime-local" id="inv-hora"></div>
+        <label style="display:flex;align-items:flex-end;gap:6px;font-size:12px;color:#555;padding-bottom:10px;cursor:pointer"><input type="checkbox" id="inv-solo" checked onchange="invSoloStock=this.checked;renderRecuento()"> Solo con stock</label>
       </div>
       <div style="position:relative;margin-bottom:8px">
         <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:15px;opacity:.5">🔍</span>
-        <input class="inp" placeholder="Buscar producto..." style="padding-left:38px" oninput="buscarRecuento(this.value)">
+        <input class="inp" id="inv-buscar" placeholder="Buscar producto o código…" style="padding-left:38px" oninput="buscarRecuento(this.value)">
       </div>
-      <div id="rec-resumen" style="font-size:12px;color:#555;background:#f8f8f8;border-radius:8px;padding:8px 12px;margin-bottom:8px">Contados: 0 / 0</div>
+      <div id="rec-resumen" style="font-size:12px;color:#555;background:#f8f8f8;border-radius:8px;padding:8px 12px;margin-bottom:8px">Contados: 0</div>
       <div id="rec-list" style="border:1px solid #eee;border-radius:10px;max-height:50vh;overflow-y:auto"></div>
-      <button onclick="aplicarRecuento()" style="width:100%;margin-top:10px;padding:12px;border-radius:10px;border:none;background:#1a5c38;color:#fff;font-size:14px;font-weight:700;cursor:pointer">✅ Aplicar recuento (ajustar stock)</button>
-      <button onclick="exportarRecuentoExcel()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:600;cursor:pointer">📊 Exportar recuento a Excel</button>
+      <div style="font-size:11px;color:#999;margin-top:6px;line-height:1.4">Lo cargado se guarda en este dispositivo. El stock del sistema no se muestra a propósito, para contar sin sesgo. Fiambres y otros productos por peso: cargá los kilos con coma (ej. 1,250).</div>
+      <button onclick="invVerDiferencias()" id="inv-btn-dif" style="width:100%;margin-top:10px;padding:12px;border-radius:10px;border:none;background:#1a5c38;color:#fff;font-size:14px;font-weight:700;cursor:pointer">📊 Ver diferencias y descargar Excel</button>
+      <button onclick="invReiniciar()" style="width:100%;margin-top:8px;padding:10px;border-radius:10px;border:1.5px solid #e0b4b4;background:#fff;color:#c0392b;font-size:12px;font-weight:600;cursor:pointer">🗑️ Borrar lo cargado y empezar de nuevo</button>
     </div>
 
     <!-- GRN Panel -->
@@ -15470,91 +15505,428 @@ function renderReportes(){
 // ══ STOCK ══
 function filtS(f,el){stockFilter=f;document.querySelectorAll('#ps .fb').forEach(b=>b.classList.remove('on'));el.classList.add('on');renderStock(f);}
 let stockSearch = '';
-let recuentoConteos = {};
-let recuentoSearch = '';
-
 function buscarStock(v){ stockSearch=(v||'').toLowerCase().trim(); renderStock(stockFilter); }
+
+// ══════════════════════════════════════════════════════════════
+// INVENTARIO FÍSICO (conteo en papel, se sigue vendiendo mientras se cuenta)
+//
+// Cada conteo guarda cuánto se contó y CUÁNDO. Para saber cuánto
+// "debería haber" en ese momento se parte del stock de hoy y se le
+// restan los movimientos del Kardex posteriores al conteo (ventas,
+// compras, devoluciones): así una venta hecha después de contar un
+// producto no aparece como faltante falso. Lo contado se guarda en
+// este dispositivo (localStorage); no hace falta ninguna tabla nueva.
+// ══════════════════════════════════════════════════════════════
+let invState = { counts:{} };
+let invCat = 'all', invVer = 'todos', invSoloStock = true, recuentoSearch = '';
+let _invLoaded = false, _invUltimo = null;
+
+function _invKey(){ return 'tp_inv_' + ((typeof STORE!=='undefined' && STORE && STORE.id) || 'x'); }
+function invCargarLS(){
+  try{ const r=localStorage.getItem(_invKey()); invState = r ? JSON.parse(r) : {counts:{}}; }catch(e){ invState={counts:{}}; }
+  if(!invState || typeof invState!=='object') invState={counts:{}};
+  if(!invState.counts) invState.counts={};
+  _invLoaded = true;
+}
+function invGuardarLS(){ try{ localStorage.setItem(_invKey(), JSON.stringify(invState)); }catch(e){} }
+function _invValidos(){ return (prods||[]).filter(p=>!p.es_combo && !p.is_deleted); }
+function _invNum(v, pes){
+  if(v==null) return null;
+  const s=String(v).trim().replace(/\s/g,'').replace(',','.');
+  if(s==='') return null;
+  const n=parseFloat(s);
+  if(isNaN(n) || n<0) return null;
+  return pes ? redondearKg(n) : Math.round(n);
+}
+function invHoraBase(){
+  const v=document.getElementById('inv-hora')?.value;
+  if(v){ const t=new Date(v).getTime(); if(!isNaN(t)) return Math.min(t, Date.now()); }
+  return Date.now();
+}
 function buscarRecuento(v){ recuentoSearch=(v||'').toLowerCase().trim(); renderRecuento(); }
+
 function _recuentoResumen(){
-  let contados=0, conDif=0, totalDif=0;
-  prods.forEach(pr=>{
-    const v = recuentoConteos[pr.id];
-    if(v!=null && v!==''){ contados++; const d=parseInt(v)-(pr.stock||0); if(d!==0){ conDif++; totalDif+=d; } }
-  });
-  const r=document.getElementById('rec-resumen');
-  if(r) r.innerHTML = `Contados: <b>${contados}</b> / ${prods.length} · Con diferencia: <b style="color:${conDif?'#c0392b':'#1a5c38'}">${conDif}</b> · Neto: <b>${totalDif>=0?'+':''}${totalDif} uds</b>`;
+  const r=document.getElementById('rec-resumen'); if(!r) return;
+  const val=_invValidos();
+  const conStock=val.filter(p=>(p.stock||0)>0);
+  const contadosConStock=conStock.filter(p=>invState.counts[p.id]).length;
+  const extra=Object.keys(invState.counts).filter(id=>{const p=val.find(x=>x.id===id); return p && !((p.stock||0)>0);}).length;
+  r.innerHTML=`Contados: <b>${contadosConStock}</b> de ${conStock.length} con stock · Pendientes: <b style="color:${conStock.length-contadosConStock?'#c0392b':'#1a5c38'}">${conStock.length-contadosConStock}</b>${extra?` · Fuera de lista: <b>${extra}</b>`:''}`;
 }
 
 function renderRecuento(){
-  const el = document.getElementById('rec-list');
-  if(!el) return;
-  let list = [...prods].sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
-  if(recuentoSearch) list = list.filter(p=>(p.nombre||'').toLowerCase().includes(recuentoSearch)||(p.barcode||'').toLowerCase().includes(recuentoSearch)||(p.codigo_proveedor||'').toLowerCase().includes(recuentoSearch));
+  const el=document.getElementById('rec-list'); if(!el) return;
+  if(!_invLoaded) invCargarLS();
+  const val=_invValidos();
+  // desplegable de categorías (se rearma conservando la selección)
+  const sel=document.getElementById('inv-cat');
+  if(sel){
+    const cats=[...new Set(val.filter(p=>(p.stock||0)>0 || invState.counts[p.id]).map(p=>p.categoria||'Sin categoría'))].sort((a,b)=>a.localeCompare(b));
+    sel.innerHTML='<option value="all">Todas</option>'+cats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    sel.value = cats.includes(invCat) ? invCat : 'all'; invCat = sel.value;
+  }
+  let list=val.filter(p=>{
+    if(invCat!=='all' && (p.categoria||'Sin categoría')!==invCat) return false;
+    const contado=!!invState.counts[p.id];
+    if(invSoloStock && !((p.stock||0)>0) && !contado && !recuentoSearch) return false;
+    if(invVer==='pendientes' && contado) return false;
+    if(invVer==='contados' && !contado) return false;
+    if(recuentoSearch && !((p.nombre||'').toLowerCase().includes(recuentoSearch)||(p.barcode||'').toLowerCase().includes(recuentoSearch)||(p.codigo_proveedor||'').toLowerCase().includes(recuentoSearch))) return false;
+    return true;
+  }).sort((a,b)=>(a.categoria||'').localeCompare(b.categoria||'')||(a.nombre||'').localeCompare(b.nombre||''));
   _recuentoResumen();
-  if(!list.length){ el.innerHTML='<div class="empty" style="padding:16px;text-align:center;color:#aaa">Sin productos</div>'; return; }
-  el.innerHTML = list.map(p=>{
-    const val = recuentoConteos[p.id]!=null ? recuentoConteos[p.id] : '';
-    let difTxt = '';
-    if(val!==''){ const d=parseInt(val)-(p.stock||0); difTxt = d===0?'<span style="color:#1a5c38">✓</span>':`<b style="color:${d>0?'#1a5c38':'#c0392b'}">${d>0?'+':''}${d}</b>`; }
-    return `<div style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #f0f0f0">
-      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.nombre||'')}</div><div style="font-size:11px;color:#999">Sistema: ${p.stock||0}</div></div>
-      <input type="number" inputmode="numeric" value="${val}" placeholder="contar" style="width:72px;padding:8px;border:1.5px solid #ddd;border-radius:8px;text-align:center;font-size:13px" oninput="updateRecuentoConteo('${p.id}',this.value)">
-      <div id="rec-dif-${p.id}" style="width:42px;text-align:center;font-size:13px">${difTxt}</div>
+  if(!list.length){ el.innerHTML='<div class="empty" style="padding:16px;text-align:center;color:#aaa">Sin productos para mostrar</div>'; return; }
+  const MAX=300, total=list.length; list=list.slice(0,MAX);
+  let cat=null;
+  el.innerHTML=list.map(p=>{
+    const c=invState.counts[p.id]; const pes=esPesable(p);
+    let head='';
+    if(invCat==='all' && (p.categoria||'')!==cat){ cat=p.categoria||''; head=`<div style="position:sticky;top:0;background:#eaf5ee;color:#1a5c38;font-size:11px;font-weight:700;padding:5px 10px;letter-spacing:.3px">${esc(cat||'Sin categoría')}</div>`; }
+    return head+`<div style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #f0f0f0">
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.nombre||'')}</div><div style="font-size:11px;color:#999">${esc(p.barcode||p.codigo_proveedor||'sin código')}${pes?' · ⚖️ en kilos':''}</div></div>
+      <input data-inv="1" type="text" inputmode="decimal" value="${c?String(c.q).replace('.',','):''}" placeholder="${pes?'kg':'contar'}" style="width:78px;padding:8px;border:1.5px solid ${c?'#1a5c38':'#ddd'};border-radius:8px;text-align:center;font-size:14px" oninput="updateRecuentoConteo('${p.id}',this.value,this)" onkeydown="invEnter(event,this)">
     </div>`;
-  }).join('');
+  }).join('') + (total>MAX?`<div style="padding:10px;text-align:center;font-size:11px;color:#999">Mostrando ${MAX} de ${total} — usá el buscador o filtrá por categoría</div>`:'');
 }
-
-function updateRecuentoConteo(pid, val){
-  if(val==='') delete recuentoConteos[pid]; else recuentoConteos[pid]=val;
-  const p = prods.find(x=>x.id===pid);
-  const cell = document.getElementById('rec-dif-'+pid);
-  if(cell && p){
-    if(val===''){ cell.innerHTML=''; }
-    else { const d=parseInt(val)-(p.stock||0); cell.innerHTML = d===0?'<span style="color:#1a5c38">✓</span>':`<b style="color:${d>0?'#1a5c38':'#c0392b'}">${d>0?'+':''}${d}</b>`; }
-  }
+function invEnter(e,inp){
+  if(e.key!=='Enter') return; e.preventDefault();
+  const all=[...document.querySelectorAll('#rec-list input[data-inv]')]; const i=all.indexOf(inp);
+  if(all[i+1]){ all[i+1].focus(); all[i+1].select(); }
+}
+function updateRecuentoConteo(pid, val, inp){
+  const p=_invValidos().find(x=>x.id===pid); if(!p) return;
+  const n=_invNum(val, esPesable(p));
+  if(val.trim()==='' || n==null) delete invState.counts[pid];
+  else invState.counts[pid]={q:n, t:invHoraBase()};
+  invGuardarLS();
+  if(inp) inp.style.borderColor = invState.counts[pid] ? '#1a5c38' : '#ddd';
   _recuentoResumen();
 }
-
-async function aplicarRecuento(){
-  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden ajustar stock por recuento','err'); return; }
-  const aAjustar = [];
-  prods.forEach(p=>{
-    const v = recuentoConteos[p.id];
-    if(v!=null && v!==''){ const real=parseInt(v); if(!isNaN(real) && real!==(p.stock||0)) aAjustar.push({p, real}); }
-  });
-  if(!aAjustar.length){ showToast('No hay diferencias para ajustar','ok'); return; }
-  if(!confirm(`Vas a ajustar ${aAjustar.length} producto(s) con diferencia.\n\nCada ajuste queda registrado en el Kardex con trazabilidad. ¿Confirmás?`)) return;
-  const razon = 'Recuento físico ' + new Date().toISOString().split('T')[0];
-  let ok=0, fail=0;
-  for(const {p, real} of aAjustar){
-    try{
-      const { data, error } = await SB.rpc('ajuste_manual_stock', {
-        p_tienda_id: STORE.id, p_producto_id: p.id, p_stock_real: real,
-        p_razon: razon, p_autorizado_por: USER?.email
-      });
-      if(error || !data?.exito){ fail++; console.error('Ajuste falló:', p.nombre, data?.error||error); }
-      else { p.stock = data.stock_nuevo; ok++; }
-    }catch(e){ fail++; console.error(e); }
-  }
-  recuentoConteos = {};
-  renderRecuento(); renderStock(stockFilter); renderProds();
-  showToast(`Recuento aplicado: ${ok} ajuste(s)${fail?`, ${fail} con error`:''} ${fail?'⚠️':'✅'}`, fail?'err':'ok');
+function invReiniciar(){
+  const n=Object.keys(invState.counts).length;
+  if(!n){ showToast('No hay nada cargado','ok'); return; }
+  if(!confirm(`Vas a borrar los ${n} conteos cargados en este dispositivo. El stock del sistema NO se modifica. ¿Seguro?`)) return;
+  invState={counts:{}}; invGuardarLS(); renderRecuento();
+  showToast('Conteo borrado','ok');
 }
 
-function exportarRecuentoExcel(){
-  const filas = prods.filter(p=>{ const v=recuentoConteos[p.id]; return v!=null && v!==''; })
-    .sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
-  if(!filas.length){ showToast('No hay productos contados para exportar','err'); return; }
-  const SEP=';';
-  const rows=[['Producto','Codigo','Stock sistema','Conteo fisico','Diferencia'].join(SEP)];
-  let totDif=0;
-  filas.forEach(p=>{
-    const real=parseInt(recuentoConteos[p.id]); const dif=real-(p.stock||0); totDif+=dif;
-    rows.push([_csvCell(p.nombre||''),_csvCell(p.barcode||''),_csvCell(p.stock||0),_csvCell(real),_csvCell(dif)].join(SEP));
+// ── Cálculo de diferencias ─────────────────────────────────────
+async function invCalcular(){
+  if(!_invLoaded) invCargarLS();
+  const cnt=invState.counts, ids=Object.keys(cnt);
+  if(!ids.length) throw new Error('Todavía no cargaste ningún conteo');
+  // 1) stock actual real de la base (otra caja pudo vender)
+  const stockDB={}; let from=0; const PAGE=1000;
+  while(true){
+    const {data,error}=await SB.from('productos').select('id,stock').eq('tienda_id',STORE.id).order('id').range(from,from+PAGE-1);
+    if(error) throw new Error('No se pudo leer el stock: '+error.message);
+    (data||[]).forEach(r=>{stockDB[r.id]=+r.stock||0;});
+    if(!data||data.length<PAGE) break; from+=PAGE;
+  }
+  // 2) movimientos del Kardex posteriores al conteo más antiguo
+  const minT=Math.min(...ids.map(i=>cnt[i].t));
+  const movs={}; from=0;
+  while(true){
+    const {data,error}=await SB.from('kardex').select('producto_id,cantidad,created_at').eq('tienda_id',STORE.id)
+      .gt('created_at', new Date(minT).toISOString()).order('created_at',{ascending:true}).order('id',{ascending:true}).range(from,from+PAGE-1);
+    if(error) throw new Error('No se pudo leer el Kardex: '+error.message);
+    (data||[]).forEach(m=>{ (movs[m.producto_id]=movs[m.producto_id]||[]).push({c:+m.cantidad, t:new Date(m.created_at).getTime()}); });
+    if(!data||data.length<PAGE) break; from+=PAGE;
+  }
+  const filas=[];
+  _invValidos().forEach(p=>{
+    const actual = stockDB[p.id]!=null ? stockDB[p.id] : (+p.stock||0);
+    if(stockDB[p.id]!=null) p.stock=stockDB[p.id];
+    const c=cnt[p.id]; const pes=esPesable(p);
+    const base={id:p.id, codigo:p.barcode||p.codigo_proveedor||'', nombre:p.nombre||'', categoria:p.categoria||'Sin categoría', pes, unidad:pes?'kg':'u', costo:+p.costo||0, precio:+p.precio||0};
+    if(c){
+      const despues=redondearKg((movs[p.id]||[]).filter(m=>m.t>c.t).reduce((s,m)=>s+m.c,0));
+      const esperado=redondearKg(actual-despues);
+      const dif=redondearKg(c.q-esperado);
+      filas.push({...base, esperado, contado:c.q, dif, difCosto:Math.round(dif*base.costo*100)/100, difVenta:Math.round(dif*base.precio*100)/100,
+        estado: dif===0?'OK':(dif<0?'Faltante':'Sobrante'), ajuste:Math.max(0,redondearKg(c.q+despues)), actual, t:c.t});
+    } else if(actual>0){
+      filas.push({...base, esperado:actual, contado:null, dif:null, difCosto:null, difVenta:null, estado:'No contado', ajuste:null, actual, t:null});
+    }
   });
-  rows.push([_csvCell('TOTAL'),'','','',_csvCell(totDif)].join(SEP));
-  _descargarCSV(rows, 'recuento_'+new Date().toISOString().split('T')[0]+'.csv');
-  showToast('Recuento exportado ✅','ok');
+  const r={filas, ts:ids.map(i=>cnt[i].t), generado:Date.now()};
+  r.t0=Math.min(...r.ts); r.t1=Math.max(...r.ts);
+  return r;
+}
+function _invResumen(filas){
+  const sum=(a,f)=>Math.round(a.reduce((s,x)=>s+f(x),0)*100)/100;
+  const ok=filas.filter(x=>x.estado==='OK'), fa=filas.filter(x=>x.estado==='Faltante'), so=filas.filter(x=>x.estado==='Sobrante'), nc=filas.filter(x=>x.estado==='No contado');
+  const contados=ok.length+fa.length+so.length;
+  return {contados, ok:ok.length, nFalt:fa.length, nSobr:so.length, nNo:nc.length,
+    faltCosto:sum(fa,x=>x.difCosto), sobrCosto:sum(so,x=>x.difCosto), netoCosto:sum([...fa,...so],x=>x.difCosto),
+    faltVenta:sum(fa,x=>x.difVenta), sobrVenta:sum(so,x=>x.difVenta), netoVenta:sum([...fa,...so],x=>x.difVenta),
+    noContCosto:sum(nc,x=>x.esperado*x.costo), exactitud: contados? Math.round(ok.length/contados*1000)/10 : 0};
+}
+const _m$=n=>(n<0?'-':'')+'$'+Math.abs(Math.round(n)).toLocaleString('es-AR');
+async function invVerDiferencias(){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden ver las diferencias','err'); return; }
+  const btn=document.getElementById('inv-btn-dif'); const t0=btn.textContent; btn.disabled=true; btn.textContent='Calculando…';
+  try{
+    _invUltimo=await invCalcular();
+    const R=_invResumen(_invUltimo.filas);
+    const top=_invUltimo.filas.filter(x=>x.estado==='Faltante'||x.estado==='Sobrante').sort((a,b)=>Math.abs(b.difCosto)-Math.abs(a.difCosto)).slice(0,8);
+    const tile=(l,v,s,c)=>`<div style="flex:1;min-width:120px;background:#f8f8f8;border-radius:10px;padding:10px 12px"><div style="font-size:11px;color:#888">${l}</div><div style="font-size:18px;font-weight:700;color:${c||'#222'}">${v}</div><div style="font-size:11px;color:#888">${s||''}</div></div>`;
+    document.getElementById('inv-dif-body').innerHTML=
+      `<div style="font-size:11px;color:#888;margin:-6px 0 10px">Conteos del ${new Date(_invUltimo.t0).toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'})} al ${new Date(_invUltimo.t1).toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'})} · valores a costo</div>`+
+      `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">`+
+      tile('Contados',R.contados,`${R.ok} sin diferencia (${R.exactitud}%)`)+
+      tile('Faltantes',R.nFalt,_m$(R.faltCosto),'#c0392b')+
+      tile('Sobrantes',R.nSobr,_m$(R.sobrCosto),'#1a5c38')+
+      tile('No contados',R.nNo,'con stock en el sistema','#c94f1a')+`</div>`+
+      `<div style="background:${R.netoCosto<0?'#fdeaea':'#eaf5ee'};border-radius:10px;padding:10px 12px;margin-bottom:10px;font-weight:700;color:${R.netoCosto<0?'#c0392b':'#1a5c38'}">Diferencia neta: ${_m$(R.netoCosto)} a costo · ${_m$(R.netoVenta)} a precio de venta</div>`+
+      (top.length?`<div style="font-size:12px;font-weight:700;margin-bottom:4px">Mayores diferencias</div>`+top.map(x=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #eee;font-size:12px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.nombre)}</span><b style="color:${x.dif<0?'#c0392b':'#1a5c38'};white-space:nowrap">${x.dif>0?'+':''}${x.pes?fmtPeso(Math.abs(x.dif)).replace(/^/,x.dif<0?'-':''):x.dif} · ${_m$(x.difCosto)}</b></div>`).join(''):'<div style="color:#1a5c38;font-weight:600">✓ Sin diferencias en lo contado</div>');
+    openModal('ov-inv-dif');
+  }catch(e){ console.error(e); showToast('❌ '+(e.message||e),'err'); }
+  finally{ btn.disabled=false; btn.textContent=t0; }
+}
+
+// ── Aplicar ajustes ─────────────────────────────────────────────
+async function invAplicar(){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden ajustar stock','err'); return; }
+  const btn=document.getElementById('inv-btn-aplicar'); const t0=btn.textContent; btn.disabled=true; btn.textContent='Calculando…';
+  try{
+    const R=await invCalcular(); _invUltimo=R;
+    const f=document.getElementById('inv-ap-falt').checked, s=document.getElementById('inv-ap-sobr').checked;
+    const lista=R.filas.filter(x=>(x.estado==='Faltante'&&f)||(x.estado==='Sobrante'&&s));
+    if(!lista.length){ showToast('No hay diferencias para ajustar con esa selección','ok'); return; }
+    const res=_invResumen(lista);
+    if(!confirm(`Vas a ajustar el stock de ${lista.length} producto(s):\n• ${res.nFalt} faltantes (${_m$(res.faltCosto)} a costo)\n• ${res.nSobr} sobrantes (${_m$(res.sobrCosto)} a costo)\n\nCada ajuste queda en el Kardex. ¿Confirmás?`)) return;
+    const razon='Inventario físico '+new Date().toLocaleDateString('es-AR');
+    let ok=0, fail=0; btn.textContent='Aplicando…';
+    const hechos=[];
+    for(const x of lista){
+      try{
+        const {data,error}=await SB.rpc('ajuste_manual_stock',{p_tienda_id:STORE.id,p_producto_id:x.id,p_stock_real:x.ajuste,p_razon:razon,p_autorizado_por:USER?.email});
+        if(error||!data?.exito){ fail++; console.error('Ajuste falló',x.nombre,data?.error||error); }
+        else{ ok++; hechos.push(x.id); const p=prods.find(q=>q.id===x.id); if(p) p.stock=data.stock_nuevo; }
+      }catch(e){ fail++; console.error(e); }
+    }
+    // los ya ajustados y los que dieron OK salen de la lista de conteos
+    R.filas.filter(x=>x.estado==='OK').forEach(x=>{delete invState.counts[x.id];});
+    hechos.forEach(id=>{delete invState.counts[id];});
+    invGuardarLS(); renderRecuento(); renderStock(stockFilter); renderProds(); if(typeof checkAlertBar==='function') checkAlertBar();
+    closeModal('ov-inv-dif');
+    showToast(`Inventario aplicado: ${ok} ajuste(s)${fail?`, ${fail} con error ⚠️`:' ✅'}`, fail?'err':'ok');
+  }catch(e){ console.error(e); showToast('❌ '+(e.message||e),'err'); }
+  finally{ btn.disabled=false; btn.textContent=t0; }
+}
+
+// ── Excel ───────────────────────────────────────────────────────
+function _invDescargar(buf,nombre){
+  const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nombre;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+const _INV_C={PINE:'FF1A5C38',PINE_L:'FFEAF5EE',INK:'FF12100E',RUST:'FFC94F1A',RUST_L:'FFFDF0EA',RED:'FFC94040',RED_L:'FFFDEAEA',GRAY:'FF6B6B6B',BAND:'FFF7F8F4',LINE:'FFE3E6DF',WHITE:'FFFFFFFF',YEL:'FFFFF8DC'};
+
+async function invDescargarPlanilla(){
+  const btn=document.getElementById('inv-btn-planilla'); const t0=btn.textContent; btn.disabled=true; btn.textContent='Generando…';
+  try{
+    await _cargarExcelJS();
+    const C=_INV_C, FONT='Arial', fill=c=>({type:'pattern',pattern:'solid',fgColor:{argb:c}}), thin=c=>({style:'thin',color:{argb:c}});
+    const lista=_invValidos().filter(p=>(p.stock||0)>0).sort((a,b)=>(a.categoria||'').localeCompare(b.categoria||'')||(a.nombre||'').localeCompare(b.nombre||''));
+    if(!lista.length){ showToast('No hay productos con stock','err'); return; }
+    const wb=new ExcelJS.Workbook(); wb.creator='Tienda Pro'; wb.created=new Date();
+    const ws=wb.addWorksheet('Planilla de conteo',{properties:{tabColor:{argb:C.PINE}},views:[{state:'frozen',ySplit:3,showGridLines:false}],
+      pageSetup:{orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9,printTitlesRow:'3:3',margins:{left:.4,right:.4,top:.5,bottom:.5,header:.2,footer:.2}}});
+    ws.headerFooter={oddFooter:'&LPlanilla de conteo&CPágina &P de &N&R&D'};
+    [['Código',17],['Producto',54],['Unidad',9],['CONTADO',15],['Observación',30],['ID',4]].forEach((c,i)=>{ws.getColumn(i+1).width=c[1];});
+    ws.getColumn(6).hidden=true;
+    ws.mergeCells('A1:E1'); const t=ws.getCell('A1'); t.value='Planilla de conteo de stock'; t.font={name:FONT,size:16,bold:true,color:{argb:C.WHITE}}; t.fill=fill(C.PINE); t.alignment={vertical:'middle',indent:1}; ws.getRow(1).height=34;
+    ws.mergeCells('A2:E2'); const s=ws.getCell('A2'); s.value=`${(STORE&&STORE.nombre)||'Drugstore'} · ${new Date().toLocaleDateString('es-AR')} · ${lista.length} productos · Anotá lo que hay en CONTADO (en kilos con coma si es "kg", ej. 1,250). No cambies los nombres.`; s.font={name:FONT,size:10,color:{argb:C.GRAY}}; s.fill=fill(C.PINE_L); s.alignment={vertical:'middle',indent:1,wrapText:true}; ws.getRow(2).height=30;
+    const hr=ws.getRow(3); hr.height=24;
+    ['Código','Producto','Unidad','CONTADO','Observación','ID'].forEach((h,i)=>{const c=hr.getCell(i+1);c.value=h;c.font={name:FONT,size:10,bold:true,color:{argb:C.WHITE}};c.fill=fill(C.INK);c.alignment={vertical:'middle',horizontal:(i===2||i===3)?'center':'left',indent:(i===0||i===1||i===4)?1:0};});
+    let r=4, cat=null;
+    lista.forEach(p=>{
+      if((p.categoria||'Sin categoría')!==cat){
+        cat=p.categoria||'Sin categoría';
+        ws.mergeCells(`A${r}:E${r}`); const b=ws.getCell(`A${r}`); b.value=cat.toUpperCase(); b.font={name:FONT,size:11,bold:true,color:{argb:C.PINE}}; b.fill=fill(C.PINE_L); b.alignment={vertical:'middle',indent:1}; ws.getRow(r).height=22; r++;
+      }
+      const row=ws.getRow(r); row.height=22;
+      [p.barcode||p.codigo_proveedor||'',p.nombre||'',esPesable(p)?'kg':'u',null,null,p.id].forEach((v,k)=>{ if(v!==null) row.getCell(k+1).value=v; });
+      for(let n=1;n<=5;n++){const c=row.getCell(n);c.font={name:FONT,size:10,bold:n===4,color:{argb:C.INK}};c.border={bottom:thin(C.LINE),left:n===4||n===5?thin(C.LINE):undefined,right:n===4?thin(C.LINE):undefined};c.alignment={vertical:'middle',horizontal:(n===3||n===4)?'center':'left',indent:(n===1||n===2||n===5)?1:0};if(n===4)c.fill=fill(C.YEL);}
+      row.getCell(1).numFmt='@';
+      r++;
+    });
+    ws.mergeCells(`A${r}:E${r}`); const e=ws.getCell(`A${r}`); e.value='PRODUCTOS QUE NO FIGURAN EN LA LISTA (anotar código o nombre)'; e.font={name:FONT,size:11,bold:true,color:{argb:C.RUST}}; e.fill=fill(C.RUST_L); e.alignment={vertical:'middle',indent:1}; ws.getRow(r).height=22; r++;
+    for(let i=0;i<25;i++){const row=ws.getRow(r); row.height=22; for(let n=1;n<=5;n++){const c=row.getCell(n);c.border={bottom:thin(C.LINE),left:thin(C.LINE),right:n===5?thin(C.LINE):undefined};if(n===4)c.fill=fill(C.YEL);} r++;}
+    _invDescargar(await wb.xlsx.writeBuffer(), `planilla_conteo_${fechaHoyLocal()}.xlsx`);
+    showToast(`✅ Planilla con ${lista.length} productos`,'ok');
+  }catch(e){ console.error(e); showToast('No se pudo generar la planilla: '+(e.message||e),'err'); }
+  finally{ btn.disabled=false; btn.textContent=t0; }
+}
+
+function invImportarExcel(inp){
+  const file=inp.files&&inp.files[0]; if(!file) return;
+  const rd=new FileReader();
+  rd.onload=ev=>{
+    try{
+      const wb=XLSX.read(ev.target.result,{type:'array'});
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:'',raw:true});
+      let h=-1; const col={};
+      for(let i=0;i<Math.min(rows.length,15);i++){
+        const low=rows[i].map(c=>String(c).trim().toLowerCase());
+        if(low.includes('contado')){ h=i; low.forEach((v,j)=>{ if(v==='contado')col.q=j; else if(v==='id')col.id=j; else if(v==='producto')col.n=j; else if(v==='código'||v==='codigo')col.c=j; }); break; }
+      }
+      if(h<0||col.q==null){ showToast('No encontré la columna CONTADO. Usá la planilla que descargó el sistema.','err'); return; }
+      const val=_invValidos(); const porId={}, porCod={}, porNom={};
+      val.forEach(p=>{porId[p.id]=p; if(p.barcode) porCod[String(p.barcode).trim()]=p; porNom[(p.nombre||'').trim().toLowerCase()]=p;});
+      const t=invHoraBase(); let ok=0, redond=0; const noEnc=[];
+      for(let i=h+1;i<rows.length;i++){
+        const r=rows[i]; const raw=r[col.q];
+        if(raw===''||raw==null) continue;
+        let p=null;
+        if(col.id!=null && r[col.id]) p=porId[String(r[col.id]).trim()];
+        if(!p && col.c!=null && r[col.c]) p=porCod[String(r[col.c]).trim()];
+        if(!p && col.n!=null && r[col.n]) p=porNom[String(r[col.n]).trim().toLowerCase()];
+        const pes=p?esPesable(p):false;
+        const n=_invNum(raw,pes);
+        if(!p||n==null){ noEnc.push(String((col.n!=null&&r[col.n])||(col.c!=null&&r[col.c])||('fila '+(i+1)))); continue; }
+        if(!pes && Math.abs(parseFloat(String(raw).replace(',','.'))-n)>1e-9) redond++;
+        invState.counts[p.id]={q:n,t}; ok++;
+      }
+      invGuardarLS(); renderRecuento();
+      showToast(`✅ ${ok} conteos cargados${noEnc.length?` · ${noEnc.length} sin identificar`:''}${redond?` · ${redond} redondeados a entero`:''}`, noEnc.length?'err':'ok');
+      if(noEnc.length) alert('No pude identificar estas filas (revisá código o nombre):\n\n'+noEnc.slice(0,30).join('\n')+(noEnc.length>30?`\n… y ${noEnc.length-30} más`:''));
+    }catch(e){ console.error(e); showToast('No se pudo leer el Excel: '+(e.message||e),'err'); }
+    finally{ inp.value=''; }
+  };
+  rd.readAsArrayBuffer(file);
+}
+
+async function invDescargarExcel(){
+  const btn=document.getElementById('inv-btn-xlsx'); const t0=btn.textContent; btn.disabled=true; btn.textContent='Generando…';
+  try{
+    await _cargarExcelJS();
+    const R=_invUltimo||await invCalcular();
+    const wb=_invConstruirLibro(window.ExcelJS,R);
+    _invDescargar(await wb.xlsx.writeBuffer(), `inventario_${fechaHoyLocal()}.xlsx`);
+    showToast('✅ Excel de inventario generado','ok');
+  }catch(e){ console.error(e); showToast('No se pudo generar el Excel: '+(e.message||e),'err'); }
+  finally{ btn.disabled=false; btn.textContent=t0; }
+}
+
+function _invConstruirLibro(ExcelJS,R){
+  const C=_INV_C, FONT='Arial', MONEY='"$"#,##0.00;[Red]-"$"#,##0.00', QTY='#,##0.###;[Red]-#,##0.###';
+  const fill=c=>({type:'pattern',pattern:'solid',fgColor:{argb:c}}), thin=c=>({style:'thin',color:{argb:c}});
+  const tienda=(STORE&&STORE.nombre)||'Drugstore';
+  const f=ts=>new Date(ts).toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'});
+  const sub=`${tienda} · Conteos del ${f(R.t0)} al ${f(R.t1)} · Generado ${f(R.generado)}`;
+  const wb=new ExcelJS.Workbook(); wb.creator='Tienda Pro'; wb.created=new Date();
+  const filas=R.filas.slice().sort((a,b)=>a.categoria.localeCompare(b.categoria)||a.nombre.localeCompare(b.nombre));
+  const resumen=wb.addWorksheet('Resumen',{properties:{tabColor:{argb:C.PINE}},views:[{showGridLines:false}],pageSetup:{orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9}});
+  const det=wb.addWorksheet('Detalle',{properties:{tabColor:{argb:C.INK}},views:[{state:'frozen',ySplit:4,xSplit:2,showGridLines:false}],pageSetup:{orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9,printTitlesRow:'4:4'}});
+
+  function encabezado(ws,ncols,titulo,subt,color){
+    const L=String.fromCharCode(64+ncols);
+    ws.mergeCells(`A1:${L}1`); const t=ws.getCell('A1'); t.value=titulo; t.font={name:FONT,size:15,bold:true,color:{argb:C.WHITE}}; t.fill=fill(color||C.PINE); t.alignment={vertical:'middle',indent:1}; ws.getRow(1).height=34;
+    ws.mergeCells(`A2:${L}2`); const s=ws.getCell('A2'); s.value=subt; s.font={name:FONT,size:10,color:{argb:C.GRAY}}; s.fill=fill(C.PINE_L); s.alignment={vertical:'middle',indent:1}; ws.getRow(2).height=20; ws.getRow(3).height=6;
+  }
+  function cabecera(ws,fila,cols){
+    const hr=ws.getRow(fila); hr.height=28;
+    cols.forEach((c,i)=>{ws.getColumn(i+1).width=c[1]; const x=hr.getCell(i+1); x.value=c[0]; x.font={name:FONT,size:10,bold:true,color:{argb:C.WHITE}}; x.fill=fill(C.INK); x.alignment={vertical:'middle',wrapText:true,horizontal:c[2]||'left',indent:(c[2]||'left')==='left'?1:0};});
+  }
+  function estilo(row,i,cols,estado){
+    row.height=18;
+    row.eachCell({includeEmpty:true},(c,n)=>{ if(n>cols.length) return;
+      c.font={name:FONT,size:10,color:{argb:C.INK}}; c.fill=fill(estado==='Faltante'?C.RED_L:(estado==='Sobrante'?C.PINE_L:(estado==='No contado'?C.RUST_L:(i%2?C.BAND:C.WHITE)))); c.border={bottom:thin(C.LINE)};
+      const al=cols[n-1][2]||'left'; c.alignment={vertical:'middle',horizontal:al,indent:al==='left'?1:0}; });
+  }
+
+  // ── Detalle ──
+  const dc=[['Código',16],['Producto',46],['Categoría',24],['Unidad',8,'center'],['Stock sistema',14,'right'],['Contado',12,'right'],['Diferencia',13,'right'],['Costo unit.',14,'right'],['Dif. $ costo',16,'right'],['Precio venta',14,'right'],['Dif. $ venta',16,'right'],['Estado',13,'center']];
+  encabezado(det,dc.length,'Inventario — detalle por producto',sub); cabecera(det,4,dc);
+  let r=5; const first=5;
+  filas.forEach((x,i)=>{
+    const row=det.getRow(r);
+    row.getCell(1).value=x.codigo; row.getCell(2).value=x.nombre; row.getCell(3).value=x.categoria; row.getCell(4).value=x.unidad;
+    row.getCell(5).value=x.esperado;
+    if(x.contado!=null){
+      row.getCell(6).value=x.contado;
+      row.getCell(7).value={formula:`IF(F${r}="","",F${r}-E${r})`,result:x.dif};
+      row.getCell(9).value={formula:`IF(F${r}="","",ROUND(G${r}*H${r},2))`,result:x.difCosto};
+      row.getCell(11).value={formula:`IF(F${r}="","",ROUND(G${r}*J${r},2))`,result:x.difVenta};
+    } else { row.getCell(7).value={formula:`IF(F${r}="","",F${r}-E${r})`,result:''}; row.getCell(9).value={formula:`IF(F${r}="","",ROUND(G${r}*H${r},2))`,result:''}; row.getCell(11).value={formula:`IF(F${r}="","",ROUND(G${r}*J${r},2))`,result:''}; }
+    row.getCell(8).value=x.costo; row.getCell(10).value=x.precio; row.getCell(12).value=x.estado;
+    estilo(row,i,dc,x.estado);
+    [5,6,7].forEach(n=>row.getCell(n).numFmt=QTY); [8,9,10,11].forEach(n=>row.getCell(n).numFmt=MONEY); row.getCell(1).numFmt='@';
+    const col=x.estado==='Faltante'?C.RED:(x.estado==='Sobrante'?C.PINE:(x.estado==='No contado'?C.RUST:C.GRAY));
+    row.getCell(12).font={name:FONT,size:10,bold:true,color:{argb:col}};
+    r++;
+  });
+  const last=Math.max(r-1,first);
+  if(filas.length) det.autoFilter={from:'A4',to:`L${last}`};
+  const rng=c=>`Detalle!$${c}$${first}:$${c}$${last}`;
+
+  // ── Resumen ──
+  resumen.getColumn(1).width=42; [2,3,4,5,6].forEach(n=>resumen.getColumn(n).width=21);
+  encabezado(resumen,6,'Inventario general — resumen',sub);
+  const S=_invResumen(R.filas);
+  const th=(row,vals)=>{const h=resumen.getRow(row); h.height=24; vals.forEach((v,i)=>{const c=h.getCell(i+1); c.value=v; c.font={name:FONT,size:10,bold:true,color:{argb:C.WHITE}}; c.fill=fill(C.INK); c.alignment={vertical:'middle',horizontal:i===0?'left':'right',indent:i===0?1:0,wrapText:true};});};
+  th(4,['Indicador','Productos','$ a costo','$ a precio de venta']);
+  const filasRes=[
+    ['Contados sin diferencia (OK)', `COUNTIFS(${rng('L')},"OK")`, S.ok, null, null, C.WHITE, C.INK],
+    ['Con faltante', `COUNTIFS(${rng('L')},"Faltante")`, S.nFalt, `SUMIFS(${rng('I')},${rng('L')},"Faltante")`, S.faltCosto, C.RED_L, C.RED, `SUMIFS(${rng('K')},${rng('L')},"Faltante")`, S.faltVenta],
+    ['Con sobrante', `COUNTIFS(${rng('L')},"Sobrante")`, S.nSobr, `SUMIFS(${rng('I')},${rng('L')},"Sobrante")`, S.sobrCosto, C.PINE_L, C.PINE, `SUMIFS(${rng('K')},${rng('L')},"Sobrante")`, S.sobrVenta],
+    ['Diferencia neta (faltante + sobrante)', null, S.nFalt+S.nSobr, 'C6+C7', S.netoCosto, C.BAND, C.INK, 'D6+D7', S.netoVenta],
+    ['No contados (con stock en el sistema)', `COUNTIFS(${rng('L')},"No contado")`, S.nNo, `SUMPRODUCT((${rng('L')}="No contado")*${rng('E')}*${rng('H')})`, S.noContCosto, C.RUST_L, C.RUST],
+  ];
+  filasRes.forEach((fr,i)=>{
+    const rr=5+i; const row=resumen.getRow(rr); row.height=22;
+    row.getCell(1).value=fr[0];
+    row.getCell(2).value = fr[1] ? {formula:fr[1],result:fr[2]} : fr[2];
+    if(fr[3]){ row.getCell(3).value={formula:fr[3],result:fr[4]}; }
+    if(fr[7]){ row.getCell(4).value={formula:fr[7],result:fr[8]}; }
+    for(let n=1;n<=4;n++){const c=row.getCell(n); c.fill=fill(fr[5]); c.font={name:FONT,size:11,bold:i===3,color:{argb:fr[6]}}; c.border={bottom:thin(C.LINE)}; c.alignment={vertical:'middle',horizontal:n===1?'left':'right',indent:n===1?1:0};}
+    row.getCell(3).numFmt=MONEY; row.getCell(4).numFmt=MONEY; row.getCell(2).numFmt='#,##0';
+  });
+  // exactitud
+  const ex=resumen.getRow(11); ex.height=22;
+  ex.getCell(1).value='Exactitud (OK sobre contados)';
+  ex.getCell(2).value={formula:`IF(SUM(B5:B7)=0,0,B5/SUM(B5:B7))`,result:S.contados?S.ok/S.contados:0}; ex.getCell(2).numFmt='0.0%';
+  for(let n=1;n<=4;n++){const c=ex.getCell(n); c.font={name:FONT,size:11,bold:true,color:{argb:C.PINE}}; c.fill=fill(C.PINE_L); c.alignment={vertical:'middle',horizontal:n===1?'left':'right',indent:n===1?1:0};}
+  // por categoría
+  resumen.getRow(12).height=10;
+  th(13,['Por categoría','Contados','Con diferencia','Faltante $ costo','Sobrante $ costo','Neto $ costo']);
+  const cats=[...new Set(filas.map(x=>x.categoria))].sort((a,b)=>a.localeCompare(b));
+  cats.forEach((cat,i)=>{
+    const rr=14+i, row=resumen.getRow(rr); row.height=19; const fx=filas.filter(x=>x.categoria===cat); const cc=fx.filter(x=>x.contado!=null), cd=cc.filter(x=>x.dif!==0);
+    const q=JSON.stringify(cat);
+    row.getCell(1).value=cat;
+    row.getCell(2).value={formula:`COUNTIFS(${rng('C')},A${rr},${rng('L')},"<>No contado")`,result:cc.length};
+    row.getCell(3).value={formula:`COUNTIFS(${rng('C')},A${rr},${rng('L')},"Faltante")+COUNTIFS(${rng('C')},A${rr},${rng('L')},"Sobrante")`,result:cd.length};
+    const fa=Math.round(cc.filter(x=>x.dif<0).reduce((s,x)=>s+x.difCosto,0)*100)/100, so=Math.round(cc.filter(x=>x.dif>0).reduce((s,x)=>s+x.difCosto,0)*100)/100;
+    row.getCell(4).value={formula:`SUMIFS(${rng('I')},${rng('C')},A${rr},${rng('L')},"Faltante")`,result:fa};
+    row.getCell(5).value={formula:`SUMIFS(${rng('I')},${rng('C')},A${rr},${rng('L')},"Sobrante")`,result:so};
+    row.getCell(6).value={formula:`D${rr}+E${rr}`,result:Math.round((fa+so)*100)/100};
+    for(let n=1;n<=6;n++){const c=row.getCell(n); c.font={name:FONT,size:10,color:{argb:C.INK}}; c.fill=fill(i%2?C.BAND:C.WHITE); c.border={bottom:thin(C.LINE)}; c.alignment={vertical:'middle',horizontal:n===1?'left':'right',indent:n===1?1:0};}
+    [4,5,6].forEach(n=>row.getCell(n).numFmt=MONEY);
+  });
+  const notaR=14+cats.length+1; resumen.mergeCells(`A${notaR}:F${notaR+1}`);
+  const nt=resumen.getCell(`A${notaR}`); nt.value='Cómo se calcula: Stock sistema = stock de hoy menos los movimientos (ventas, compras, devoluciones) posteriores a la hora en que se contó cada producto. Diferencia = Contado − Stock sistema. Los valores están a costo (sin IVA) salvo donde dice "precio de venta".';
+  nt.font={name:FONT,size:9,italic:true,color:{argb:C.GRAY}}; nt.alignment={wrapText:true,vertical:'top',indent:1};
+
+  // ── hojas por estado ──
+  function hojaLista(nombre,titulo,rows,color,tab,cols,vals){
+    const ws=wb.addWorksheet(nombre,{properties:{tabColor:{argb:tab}},views:[{state:'frozen',ySplit:4,showGridLines:false}],pageSetup:{orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9,printTitlesRow:'4:4'}});
+    encabezado(ws,cols.length,`${titulo} (${rows.length})`,sub,color); cabecera(ws,4,cols);
+    rows.forEach((x,i)=>{const row=ws.getRow(5+i); vals(x).forEach((v,k)=>{ if(v!=null) row.getCell(k+1).value=v; }); estilo(row,i,cols,null); cols.forEach((c,n)=>{ if(c[3]) row.getCell(n+1).numFmt=c[3]; });});
+    if(rows.length) ws.autoFilter={from:'A4',to:`${String.fromCharCode(64+cols.length)}${4+rows.length}`};
+    else { ws.mergeCells('A5:E5'); ws.getCell('A5').value='Sin registros'; ws.getCell('A5').font={name:FONT,size:11,italic:true,color:{argb:C.GRAY}}; }
+    return ws;
+  }
+  const dcols=[['Código',16],['Producto',46],['Categoría',24],['Stock sistema',14,'right',QTY],['Contado',12,'right',QTY],['Diferencia',13,'right',QTY],['Dif. $ costo',16,'right',MONEY],['Dif. $ venta',16,'right',MONEY]];
+  const vals=x=>[x.codigo,x.nombre,x.categoria,x.esperado,x.contado,x.dif,x.difCosto,x.difVenta];
+  hojaLista('Faltantes','Faltantes',R.filas.filter(x=>x.estado==='Faltante').sort((a,b)=>a.difCosto-b.difCosto),C.RED,C.RED,dcols,vals);
+  hojaLista('Sobrantes','Sobrantes',R.filas.filter(x=>x.estado==='Sobrante').sort((a,b)=>b.difCosto-a.difCosto),C.PINE,C.PINE,dcols,vals);
+  hojaLista('No contados','No contados (con stock en el sistema)',R.filas.filter(x=>x.estado==='No contado').sort((a,b)=>b.esperado*b.costo-a.esperado*a.costo),C.RUST,C.RUST,
+    [['Código',16],['Producto',46],['Categoría',24],['Stock sistema',14,'right',QTY],['Unidad',9,'center'],['Valor a costo',16,'right',MONEY]],x=>[x.codigo,x.nombre,x.categoria,x.esperado,x.unidad,Math.round(x.esperado*x.costo*100)/100]);
+  return wb;
 }
 
 function renderStock(f){
