@@ -9869,7 +9869,9 @@ function ajustarNetoAlTotal(){
 }
 
 // ── Guardar factura ──
+let _facGuardando = false;   // evita el doble clic: antes una factura podía guardarse 2 veces (IVA y gasto duplicados)
 async function guardarFactura() {
+  if (_facGuardando) return;
   if (!facCompraId) { showToast('Error: sin compra asociada', 'err'); return; }
 
   const numero   = document.getElementById('fac-numero')?.value.trim();
@@ -9911,6 +9913,21 @@ async function guardarFactura() {
 
   if (!numero) { showToast('Ingresá el número de factura', 'err'); return; }
   if (!neto && !total) { showToast('Ingresá al menos el importe neto', 'err'); return; }
+
+  // Duplicados: la misma compra no puede tener 2 facturas activas, y el mismo
+  // número de factura del mismo proveedor tampoco (duplicaría IVA Compras y el gasto).
+  const _yaTieneFactura = (facturas||[]).some(f => !f.anulada && f.compra_id === facCompraId);
+  if (_yaTieneFactura) { showToast('⚠️ Esta compra ya tiene una factura cargada.', 'err'); return; }
+  const _numNorm = String(numero).replace(/[^0-9a-z]/gi,'').toLowerCase();
+  const _facMismoNro = (facturas||[]).find(f => !f.anulada &&
+    String(f.numero||'').replace(/[^0-9a-z]/gi,'').toLowerCase() === _numNorm &&
+    ((cuit && f.cuit_prov && f.cuit_prov === cuit) || (!cuit && (f.proveedor||'').trim().toLowerCase() === (proveedor||'').trim().toLowerCase())));
+  if (_facMismoNro && !confirm('Ya hay una factura ' + numero + ' de ' + (proveedor || 'este proveedor') + ' cargada (' + (_facMismoNro.fecha||'') + ', $' + (_facMismoNro.total||0).toLocaleString('es-AR') + ').\n\nCargarla de nuevo duplica el IVA Compras y el gasto. ¿Cargarla igual?')) return;
+
+  _facGuardando = true;
+  const _btnFac = document.querySelector('#ov-factura button[onclick="guardarFactura()"]');
+  const _txtBtnFac = _btnFac ? _btnFac.textContent : '';
+  if (_btnFac) { _btnFac.disabled = true; _btnFac.textContent = 'Guardando...'; }
 
   try {
     // Guardar factura
@@ -10032,6 +10049,9 @@ async function guardarFactura() {
   } catch(e) {
     showToast('❌ Error al guardar la factura', 'err');
     console.error(e);
+  } finally {
+    _facGuardando = false;
+    if (_btnFac) { _btnFac.disabled = false; _btnFac.textContent = _txtBtnFac; }
   }
 }
 
