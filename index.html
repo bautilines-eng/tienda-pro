@@ -13576,8 +13576,8 @@ function updateSplit(){
 
 function setMethod(m){
   method=m;
-  ['ef','tr','td'].forEach(k=>document.getElementById('m-'+k)?.classList.remove('on'));
-  const map={Efectivo:'ef',Transferencia:'tr',Tarjeta:'td'};
+  ['ef','tr','td','mp','cc'].forEach(k=>document.getElementById('m-'+k)?.classList.remove('on'));
+  const map={Efectivo:'ef',Transferencia:'tr',Tarjeta:'td',MercadoPago:'mp','Cuenta Corriente':'cc'};
   document.getElementById('m-'+map[m])?.classList.add('on');
   updateCart();
 }
@@ -14181,6 +14181,10 @@ async function registerSale(){
     renderProds();renderHist();renderCaja();renderStock(stockFilter);checkAlertBar();
     showTicket({...venta,items});
     if(method !== 'Cuenta Corriente') showToast(`✅ Venta registrada — $${total.toLocaleString('es-AR')}`,'ok');
+    // Después de cada venta el método de pago vuelve a Efectivo (el de siempre)
+    setMethod('Efectivo');
+    // ...y el cliente vuelve a "Sin cliente" (no arrastrar al cliente de la venta anterior)
+    { const vc=document.getElementById('v-cliente'); if(vc) vc.value=''; }
 
   }catch(e){
     const msg = e.message || 'Error desconocido';
