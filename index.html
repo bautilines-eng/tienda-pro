@@ -1067,6 +1067,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </div>
       <div class="fgroup" style="margin-bottom:10px">
         <div class="flabel">Producto</div>
+        <input class="inp" id="aj-prod-buscar" placeholder="🔎 Buscar producto por nombre o código de barras..." oninput="filtrarAjusteProdSel()" onkeydown="if(event.key==='Enter'){event.preventDefault();filtrarAjusteProdSel(true)}" autocomplete="off" style="margin-bottom:6px">
         <select class="inp" id="aj-prod" style="cursor:pointer">
           <option value="">Seleccioná un producto...</option>
         </select>
@@ -10234,16 +10235,42 @@ function switchStockTab(btn) {
   if (tab === 'grn')     renderGRNList();
   if (tab === 'ajuste') {
     // Poblar el selector de productos la primera vez que se abre
-    const sel = document.getElementById('aj-prod');
-    if (sel && sel.options.length <= 1) {
-      prods.filter(p => !p.is_deleted).forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = `${esc(p.nombre)} (stock: ${p.stock} uds)`;
-        sel.appendChild(opt);
-      });
-    }
+    // Se repuebla cada vez que se abre (así aparecen productos nuevos y el
+    // stock actualizado) y respeta lo que haya escrito en el buscador.
+    _poblarAjusteProdSel(document.getElementById('aj-prod-buscar')?.value || '');
   }
+}
+
+// ── Ajuste manual: buscador de producto por nombre (o código de barras) ──
+// Misma idea que el buscador del Kardex: se tipea, la lista se achica.
+// Ignora mayúsculas y tildes, y busca varias palabras en cualquier orden
+// ("jamon lario" encuentra "LARIO JAMON COCIDO"). Si queda un solo
+// resultado se selecciona solo.
+function _normBusq(t){ return String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+function _poblarAjusteProdSel(filtro, autoSel){
+  const sel = document.getElementById('aj-prod');
+  if (!sel) return;
+  const valorActual = sel.value;
+  const palabras = _normBusq(filtro).split(/\s+/).filter(Boolean);
+  const disponibles = (prods||[]).filter(p => {
+    if (p.is_deleted) return false;
+    if (!palabras.length) return true;
+    const hay = _normBusq(p.nombre) + ' ' + _normBusq(p.barcode) + ' ' + _normBusq(p.codigo_proveedor);
+    return palabras.every(w => hay.includes(w));
+  }).slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+  const cab = palabras.length
+    ? (disponibles.length ? `Seleccioná un producto (${disponibles.length} coincidencia${disponibles.length===1?'':'s'})...` : 'Sin productos que coincidan…')
+    : 'Seleccioná un producto...';
+  sel.innerHTML = `<option value="">${cab}</option>` +
+    disponibles.map(p=>`<option value="${p.id}">${esc(p.nombre)} (stock: ${(typeof fmtStock==='function')?fmtStock(p):p.stock})</option>`).join('');
+  if (valorActual && disponibles.some(p=>p.id===valorActual)) sel.value = valorActual;
+  else if (disponibles.length === 1 && palabras.length && autoSel !== false) {
+    sel.value = disponibles[0].id;
+    sel.dispatchEvent(new Event('change'));
+  }
+}
+function filtrarAjusteProdSel(){
+  _poblarAjusteProdSel(document.getElementById('aj-prod-buscar')?.value || '');
 }
 
 // ── GRN: Agregar item ──
@@ -19729,6 +19756,8 @@ async function ejecutarAjusteManual() {
     }
 
     if (prod) prod.stock = data.stock_nuevo;
+    const _bq = document.getElementById('aj-prod-buscar'); if (_bq) _bq.value = '';
+    _poblarAjusteProdSel('', false);
     document.getElementById('aj-prod').value  = '';
     document.getElementById('aj-stock').value = '';
     document.getElementById('aj-razon').value = '';
