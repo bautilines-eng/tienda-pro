@@ -3150,7 +3150,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <label id="rem-sf-wrap" style="display:flex;align-items:flex-start;gap:9px;background:#f1f5f9;border:1.5px solid #cbd5e1;border-radius:12px;padding:11px 12px;margin:10px 0 0;cursor:pointer">
       <input type="checkbox" id="rem-sin-factura" onchange="onSinFacturaToggle()" style="width:18px;height:18px;margin-top:1px;cursor:pointer;accent-color:#475569;flex-shrink:0">
       <span style="font-size:12px;color:#334155;line-height:1.4">
-        <b>🧾 Sin factura</b> — proveedor real (no inscripto o comprobante informal), pero nunca le vas a poder cargar una factura. No queda en el aviso de "facturas pendientes". El costo que cargues acá se contabiliza directo como pagado — no admite Cuenta Corriente.
+        <b>🧾 Sin factura</b> — proveedor real (no inscripto o comprobante informal), pero nunca le vas a poder cargar una factura. No queda en el aviso de "facturas pendientes". El costo que cargues acá se contabiliza directo como pagado — no admite Cuenta Corriente.<br><b>Cargá lo que realmente pagaste por unidad</b>: sin factura nunca se le descuenta IVA a ese número (se guarda tal cual).
       </span>
     </label>
 
@@ -4315,10 +4315,10 @@ function _movimientosCuenta(cuentaCod, filtro) {
 
   // Ventas
   sales.filter(v => filtro(v.fecha)).forEach(v => {
-    _debitosVenta(v).forEach(d=>{ if(d.cuenta===cuentaCod) movs.push({fecha:v.fecha, desc:`Venta ${esc(d.metodo)}`, debe:d.importe, haber:0, origen:'Venta'}); });
+    _debitosVenta(v).forEach(d=>{ if(d.cuenta===cuentaCod) movs.push({fecha:v.fecha, desc:`Venta ${esc(d.metodo)}`, debe:d.importe, haber:0, origen:'Venta', created_at:v.created_at}); });
     if((v.tipo_cbte||'')==='X'){
       const ctaVSC=(typeof CUENTAS_ESPECIALES!=='undefined'&&CUENTAS_ESPECIALES['ventas_sin_comprobante'])||'41101099';
-      if(cuentaCod===ctaVSC) movs.push({fecha:v.fecha, desc:'Venta sin comprobante', debe:0, haber:v.total||0, origen:'Venta'});
+      if(cuentaCod===ctaVSC) movs.push({fecha:v.fecha, desc:'Venta sin comprobante', debe:0, haber:v.total||0, origen:'Venta', created_at:v.created_at});
       return;
     }
     // Mismo criterio que asientoVenta: usa el dato real guardado en la
@@ -4327,8 +4327,8 @@ function _movimientosCuenta(cuentaCod, filtro) {
     const neto = (v.neto_gravado != null) ? v.neto_gravado : (v.total||0) - iva;
     const _ctaVentas = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.ventas) || '41101007';
     const _ctaIvaDeb  = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.iva_debito) || '21404';
-    if (cuentaCod===_ctaVentas)   movs.push({fecha:v.fecha, desc:'Ventas netas', debe:0, haber:neto, origen:'Venta'});
-    if (cuentaCod===_ctaIvaDeb)   movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal', debe:0, haber:iva, origen:'Venta'});
+    if (cuentaCod===_ctaVentas)   movs.push({fecha:v.fecha, desc:'Ventas netas', debe:0, haber:neto, origen:'Venta', created_at:v.created_at});
+    if (cuentaCod===_ctaIvaDeb)   movs.push({fecha:v.fecha, desc:'IVA Débito Fiscal', debe:0, haber:iva, origen:'Venta', created_at:v.created_at});
     // IIBB propio: se registra por Minuta de egreso. TODO PYMES no es agente
     // de percepción, así que las ventas no practican percepción.
   });
@@ -4340,15 +4340,15 @@ function _movimientosCuenta(cuentaCod, filtro) {
     const ctH = esCC
       ? ((typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.acreedores_varios) || '21102001')
       : ((typeof METODO_CUENTA!=='undefined' && METODO_CUENTA[g.medio_pago]) || '11101001');
-    if (cuentaCod === ctD) movs.push({fecha:g.fecha, desc:g.categoria+(g.descripcion?': '+g.descripcion:''), debe:g.monto, haber:0, origen:'Gasto'});
-    if (cuentaCod === ctH) movs.push({fecha:g.fecha, desc:(esCC?'A pagar — ':'Pago ')+g.categoria+(!esCC && g.medio_pago?' ('+g.medio_pago+')':''), debe:0, haber:g.monto, origen:'Gasto'});
+    if (cuentaCod === ctD) movs.push({fecha:g.fecha, desc:g.categoria+(g.descripcion?': '+g.descripcion:''), debe:g.monto, haber:0, origen:'Gasto', created_at:g.created_at});
+    if (cuentaCod === ctH) movs.push({fecha:g.fecha, desc:(esCC?'A pagar — ':'Pago ')+g.categoria+(!esCC && g.medio_pago?' ('+g.medio_pago+')':''), debe:0, haber:g.monto, origen:'Gasto', created_at:g.created_at});
   });
 
   // Pagos de deuda (proveedores, clientes, gastos a cuenta corriente)
   (typeof pagosDeuda!=='undefined'?pagosDeuda:[]).filter(p => filtro(p.fecha)).forEach(p => {
     const a = asientoPagoDeuda(p); if(!a) return;
     a.lineas.forEach(l => {
-      if (l.cuenta === cuentaCod) movs.push({fecha:p.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Pago'});
+      if (l.cuenta === cuentaCod) movs.push({fecha:p.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Pago', created_at:p.created_at});
     });
   });
 
@@ -4360,16 +4360,16 @@ function _movimientosCuenta(cuentaCod, filtro) {
     const _ctaIvaCred = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.iva_credito) || '11403005';
     const _ctaProv = (typeof CUENTAS_ESPECIALES!=='undefined' && CUENTAS_ESPECIALES.proveedores) || '21101001';
     const cuentaCredito = _cuentaCreditoCompra(co);
-    if (cuentaCod===_ctaMerc) movs.push({fecha:co.fecha, desc:'Compra '+co.producto_nombre+(esSF?' (sin factura)':''), debe:neto, haber:0, origen:'Compra'});
-    if (!esSF && cuentaCod===_ctaIvaCred) movs.push({fecha:co.fecha, desc:'CF IVA '+ali+'% — '+co.proveedor, debe:iva, haber:0, origen:'Compra'});
-    if (cuentaCod===cuentaCredito) movs.push({fecha:co.fecha, desc:((esSF && co.forma_pago!=='Cuenta Corriente')?'Pago sin factura — ':'A pagar — ')+(co.proveedor||'Proveedor'), debe:0, haber:total, origen:'Compra'});
+    if (cuentaCod===_ctaMerc) movs.push({fecha:co.fecha, desc:'Compra '+co.producto_nombre+(esSF?' (sin factura)':''), debe:neto, haber:0, origen:'Compra', created_at:co.created_at});
+    if (!esSF && cuentaCod===_ctaIvaCred) movs.push({fecha:co.fecha, desc:'CF IVA '+ali+'% — '+co.proveedor, debe:iva, haber:0, origen:'Compra', created_at:co.created_at});
+    if (cuentaCod===cuentaCredito) movs.push({fecha:co.fecha, desc:((esSF && co.forma_pago!=='Cuenta Corriente')?'Pago sin factura — ':'A pagar — ')+(co.proveedor||'Proveedor'), debe:0, haber:total, origen:'Compra', created_at:co.created_at});
   });
 
   // Minutas (egreso/ingreso — incluye Fondos a Rendir)
   (typeof minutas!=='undefined'?minutas:[]).filter(m => !m.is_deleted && !m.anulada && filtro(m.fecha)).forEach(m => {
     const a = asientoMinuta(m); if(!a) return;
     a.lineas.forEach(l => {
-      if (l.cuenta === cuentaCod) movs.push({fecha:m.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Minuta'});
+      if (l.cuenta === cuentaCod) movs.push({fecha:m.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Minuta', created_at:m.created_at});
     });
   });
 
@@ -4377,7 +4377,7 @@ function _movimientosCuenta(cuentaCod, filtro) {
   (typeof notasCredito!=='undefined'?notasCredito:[]).filter(nc => filtro(_fechaNC(nc))).forEach(nc => {
     const a = asientoNotaCredito(nc); if(!a) return;
     a.lineas.forEach(l => {
-      if (l.cuenta === cuentaCod) movs.push({fecha:_fechaNC(nc), desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Nota de Crédito'});
+      if (l.cuenta === cuentaCod) movs.push({fecha:_fechaNC(nc), desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Nota de Crédito', created_at:nc.created_at});
     });
   });
 
@@ -4385,7 +4385,7 @@ function _movimientosCuenta(cuentaCod, filtro) {
   (typeof notasDebito!=='undefined'?notasDebito:[]).filter(nd => filtro(nd.fecha)).forEach(nd => {
     const a = asientoNotaDebito(nd); if(!a) return;
     a.lineas.forEach(l => {
-      if (l.cuenta === cuentaCod) movs.push({fecha:nd.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Nota de Débito'});
+      if (l.cuenta === cuentaCod) movs.push({fecha:nd.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Nota de Débito', created_at:nd.created_at});
     });
   });
 
@@ -4395,7 +4395,7 @@ function _movimientosCuenta(cuentaCod, filtro) {
   (typeof notasCreditoProveedor!=='undefined'?notasCreditoProveedor:[]).filter(ncp => filtro(ncp.fecha)).forEach(ncp => {
     const a = asientoNotaCreditoProveedor(ncp); if(!a) return;
     a.lineas.forEach(l => {
-      if (l.cuenta === cuentaCod) movs.push({fecha:ncp.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'NC Proveedor'});
+      if (l.cuenta === cuentaCod) movs.push({fecha:ncp.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'NC Proveedor', created_at:ncp.created_at});
     });
   });
 
@@ -4403,7 +4403,7 @@ function _movimientosCuenta(cuentaCod, filtro) {
   (typeof reclasificaciones!=='undefined'?reclasificaciones:[]).filter(r => filtro(r.fecha)).forEach(r => {
     const a = asientoReclasificacion(r); if(!a) return;
     a.lineas.forEach(l => {
-      if (l.cuenta === cuentaCod) movs.push({fecha:r.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Reclasif.'});
+      if (l.cuenta === cuentaCod) movs.push({fecha:r.fecha, desc:l.detalle||a.descripcion, debe:l.debe?l.importe:0, haber:l.debe?0:l.importe, origen:'Reclasif.', created_at:r.created_at});
     });
   });
 
@@ -5044,7 +5044,7 @@ async function loadPagosDeuda(){
 
 // Asiento de un cobro/pago de deuda → entra al Mayor/Diario por generarAsientosPeriodo
 function asientoPagoDeuda(p){
-  const deuda = (deudas||[]).find(d => d.id === p.deuda_id) || {};
+  const deuda = (deudas||[]).find(d => d.id === p.deuda_id) || _deudaIdx[p.deuda_id] || {};
   const tipoDeuda = deuda.tipo || 'cliente';
   const esCliente = (tipoDeuda !== 'proveedor' && tipoDeuda !== 'gasto');
   const esGasto   = (tipoDeuda === 'gasto');
@@ -6177,6 +6177,11 @@ function onSinFacturaToggle(){
     const pagoSel = document.getElementById('rem-pago');
     if(pagoSel && pagoSel.value === 'Cuenta Corriente'){ pagoSel.value = 'Contado'; onRemitoPago(); }
   }
+  // Sin factura: el costo se guarda tal cual se pagó (nunca se le saca IVA).
+  // renderRemitoLineas → recalcRemitoTotales destilda/deshabilita el check
+  // "ya incluye IVA" de cada línea y refresca los totales.
+  if(typeof renderRemitoLineas === 'function' && typeof remitoLineas !== 'undefined' && remitoLineas.length) renderRemitoLineas();
+  else if(typeof recalcRemitoTotales === 'function') recalcRemitoTotales();
 }
 
 function agregarLineaRemito(pid){
@@ -6234,8 +6239,8 @@ function renderRemitoLineas(){
         </div>
       </div>
       <label style="display:flex;align-items:center;gap:5px;margin-top:6px;font-size:10.5px;color:#888;cursor:pointer">
-        <input type="checkbox" id="rem-costo-con-iva-${l.uid}" ${l.costoIncluyeIva?'checked':''} onchange="recalcRemitoTotales()" style="width:13px;height:13px;cursor:pointer">
-        El costo de compra que puse ya incluye IVA
+        <input type="checkbox" id="rem-costo-con-iva-${l.uid}" ${(l.costoConIva&&!document.getElementById('rem-sin-factura')?.checked)?'checked':''} ${document.getElementById('rem-sin-factura')?.checked?'disabled':''} onchange="recalcRemitoTotales()" style="width:13px;height:13px;cursor:pointer">
+        <span id="rem-costo-con-iva-txt-${l.uid}">El costo de compra que puse ya incluye IVA</span>
       </label>
       <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:7px;margin-top:8px">
         <div>
@@ -6279,7 +6284,20 @@ function recalcRemitoTotales(){
     const modoRaw=document.getElementById('rem-modo-'+l.uid)?.value || 'bulto';
     const costoRaw=document.getElementById('rem-costo-'+l.uid)?.value ?? '';
     const costoModoRaw=document.getElementById('rem-costomodo-'+l.uid)?.value || 'unidad';
-    const costoConIva=!!document.getElementById('rem-costo-con-iva-'+l.uid)?.checked;
+    // Sin factura: el número tipeado es lo que se pagó, tal cual. Nunca se le
+    // saca IVA (si se lo sacáramos, la compra quedaría por debajo de lo que
+    // salió realmente de la caja — pasó con carbón, hielo y cigarros en octubre).
+    const sinFacturaForm=!!document.getElementById('rem-sin-factura')?.checked;
+    const chkIva=document.getElementById('rem-costo-con-iva-'+l.uid);
+    if(chkIva){
+      if(sinFacturaForm){ chkIva.checked=false; chkIva.disabled=true; }
+      else chkIva.disabled=false;
+    }
+    const txtIva=document.getElementById('rem-costo-con-iva-txt-'+l.uid);
+    if(txtIva) txtIva.textContent = sinFacturaForm
+      ? 'Sin factura: se guarda el monto tal cual lo pagaste (no se le descuenta IVA)'
+      : 'El costo de compra que puse ya incluye IVA';
+    const costoConIva = sinFacturaForm ? false : !!chkIva?.checked;
     const alicRaw=parseFloat(document.getElementById('rem-alic-'+l.uid)?.value);
     const impInternoRaw=document.getElementById('rem-imp-interno-'+l.uid)?.value ?? '';
     const internoIncluyeIva=!!document.getElementById('rem-interno-con-iva-'+l.uid)?.checked;
@@ -6327,7 +6345,7 @@ function recalcRemitoTotales(){
       : impInternoTotalLineaBruto;
     const impInternoUnitario = (impInternoTotalLinea>0 && unidades>0) ? Math.round(impInternoTotalLinea/unidades*100)/100 : 0;
     l.impInternoUnitario = impInternoUnitario;
-    netoTotal+=neto; unidadesTotal+=unidades; ivaTotal+=ivaLinea; impInternoTotalRemito+=impInternoTotalLinea;
+    netoTotal+=neto; unidadesTotal+=unidades; ivaTotal+= sinFacturaForm ? 0 : ivaLinea; impInternoTotalRemito+=impInternoTotalLinea;
     if(neto>0) alicuotasUsadas.add(l.alicuota);
     const sub=document.getElementById('rem-sub-'+l.uid);
     if(sub){
@@ -6335,7 +6353,7 @@ function recalcRemitoTotales(){
         ? `${qty} ${qty===1?'bulto':'bultos'} × ${l.upb} = <b>${unidades} u</b>`
         : `<b>${unidades} u</b>`;
       const partesDer = [];
-      if(costo>0) partesDer.push(`$${neto.toLocaleString('es-AR')} · IVA ${l.alicuota}%${costoConIva?' (costo sin IVA ya calculado)':''}`);
+      if(costo>0) partesDer.push(sinFacturaForm ? `$${neto.toLocaleString('es-AR')} · total pagado, sin IVA discriminado` : `$${neto.toLocaleString('es-AR')} · IVA ${l.alicuota}%${costoConIva?' (costo sin IVA ya calculado)':''}`);
       if(impInternoTotalLinea>0) partesDer.push(`Interno $${impInternoUnitario.toLocaleString('es-AR')}/u${internoIncluyeIva?' (ya sin el IVA)':''}`);
       sub.innerHTML = `<span style="color:#5a7a68">📦 ${izq}</span>`
         + (partesDer.length ? `<span>${partesDer.join(' · ')}</span>` : `<span style="color:#bbb;font-weight:500">sin costo</span>`);
@@ -6349,6 +6367,7 @@ function recalcRemitoTotales(){
   const total=Math.round((netoTotal+iva+impInternoTotalRemito)*100)/100;
   // Etiqueta del IVA total: si todas las líneas comparten la misma
   // alícuota se muestra ese %; si el remito mezcla tasas, se aclara.
+  const sinFacturaTot=!!document.getElementById('rem-sin-factura')?.checked;
   const labelIva = alicuotasUsadas.size===1 ? `IVA ${[...alicuotasUsadas][0]}%` : 'IVA (mixto)';
   const tot=document.getElementById('rem-totales');
   if(!tot) return;
@@ -6357,9 +6376,9 @@ function recalcRemitoTotales(){
     tot.innerHTML = `
       <div style="background:#1a5c38;border-radius:14px;padding:14px 16px;margin-top:12px;color:#fff">
         <div style="display:flex;justify-content:space-between;font-size:12.5px;opacity:.85;margin-bottom:5px">
-          <span>Neto</span><span style="font-family:'DM Mono',monospace">$${netoTotal.toLocaleString('es-AR')}</span></div>
-        <div style="display:flex;justify-content:space-between;font-size:12.5px;opacity:.85;margin-bottom:8px">
-          <span>${labelIva}</span><span style="font-family:'DM Mono',monospace">$${iva.toLocaleString('es-AR')}</span></div>
+          <span>${sinFacturaTot?'Total pagado (sin factura)':'Neto'}</span><span style="font-family:'DM Mono',monospace">$${netoTotal.toLocaleString('es-AR')}</span></div>
+        ${sinFacturaTot?'':`<div style="display:flex;justify-content:space-between;font-size:12.5px;opacity:.85;margin-bottom:8px">
+          <span>${labelIva}</span><span style="font-family:'DM Mono',monospace">$${iva.toLocaleString('es-AR')}</span></div>`}
         <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:8px;border-top:1px solid rgba(255,255,255,.2)">
           <span style="font-size:13px;font-weight:700">Total</span>
           <span style="font-size:19px;font-weight:800;font-family:'DM Mono',monospace">$${total.toLocaleString('es-AR')}</span></div>
@@ -6398,7 +6417,8 @@ async function confirmarRemito(){
     const modo=document.getElementById('rem-modo-'+l.uid)?.value||'bulto';
     const costo=parseFloat(document.getElementById('rem-costo-'+l.uid)?.value)||0;
     const costoModo=document.getElementById('rem-costomodo-'+l.uid)?.value||'unidad';
-    const costoConIva=!!document.getElementById('rem-costo-con-iva-'+l.uid)?.checked;
+    // Sin factura: nunca se descuenta IVA del costo tipeado (ver recalcRemitoTotales)
+    const costoConIva = esSinFactura ? false : !!document.getElementById('rem-costo-con-iva-'+l.uid)?.checked;
     const alicLinea=parseFloat(document.getElementById('rem-alic-'+l.uid)?.value)||21;
     const impInternoTotalLineaBruto=parseFloat(document.getElementById('rem-imp-interno-'+l.uid)?.value)||0;
     const internoIncluyeIva=!!document.getElementById('rem-interno-con-iva-'+l.uid)?.checked;
@@ -6444,7 +6464,13 @@ async function confirmarRemito(){
     // como se usa para compras/Kardex), ese cálculo sumaría el interno
     // dos veces. El IVA nunca se guarda adentro de ningún costo — se
     // suma únicamente donde hace falta calcularlo.
-    const costoParaPrecio = costoUnit;
+    // Sin factura: costoUnit es el monto pagado (bruto) y es lo que va a
+    // compras/Kardex. productos.costo, en cambio, debe seguir siendo NETO
+    // (el precio de venta le suma el IVA por su cuenta vía _costoConIva),
+    // así que acá sí se le saca el IVA de la alícuota de la línea.
+    const costoParaPrecio = (esSinFactura && costoUnit!=null)
+      ? Math.round((costoUnit/(1+alicLinea/100))*10000)/10000
+      : costoUnit;
     // Neto de la línea (para el registro de la compra) = costo contable × unidades
     const neto = costoFinalUnit!=null ? Math.round(costoFinalUnit*unidades*100)/100 : 0;
     lineas.push({...l, qty, modo, costo, costoModo, alicuota:alicLinea, impInternoUnitario, ivaUnitario, unidades, costoUnit, costoFinalUnit, costoParaPrecio, neto});
@@ -7189,6 +7215,7 @@ async function confirmarAnularCompra() {
           is_deleted: true,
           deleted_at: ahora
         }).eq('id', deuda.id);
+        _indexarDeudas([deuda]);
         deudas = deudas.filter(d => d.id !== deuda.id);
       }
     }
@@ -7602,8 +7629,12 @@ async function guardarEdicionCompra() {
     // Actualizar el costo del producto (mismo comportamiento que al cargar el remito)
     if (nuevoCosto > 0) {
       try {
-        await SB.from('productos').update({ costo: nuevoCosto }).eq('id', nuevoProdId);
-        nuevoProdObj.costo = nuevoCosto;
+        // Sin factura: nuevoCosto es lo pagado (bruto) → productos.costo va NETO
+        const _costoProd = nuevoSinFactura
+          ? Math.round(nuevoCosto / (1 + ((nuevoProdObj.iva_alicuota!=null ? +nuevoProdObj.iva_alicuota : 21) / 100)) * 10000) / 10000
+          : nuevoCosto;
+        await SB.from('productos').update({ costo: _costoProd }).eq('id', nuevoProdId);
+        nuevoProdObj.costo = _costoProd;
       } catch (_) {}
     }
 
@@ -11814,9 +11845,19 @@ async function loadCompras(){
 // ══ DEUDORES ══
 let deudas = [];
 let consumosPersonal = [];
+// Índice id → {tipo, nombre_cliente} de TODAS las deudas, incluso las borradas
+// o anuladas. `deudas` las oculta (para no mostrarlas ni sumarlas como saldo),
+// pero un pago hecho contra una de ellas igual movió plata: asientoPagoDeuda
+// necesita saber si era de proveedor/gasto/cliente para ponerlo en el lado
+// correcto de Caja. Sin esto, un pago a proveedor sobre una deuda borrada se
+// contaba como COBRO de cliente (entrada en vez de salida de efectivo).
+let _deudaIdx = {};
+function _indexarDeudas(lista){
+  (lista||[]).forEach(d => { if(d && d.id) _deudaIdx[d.id] = { tipo:d.tipo, nombre_cliente:d.nombre_cliente }; });
+}
 
 async function loadDeudas(){
-  try{ deudas = (await sbGet('deudas')).filter(d => !d.is_deleted && d.estado !== 'anulado'); }
+  try{ const _todas = await sbGet('deudas'); _indexarDeudas(_todas); deudas = _todas.filter(d => !d.is_deleted && d.estado !== 'anulado'); }
   catch(e){ deudas = []; }
 }
 
@@ -12170,6 +12211,7 @@ async function eliminarDeuda(id){
       console.error('eliminarDeuda: DELETE no afectó ninguna fila. Posible bloqueo por RLS. id=', id);
       return;
     }
+    _indexarDeudas(deudas.filter(x=>x.id==id));
     deudas = deudas.filter(x=>x.id!=id);
     renderDeudas();
     showToast('✅ Deuda eliminada','ok');
@@ -15175,7 +15217,7 @@ async function _cancelarDeudaDeVentaAnulada(venta){
       await sbUpdate('deudas', d.id, { estado:'anulado', is_deleted:true, deleted_at:new Date().toISOString() });
       d.estado = 'anulado'; d.is_deleted = true; canceladas++;
     }
-    if (canceladas) { deudas = deudas.filter(d => !d.is_deleted && d.estado !== 'anulado'); if (typeof renderDeudas==='function') renderDeudas(); }
+    if (canceladas) { _indexarDeudas(candidatas); deudas = deudas.filter(d => !d.is_deleted && d.estado !== 'anulado'); if (typeof renderDeudas==='function') renderDeudas(); }
     return { canceladas, conPagos };
   }catch(e){ console.error('No se pudo cancelar la deuda de la venta anulada', e); return { canceladas:0, conPagos:0, error:true }; }
 }
@@ -15360,6 +15402,56 @@ function _efectivoEsperadoHoy(){
 // ya confirmado. Antes esto se recalculaba en vivo cada vez que se
 // reimprimía, y eso generaba confusión (ver conversación con Bautista del
 // 11/08 — el PDF podía mostrar una diferencia distinta a la guardada).
+// Explica por qué el saldo inicial de un día NO coincide con el efectivo
+// esperado del cierre anterior. El saldo inicial se recalcula en cada cierre
+// con todo lo que hay cargado con fecha anterior; si después de cerrar el día
+// anterior se cargó (o se editó/borró) algo con fecha pasada, el inicial se
+// corre. Devuelve el salto, lo explicado por movimientos cargados con fecha
+// pasada después del cierre anterior, y lo que queda sin explicar (edición o
+// borrado, que no dejan rastro en estos datos).
+function _saltoSaldoInicial(fecha, saldoInicial){
+  try{
+    const prev = (cierres||[]).filter(c => c.fecha < fecha && c.efectivo_esperado != null)
+      .sort((a,b)=>b.fecha.localeCompare(a.fecha))[0];
+    if(!prev) return null;
+    const salto = saldoInicial - parseFloat(prev.efectivo_esperado);
+    if(Math.abs(salto) < 1) return null;
+    const ctaEf = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
+    const tPrev = prev.created_at ? new Date(prev.created_at).getTime() : NaN;
+    const tardios = isNaN(tPrev) ? [] : _movimientosCuenta(ctaEf, f => !!f && f <= prev.fecha)
+      .filter(m => m.created_at && new Date(m.created_at).getTime() > tPrev);
+    const items = tardios.map(m => ({
+      fecha:m.fecha, desc:String(m.desc||'').replace(/<[^>]*>/g,'').slice(0,60), origen:m.origen,
+      monto:Math.round(((m.debe||0)-(m.haber||0))*100)/100,
+    })).sort((a,b)=>Math.abs(b.monto)-Math.abs(a.monto));
+    const explicado = items.reduce((t,i)=>t+i.monto,0);
+    return {
+      prevFecha:prev.fecha, prevEsperado:parseFloat(prev.efectivo_esperado), salto:Math.round(salto*100)/100,
+      items, explicado:Math.round(explicado*100)/100, sinExplicar:Math.round((salto-explicado)*100)/100,
+    };
+  }catch(e){ console.error('_saltoSaldoInicial', e); return null; }
+}
+function _fmtFechaAR(f){ const p=String(f||'').split('-'); return p.length===3 ? p[2]+'/'+p[1] : f; }
+function _moneyAR(n){ return (n<0?'-':'')+'$'+Math.abs(Math.round(n)).toLocaleString('es-AR'); }
+// Texto (para observaciones del cierre) y HTML (para el modal) del aviso.
+function _saltoTexto(sl){
+  if(!sl) return '';
+  let t = `⚠️ El saldo inicial (${_moneyAR(sl.prevEsperado+sl.salto)}) no coincide con el esperado del cierre del ${_fmtFechaAR(sl.prevFecha)} (${_moneyAR(sl.prevEsperado)}): diferencia ${_moneyAR(sl.salto)}.`;
+  if(sl.items.length) t += ' Movimientos con fecha pasada cargados después de ese cierre: ' + sl.items.slice(0,5).map(i=>`${_fmtFechaAR(i.fecha)} ${i.desc} ${_moneyAR(i.monto)}`).join('; ') + (sl.items.length>5?` (+${sl.items.length-5} más)`:'') + '.';
+  if(Math.abs(sl.sinExplicar) >= 1) t += ` Sin explicar: ${_moneyAR(sl.sinExplicar)} (algo editado o borrado con fecha pasada).`;
+  return t;
+}
+function _saltoHTML(sl){
+  if(!sl) return '';
+  const lis = sl.items.slice(0,6).map(i=>`<div style="display:flex;justify-content:space-between;gap:8px"><span>${_fmtFechaAR(i.fecha)} · ${esc(i.desc)}</span><span style="font-family:monospace">${_moneyAR(i.monto)}</span></div>`).join('');
+  return `<div style="background:#fff7e0;border:1px solid #e6c36a;border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;color:#7a5a00">
+    <div style="font-weight:700;margin-bottom:4px">⚠️ El saldo inicial no coincide con el cierre anterior</div>
+    <div>Cierre del ${_fmtFechaAR(sl.prevFecha)} esperaba <b>${_moneyAR(sl.prevEsperado)}</b>; hoy el saldo inicial es <b>${_moneyAR(sl.prevEsperado+sl.salto)}</b> (diferencia <b>${_moneyAR(sl.salto)}</b>).</div>
+    ${sl.items.length?`<div style="margin-top:6px;font-weight:600">Cargado con fecha pasada después de ese cierre:</div>${lis}${sl.items.length>6?`<div>… y ${sl.items.length-6} más</div>`:''}`:''}
+    ${Math.abs(sl.sinExplicar)>=1?`<div style="margin-top:6px">Sin explicar: <b>${_moneyAR(sl.sinExplicar)}</b> — algo con fecha pasada se editó o se borró.</div>`:''}
+  </div>`;
+}
+
 function _calcularArqueoDia(fecha, efCaja){
   const ctaEf = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
   const movsAntes = _movimientosCuenta(ctaEf, f => !!f && f < fecha);
@@ -15392,6 +15484,7 @@ function _calcularArqueoDia(fecha, efCaja){
   return {
     saldoInicial, efectivoEsperado, salidasEfectivoDia: salidasCaja, efectivoVendidoBruto,
     ventasDetalle, egresosDetalle, otrosIngresosDetalle, dif,
+    salto: _saltoSaldoInicial(fecha, saldoInicial),
   };
 }
 
@@ -15561,10 +15654,12 @@ function prepararCierre(){
   // pasada (ver conversación 11/08).
   const arqueo = _calcularArqueoDia(today, efCaja);
   const dif = arqueo.dif;
-  const obs=document.getElementById('arq-obs').value;
+  const obsUsuario=document.getElementById('arq-obs').value;
+  const _avisoSalto=_saltoTexto(arqueo.salto);
+  const obs=[obsUsuario,_avisoSalto].filter(Boolean).join('\n');
   const gastosHoyCierre = gastos.filter(g => g.fecha === today); // declarado ANTES de usarse (evita TDZ)
 
-  document.getElementById('cierre-content').innerHTML=`
+  document.getElementById('cierre-content').innerHTML=_saltoHTML(arqueo.salto)+`
     <div style="background:var(--cream);border-radius:12px;padding:16px;margin-bottom:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:12px">Resumen del día ${today}</div>
       <div class="hc-dr"><span>Total cobrado</span><span style="font-family:monospace;font-weight:700">$${total.toLocaleString('es-AR')}</span></div>
@@ -15578,7 +15673,7 @@ function prepararCierre(){
       <div class="hc-dr"><span style="font-weight:600">Efectivo esperado en caja <span style="font-weight:400;opacity:.6">(acumulado)</span></span><span style="font-weight:700">$${Math.round(arqueo.efectivoEsperado).toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>Efectivo contado en caja</span><span>$${efCaja.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span style="font-weight:600">Diferencia</span><span style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${Math.round(dif).toLocaleString('es-AR')}</span></div>
-      ${obs?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${esc(obs)}</div>`:''}
+      ${obsUsuario?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${esc(obsUsuario)}</div>`:''}
     </div>
     <div style="font-size:13px;color:var(--red);font-weight:500">⚠️ Esta acción registrará el cierre oficial del día. No se puede deshacer.</div>`;
 
@@ -16898,8 +16993,10 @@ async function doCompra(){
         p.precio = precioVenta;
       }
       if (esSinFactura && costoManual > 0) {
-        await SB.from('productos').update({ costo: costoManual }).eq('id', pid);
-        p.costo = costoManual;
+        // compras.precio_unitario guarda lo pagado (bruto); productos.costo va NETO
+        const _costoNetoSF = Math.round(costoManual / (1 + ((p.iva_alicuota!=null ? +p.iva_alicuota : 21) / 100)) * 10000) / 10000;
+        await SB.from('productos').update({ costo: _costoNetoSF }).eq('id', pid);
+        p.costo = _costoNetoSF;
       }
     } catch(e) { console.error('No se pudo actualizar el precio/costo del producto', e); }
     compras.unshift(compra);
@@ -16940,6 +17037,27 @@ async function doCompra(){
 
 let coBuscarProveedor = '';
 
+// Texto bajo el total de cada compra/remito: de qué está hecho el monto y
+// si ya salió plata (caja/banco) o es deuda / todavía sin factura cargada.
+function _cajaTextoCompra(co, tt, f){
+  if (co.es_traspaso_interno) return '🔁 Traspaso interno — no mueve plata';
+  const desglose = co.es_sin_factura
+    ? 'Total pagado sin factura (sin IVA discriminado)'
+    : `Neto ${f(tt.neto)} + IVA ${f(tt.iva)}`;
+  let estado;
+  const fp = co.forma_pago || 'Contado';
+  if (co.es_sin_factura) {
+    estado = fp==='Cuenta Corriente' ? '📒 Deuda a proveedor (sin factura)' : (fp==='Transferencia' ? '🏦 Salió del banco' : '💵 Descontó de la caja');
+  } else if (!co.factura_cargada) {
+    estado = '⚠️ Factura sin cargar — todavía NO descontó de caja';
+  } else if (fp === 'Cuenta Corriente') {
+    estado = '📒 Deuda a proveedor — sale de caja cuando se pague';
+  } else {
+    estado = fp==='Transferencia' ? '🏦 Salió del banco' : '💵 Descontó de la caja';
+  }
+  return `${desglose}<br><b style="color:#334155">${estado}</b>`;
+}
+
 function renderCompraList(){
   const el=document.getElementById('colist');
   if(!compras.length){el.innerHTML='<div class="empty">Sin compras aún</div>';return;}
@@ -16975,7 +17093,16 @@ function renderCompraList(){
 
   el.innerHTML = gruposFiltrados.map(g => {
     const co       = g.items[0];
-    const totalGrp = g.items.reduce((s,c)=> s + (c.precio_unitario||0)*(c.cantidad||0), 0);
+    // Lo que se muestra es lo que REALMENTE se paga: neto + IVA (la factura
+    // del proveedor viene así y es lo que sale de caja/banco o queda como
+    // deuda). Antes se mostraba solo el neto (precio_unitario × cantidad),
+    // y la contadora no veía que el egreso real era mayor. Sin factura el
+    // monto ya es el total pagado (sin IVA discriminado); traspaso interno
+    // no mueve plata.
+    const _fmt$ = n => '$' + (Math.round((n||0)*100)/100).toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:2});
+    const _esTrasp = !!g.items[0].es_traspaso_interno;
+    const _tt = g.items.reduce((a,c)=>{ const v=_ivaCompra(c); a.neto+=v.neto; a.iva+=v.iva; a.total+=v.total; return a; }, {neto:0,iva:0,total:0});
+    const totalGrp = Math.round((_esTrasp ? _tt.neto : _tt.total)*100)/100;
     const unidades = g.items.reduce((s,c)=> s + (c.cantidad||0), 0);
     const tieneFac = co.factura_cargada;
     const esTraspaso = !!co.es_traspaso_interno;
@@ -17003,14 +17130,15 @@ function renderCompraList(){
       ? `<div style="font-size:10.5px;color:#1565c0;margin-top:4px">▾ Tocá para ver los ${g.items.length} productos</div>
          <div class="cc-detail" style="margin-top:8px;padding:8px;background:#fafafa;border-radius:8px;border:1px solid #eee">
            ${g.items.map(c=>{
-             const t=(c.precio_unitario||0)*(c.cantidad||0);
+             const _vl=_ivaCompra(c);
+             const t=_esTrasp ? _vl.neto : _vl.total;
              const btnEditarLinea = (_esRolAdmin() && !c.factura_cargada)
                ? `<button onclick="abrirEditarCompra('${c.id}');event.stopPropagation()" title="Editar esta línea" style="font-size:9px;background:#eef6ff;color:#1565c0;padding:2px 6px;border-radius:8px;font-weight:600;border:1px solid #cfe2f7;cursor:pointer;margin-left:6px">✏️</button>`
                : '';
              return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:3px 0;border-bottom:1px dashed #eee">
                <span>${esc(c.producto_nombre||'—')} <span style="color:#aaa">×${c.cantidad}</span></span>
                <span style="display:flex;align-items:center">
-                 <span style="font-family:'DM Mono',monospace">${t?'$'+t.toLocaleString('es-AR'):'—'}</span>
+                 <span style="font-family:'DM Mono',monospace">${t?_fmt$(t):'—'}</span>
                  ${btnEditarLinea}
                </span>
              </div>`;
@@ -17037,8 +17165,9 @@ function renderCompraList(){
     return `<div class="ccard${g.esRemito?' expandible':''}" ${g.esRemito?`onclick="this.classList.toggle('open')"`:''} style="border-left:3px solid ${esTraspaso?'#6d28d9':(esSinFactura?'#64748b':(tieneFac?'#16a34a':'#dc2626'))}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div class="cc-prod">${titulo}</div>
-        ${totalGrp?`<div class="cc-total" style="font-family:'DM Mono',monospace;font-weight:700">$${totalGrp.toLocaleString('es-AR')}</div>`:''}
+        ${totalGrp?`<div class="cc-total" style="font-family:'DM Mono',monospace;font-weight:700">${_fmt$(totalGrp)}</div>`:''}
       </div>
+      ${totalGrp?`<div style="text-align:right;font-size:10.5px;color:#64748b;margin:-2px 0 6px;line-height:1.45">${_cajaTextoCompra(co, _tt, _fmt$)}</div>`:''}
       <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px">
         <span style="font-size:10px;color:#888">${co.fecha||'—'}</span>
         ${co.proveedor?`<span style="font-size:10px;background:#f0f0f0;padding:2px 7px;border-radius:10px;color:#555">🏭 ${esc(co.proveedor)}</span>`:''}
@@ -17267,11 +17396,12 @@ function prepararCierreTurno() {
   const { ef, tr, td, mp, cc } = _ventasNetasDeNC(today);
   const total = ef+tr+td+mp;
   const efCaja = parseFloat(document.getElementById('arq-ef').value) || 0;
-  const obs = document.getElementById('arq-obs').value;
+  const obsUsuario = document.getElementById('arq-obs').value;
   const arqueo = _calcularArqueoDia(today, efCaja);
   const dif = arqueo.dif;
+  const obs = [obsUsuario, _saltoTexto(arqueo.salto)].filter(Boolean).join('\n');
 
-  document.getElementById('cierre-turno-content').innerHTML = `
+  document.getElementById('cierre-turno-content').innerHTML = _saltoHTML(arqueo.salto) + `
     <div style="background:var(--cream);border-radius:12px;padding:16px;margin-bottom:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:12px">Turno al ${now} — ${today}</div>
       <div class="hc-dr"><span>Total cobrado hoy</span><span style="font-family:monospace;font-weight:700">$${total.toLocaleString('es-AR')}</span></div>
@@ -17285,7 +17415,7 @@ function prepararCierreTurno() {
       <div class="hc-dr"><span style="font-weight:600">Efectivo esperado en caja <span style="font-weight:400;opacity:.6">(acumulado)</span></span><span style="font-weight:700">$${Math.round(arqueo.efectivoEsperado).toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>Efectivo contado ahora</span><span>$${efCaja.toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span style="font-weight:600">Diferencia</span><span style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${Math.round(dif).toLocaleString('es-AR')}</span></div>
-      ${obs?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${esc(obs)}</div>`:''}
+      ${obsUsuario?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${esc(obsUsuario)}</div>`:''}
     </div>
     <div style="font-size:12px;color:var(--muted)">Esto es un checkpoint de entrega de turno — no reemplaza el "Cierre del Día" oficial y podés registrarlo las veces que necesites hoy.</div>`;
 
