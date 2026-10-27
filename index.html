@@ -1043,6 +1043,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
         ⚖️ Ajuste Manual
       </button>
+      <button class="stock-tab" id="stock-tab-decomiso" data-tab="decomiso" onclick="switchStockTab(this)"
+        style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        🚮 Decomiso
+      </button>
       <button class="stock-tab" id="stock-tab-recuento" data-tab="recuento" onclick="switchStockTab(this);renderRecuento();invRefrescar()"
         style="padding:8px 16px;border-radius:20px;border:1.5px solid #e0e0e0;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
         📋 Recuento
@@ -1091,6 +1095,64 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         style="width:100%;padding:13px;border-radius:10px;border:none;background:linear-gradient(135deg,#e65100,#bf360c);color:#fff;font-size:13px;font-weight:700;cursor:pointer">
         ⚖️ Confirmar Ajuste de Inventario
       </button>
+    </div>
+
+
+    <!-- Decomiso: baja de mercadería (vencida, rota, en mal estado) valorizada como el consumo personal -->
+    <div id="panel-decomiso" style="display:none;padding:0 20px">
+      <div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:12px 16px;margin:12px 0;font-size:12px;color:#991b1b;line-height:1.5">
+        🚮 <b>Decomiso de mercadería.</b> Descuenta el stock y queda en el Kardex valorizado: se guarda el <b>costo</b> y el <b>precio</b> del producto al momento de decomisar (igual que el consumo personal). No genera ventas ni deudas. Solo dueños y administrativos.
+      </div>
+      <div class="fgroup" style="margin-bottom:10px">
+        <div class="flabel">Producto</div>
+        <input class="inp" id="dc-prod-buscar" placeholder="🔎 Buscar producto por nombre o código de barras..." oninput="_poblarAjusteProdSel(this.value, true, 'dc-prod')" autocomplete="off" style="margin-bottom:6px">
+        <select class="inp" id="dc-prod" onchange="actualizarDecomisoPreview()" style="cursor:pointer">
+          <option value="">Seleccioná un producto...</option>
+        </select>
+      </div>
+      <div class="frow" style="margin-bottom:10px">
+        <div style="flex:1">
+          <div class="flabel">Cantidad a decomisar</div>
+          <input class="inp" id="dc-cant" type="number" min="0" step="any" placeholder="0" oninput="actualizarDecomisoPreview()">
+        </div>
+        <div style="flex:1;align-self:flex-end;padding-bottom:2px">
+          <div id="dc-preview" style="font-size:12px;color:#888;padding:10px 0">Seleccioná producto y cantidad</div>
+        </div>
+      </div>
+      <button onclick="agregarLineaDecomiso()" style="width:100%;padding:11px;border-radius:10px;border:1.5px solid #991b1b;background:#fff;color:#991b1b;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px">
+        ➕ Agregar a la lista
+      </button>
+      <div id="dc-lineas" style="margin-bottom:10px"></div>
+      <div class="frow" style="margin-bottom:10px">
+        <div style="flex:1">
+          <div class="flabel">Motivo <span style="color:var(--red)">*</span></div>
+          <select class="inp" id="dc-motivo" style="cursor:pointer">
+            <option value="Vencido">Vencido</option>
+            <option value="Roto / dañado">Roto / dañado</option>
+            <option value="En mal estado">En mal estado</option>
+            <option value="Decomiso por inspección">Decomiso por inspección</option>
+            <option value="Otro">Otro (aclarar abajo)</option>
+          </select>
+        </div>
+      </div>
+      <div class="fgroup" style="margin-bottom:12px">
+        <div class="flabel">Observación <span style="color:#999;font-weight:400">(opcional, obligatoria si el motivo es "Otro")</span></div>
+        <input class="inp" id="dc-nota" placeholder="Ej: heladera sin frío, lote 1234, inspección municipal...">
+      </div>
+      <button onclick="confirmarDecomiso()"
+        style="width:100%;padding:13px;border-radius:10px;border:none;background:linear-gradient(135deg,#b91c1c,#7f1d1d);color:#fff;font-size:13px;font-weight:700;cursor:pointer">
+        🚮 Confirmar decomiso
+      </button>
+
+      <div style="margin-top:22px;padding-top:14px;border-top:1.5px solid #eee">
+        <div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Decomisos registrados</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+          <div style="flex:1;min-width:130px"><div class="flabel">Desde</div><input class="inp" id="dc-desde" type="date" onchange="renderDecomisoHistorial()"></div>
+          <div style="flex:1;min-width:130px"><div class="flabel">Hasta</div><input class="inp" id="dc-hasta" type="date" onchange="renderDecomisoHistorial()"></div>
+          <button onclick="exportarDecomisosExcel()" style="padding:11px 14px;border-radius:10px;border:1.5px solid #1a5c38;background:#fff;color:#1a5c38;font-size:12px;font-weight:700;cursor:pointer">📥 Excel</button>
+        </div>
+        <div id="dc-historial"><div class="empty">Cargando...</div></div>
+      </div>
     </div>
 
     <!-- Inventario físico (conteo en papel) -->
@@ -10225,7 +10287,7 @@ function switchStockTab(btn) {
 
   // Mostrar SOLO el panel de la pestaña elegida, ocultar los otros 3.
   // Loop sobre los 4 paneles: así nunca se vuelve a "olvidar" uno.
-  const panels = { stock:'panel-stock', kardex:'panel-kardex', grn:'panel-grn', ajuste:'panel-ajuste', recuento:'panel-recuento' };
+  const panels = { stock:'panel-stock', kardex:'panel-kardex', grn:'panel-grn', ajuste:'panel-ajuste', decomiso:'panel-decomiso', recuento:'panel-recuento' };
   for (const t in panels) {
     const el = document.getElementById(panels[t]);
     if (el) el.style.display = (tab === t) ? 'block' : 'none';
@@ -10233,6 +10295,7 @@ function switchStockTab(btn) {
 
   if (tab === 'kardex')  initKardexSelector();
   if (tab === 'grn')     renderGRNList();
+  if (tab === 'decomiso') initDecomiso();
   if (tab === 'ajuste') {
     // Poblar el selector de productos la primera vez que se abre
     // Se repuebla cada vez que se abre (así aparecen productos nuevos y el
@@ -10247,8 +10310,8 @@ function switchStockTab(btn) {
 // ("jamon lario" encuentra "LARIO JAMON COCIDO"). Si queda un solo
 // resultado se selecciona solo.
 function _normBusq(t){ return String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
-function _poblarAjusteProdSel(filtro, autoSel){
-  const sel = document.getElementById('aj-prod');
+function _poblarAjusteProdSel(filtro, autoSel, selId){
+  const sel = document.getElementById(selId || 'aj-prod');
   if (!sel) return;
   const valorActual = sel.value;
   const palabras = _normBusq(filtro).split(/\s+/).filter(Boolean);
@@ -10686,6 +10749,8 @@ async function renderKardex() {
   for (const m of movs) {
     const cfg = m.documento_tipo === 'CONSUMO_PERSONAL'
       ? { icon: '🧑‍🔧', color: '#9a5b12', label: 'Consumo personal' }
+      : m.documento_tipo === 'DECOMISO'
+      ? { icon: '🚮', color: '#991b1b', label: 'Decomiso' }
       : (tipoConfig[m.tipo_movimiento] || { icon: '•', color: '#888', label: m.tipo_movimiento });
     const fecha = new Date(m.fecha_hora);
     const fechaStr = fecha.toLocaleDateString('es-AR') + ' ' + fecha.toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
@@ -19700,6 +19765,206 @@ function verCatalogo(){
 
 // ══ TOAST ══
 function showToast(msg,type='ok'){const t=document.getElementById('toast');t.textContent=msg;t.className=`toast ${type} show`;setTimeout(()=>t.className=`toast ${type}`,2800);}
+// ══ DECOMISO DE MERCADERÍA ══
+// Baja de stock por mercadería vencida / rota / en mal estado / decomisada.
+// Se valoriza igual que el consumo personal: cada movimiento del Kardex
+// (tipo AJUSTE_SALIDA, documento 'DECOMISO') guarda el costo (neto, el
+// productos.costo del momento) y el precio de venta vigente. No genera
+// venta, deuda ni asiento de caja: solo stock + Kardex (+ auditoría).
+// Solo dueño/administrativo (también se valida acá adentro, no solo en la UI).
+let decomisoLineas = [];
+let _decomisoHist = [];
+
+function initDecomiso(){
+  const hoy = fechaHoyLocal();
+  const d = document.getElementById('dc-desde'), h = document.getElementById('dc-hasta');
+  if (d && !d.value) { const x = new Date(); x.setDate(x.getDate()-30); d.value = fechaHoyLocal(x); }
+  if (h && !h.value) h.value = hoy;
+  _poblarAjusteProdSel(document.getElementById('dc-prod-buscar')?.value || '', false, 'dc-prod');
+  renderDecomisoLineas();
+  cargarDecomisoHistorial();
+}
+
+function _dcMoney(n){ return '$' + (Math.round((n||0)*100)/100).toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:2}); }
+
+function actualizarDecomisoPreview(){
+  const el = document.getElementById('dc-preview'); if (!el) return;
+  const prod = (prods||[]).find(p => p.id === document.getElementById('dc-prod')?.value);
+  if (!prod) { el.textContent = 'Seleccioná producto y cantidad'; el.style.color = '#888'; return; }
+  const q = parseFloat(document.getElementById('dc-cant')?.value);
+  const base = `Stock actual: ${fmtStock(prod)}`;
+  if (isNaN(q) || q <= 0) { el.textContent = base; el.style.color = '#555'; return; }
+  const costo = +prod.costo || 0, precio = +prod.precio || 0;
+  el.innerHTML = `${esc(base)}<br>Costo ${_dcMoney(costo*q)} · Precio ${_dcMoney(precio*q)}`;
+  el.style.color = (q > (prod.stock||0)) ? '#c94040' : '#555';
+}
+
+function agregarLineaDecomiso(){
+  const prod = (prods||[]).find(p => p.id === document.getElementById('dc-prod')?.value);
+  if (!prod) { showToast('Seleccioná un producto', 'err'); return; }
+  const pes = esPesable(prod);
+  let q = parseFloat(document.getElementById('dc-cant')?.value);
+  if (isNaN(q) || q <= 0) { showToast('Ingresá la cantidad a decomisar', 'err'); return; }
+  if (pes) q = redondearKg(q);
+  else if (!Number.isInteger(q)) { showToast('Este producto se cuenta por unidades enteras', 'err'); return; }
+  const ya = decomisoLineas.find(l => l.producto_id === prod.id);
+  const total = (ya ? ya.cantidad : 0) + q;
+  if (total > (prod.stock||0)) { showToast(`No hay stock suficiente de "${prod.nombre}": hay ${fmtStock(prod)}`, 'err'); return; }
+  if (ya) ya.cantidad = pes ? redondearKg(total) : total;
+  else decomisoLineas.push({ producto_id: prod.id, nombre: prod.nombre, cantidad: q, costo: +prod.costo || 0, precio: +prod.precio || 0, pesable: pes });
+  document.getElementById('dc-cant').value = '';
+  const b = document.getElementById('dc-prod-buscar'); if (b) b.value = '';
+  _poblarAjusteProdSel('', false, 'dc-prod');
+  document.getElementById('dc-prod').value = '';
+  actualizarDecomisoPreview();
+  renderDecomisoLineas();
+}
+
+function quitarLineaDecomiso(idx){ decomisoLineas.splice(idx, 1); renderDecomisoLineas(); }
+
+function renderDecomisoLineas(){
+  const el = document.getElementById('dc-lineas'); if (!el) return;
+  if (!decomisoLineas.length) { el.innerHTML = '<div style="font-size:12px;color:#999;text-align:center;padding:8px">Todavía no agregaste productos al decomiso</div>'; return; }
+  let tc = 0, tp = 0;
+  const filas = decomisoLineas.map((l, i) => {
+    tc += l.costo * l.cantidad; tp += l.precio * l.cantidad;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid #fecaca;border-radius:8px;background:#fff;margin-bottom:6px">
+      <div style="flex:1;font-size:12px"><b>${esc(l.nombre)}</b> <span style="color:#888">× ${l.pesable ? fmtPeso(l.cantidad) : l.cantidad}</span>
+        <div style="font-size:10.5px;color:#888">Costo ${_dcMoney(l.costo*l.cantidad)} · Precio ${_dcMoney(l.precio*l.cantidad)}</div></div>
+      <button onclick="quitarLineaDecomiso(${i})" style="border:none;background:#fee2e2;color:#b91c1c;border-radius:8px;padding:5px 9px;cursor:pointer;font-size:12px">✕</button>
+    </div>`;
+  }).join('');
+  el.innerHTML = filas + `<div style="display:flex;justify-content:space-between;font-size:12.5px;font-weight:700;padding:6px 4px;color:#7f1d1d"><span>Total a decomisar</span><span style="font-family:'DM Mono',monospace">Costo ${_dcMoney(tc)} · Precio ${_dcMoney(tp)}</span></div>`;
+}
+
+async function confirmarDecomiso(){
+  if (!_esRolAdmin()) { showToast('Solo dueños o administrativos pueden registrar decomisos', 'err'); return; }
+  if (!decomisoLineas.length) { showToast('Agregá al menos un producto a la lista', 'err'); return; }
+  const motivo = document.getElementById('dc-motivo')?.value || '';
+  const nota = (document.getElementById('dc-nota')?.value || '').trim();
+  if (!motivo) { showToast('Elegí el motivo del decomiso', 'err'); return; }
+  if (motivo === 'Otro' && !nota) { showToast('Con motivo "Otro" hay que aclarar en la observación', 'err'); return; }
+
+  // Chequeo previo de stock de TODAS las líneas antes de tocar nada
+  for (const l of decomisoLineas) {
+    const pr = (prods||[]).find(p => p.id === l.producto_id);
+    if (!pr || (pr.stock||0) < l.cantidad) { showToast(`No hay stock suficiente de "${l.nombre}"`, 'err'); return; }
+  }
+  const tc = decomisoLineas.reduce((s,l)=>s+l.costo*l.cantidad,0), tp = decomisoLineas.reduce((s,l)=>s+l.precio*l.cantidad,0);
+  if (!confirm(`¿Confirmar decomiso de ${decomisoLineas.length} producto(s)?\n\nMotivo: ${motivo}${nota?' — '+nota:''}\nValor a costo: ${_dcMoney(tc)}\nValor a precio: ${_dcMoney(tp)}\n\nSe descuenta el stock y queda en el Kardex. No se puede deshacer desde acá.`)) return;
+
+  const docNro = 'DC-' + Date.now().toString(36).toUpperCase().slice(-6);
+  const txId = 'decomiso-' + docNro;
+  const pasos = [];
+  try {
+    for (const l of decomisoLineas) {
+      const params = {
+        p_tienda_id: STORE.id, p_producto_id: l.producto_id,
+        p_cantidad: -l.cantidad,           // negativo = sale stock
+        p_tipo_mov: 'AJUSTE_SALIDA',       // tipo válido del kardex; el doc_tipo lo identifica
+        p_doc_tipo: 'DECOMISO', p_doc_nro: docNro,
+        p_costo_unit: l.costo, p_precio_unit: l.precio,
+        p_observacion: 'Decomiso — ' + motivo + (nota ? ': ' + nota : ''),
+      };
+      const { data: kRes, error: kErr } = await SB.rpc('mover_stock_con_kardex', params);
+      if (kErr || (kRes && kRes.exito === false)) {
+        if (pasos.length) { CompensationLog.add(txId, pasos); await CompensationLog.compensate(txId); }
+        const msg = (kErr && kErr.message) || (kRes && kRes.error) || '';
+        throw new Error(`No se pudo descontar "${l.nombre}": ${msg}${pasos.length ? ' — se revirtió el resto del decomiso.' : ''}`);
+      }
+      const pr = (prods||[]).find(p => p.id === l.producto_id);
+      if (pr && kRes && kRes.stock_nuevo != null) pr.stock = kRes.stock_nuevo;
+      pasos.push({ type: 'STOCK_REVERT', table: 'productos', params });
+    }
+    try { await auditLog('DECOMISO', 'kardex', null, { doc: docNro, motivo, nota, items: decomisoLineas.map(l=>({producto_id:l.producto_id,nombre:l.nombre,cantidad:l.cantidad,costo:l.costo,precio:l.precio})), total_costo: tc, total_precio: tp }); } catch(_) {}
+    decomisoLineas = [];
+    const n = document.getElementById('dc-nota'); if (n) n.value = '';
+    renderDecomisoLineas();
+    if (typeof renderStock === 'function') renderStock(typeof stockFilter !== 'undefined' ? stockFilter : 'all');
+    if (typeof renderProds === 'function') renderProds();
+    if (typeof checkAlertBar === 'function') checkAlertBar();
+    cargarDecomisoHistorial();
+    showToast(`✅ Decomiso ${docNro} registrado — costo ${_dcMoney(tc)}`, 'ok');
+  } catch (e) {
+    console.error('decomiso', e);
+    showToast('❌ ' + (e.message || 'No se pudo registrar el decomiso'), 'err');
+  }
+}
+
+async function cargarDecomisoHistorial(){
+  const el = document.getElementById('dc-historial');
+  try {
+    const { data, error } = await SB.from('kardex')
+      .select('id,created_at,producto_id,producto_nombre,cantidad,costo_unitario,precio_unitario,documento_nro,usuario_email,observacion')
+      .eq('tienda_id', STORE.id).eq('documento_tipo', 'DECOMISO')
+      .order('created_at', { ascending: false }).limit(2000);
+    if (error) throw error;
+    _decomisoHist = data || [];
+  } catch (e) {
+    console.error('decomisos', e);
+    if (el) el.innerHTML = '<div class="empty">Error al cargar los decomisos</div>';
+    return;
+  }
+  renderDecomisoHistorial();
+}
+
+function _decomisosFiltrados(){
+  const d = document.getElementById('dc-desde')?.value, h = document.getElementById('dc-hasta')?.value;
+  return (_decomisoHist||[]).filter(r => {
+    const f = fechaHoyLocal(r.created_at);
+    return (!d || f >= d) && (!h || f <= h);
+  }).map(r => {
+    const cant = Math.abs(+r.cantidad || 0);
+    const obs = String(r.observacion || '').replace(/^Decomiso\s*—\s*/, '');
+    return { ...r, cant, motivo: obs, costoTot: cant * (+r.costo_unitario||0), precioTot: cant * (+r.precio_unitario||0) };
+  });
+}
+
+function renderDecomisoHistorial(){
+  const el = document.getElementById('dc-historial'); if (!el) return;
+  const rows = _decomisosFiltrados();
+  if (!rows.length) { el.innerHTML = '<div class="empty">Sin decomisos en el período</div>'; return; }
+  const tc = rows.reduce((s,r)=>s+r.costoTot,0), tp = rows.reduce((s,r)=>s+r.precioTot,0);
+  let html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+    <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:10px;text-align:center"><div style="font-size:9px;color:#991b1b;text-transform:uppercase">Costo total</div><div style="font-family:'DM Mono',monospace;font-size:17px;font-weight:700;color:#991b1b">${_dcMoney(tc)}</div></div>
+    <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px;text-align:center"><div style="font-size:9px;color:#888;text-transform:uppercase">Precio total</div><div style="font-family:'DM Mono',monospace;font-size:17px;font-weight:700;color:#1a3a5c">${_dcMoney(tp)}</div></div>
+  </div>`;
+  html += rows.map(r => {
+    const f = new Date(r.created_at);
+    const fs = f.toLocaleDateString('es-AR') + ' ' + f.toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+    return `<div style="background:#fff;border:1.5px solid #eee;border-left:3px solid #991b1b;border-radius:10px;padding:10px 12px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;gap:8px">
+        <div style="flex:1;font-size:12px"><b>${esc(r.producto_nombre||'—')}</b> <span style="color:#c94040;font-family:'DM Mono',monospace">−${r.cant}</span>
+          <div style="font-size:10px;color:#999;margin-top:3px">📅 ${fs} · <span style="font-family:'DM Mono',monospace">${esc(r.documento_nro||'')}</span></div>
+          <div style="font-size:10px;color:#777;margin-top:2px;font-style:italic">${esc(r.motivo)}${r.usuario_email?' · '+esc(r.usuario_email):''}</div></div>
+        <div style="text-align:right;font-size:11px;font-family:'DM Mono',monospace;color:#555"><div>Costo ${_dcMoney(r.costoTot)}</div><div style="color:#888">Precio ${_dcMoney(r.precioTot)}</div></div>
+      </div></div>`;
+  }).join('');
+  el.innerHTML = html;
+}
+
+function exportarDecomisosExcel(){
+  if (typeof XLSX === 'undefined') { showToast('El generador de Excel se está cargando, probá de nuevo', 'err'); return; }
+  const rows = _decomisosFiltrados();
+  if (!rows.length) { showToast('No hay decomisos para exportar', 'err'); return; }
+  const aoa = [['Fecha','Documento','Producto','Cantidad','Costo unit.','Precio unit.','Costo total','Precio total','Motivo','Usuario']];
+  rows.slice().reverse().forEach(r => {
+    const f = new Date(r.created_at);
+    aoa.push([f.toLocaleDateString('es-AR') + ' ' + f.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}), r.documento_nro||'', r.producto_nombre||'', r.cant,
+      Math.round((+r.costo_unitario||0)*100)/100, Math.round((+r.precio_unitario||0)*100)/100,
+      Math.round(r.costoTot*100)/100, Math.round(r.precioTot*100)/100, r.motivo, r.usuario_email||'']);
+  });
+  const n = aoa.length;
+  aoa.push([]);
+  aoa.push(['TOTAL','','','','','', {t:'n', f:`SUM(G2:G${n})`}, {t:'n', f:`SUM(H2:H${n})`}]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:17},{wch:11},{wch:38},{wch:9},{wch:11},{wch:11},{wch:12},{wch:12},{wch:34},{wch:28}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Decomisos');
+  XLSX.writeFile(wb, 'decomisos_' + fechaHoyLocal() + '.xlsx');
+  showToast('✅ Excel de decomisos exportado', 'ok');
+}
+
 // ══ AJUSTE MANUAL DE STOCK ══
 document.getElementById('aj-prod')?.addEventListener('change', function() {
   const prod = prods.find(p => p.id === this.value);
