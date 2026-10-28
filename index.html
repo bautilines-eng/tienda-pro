@@ -2152,13 +2152,13 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <div style="flex:1">
           <div class="flabel">Agregar producto</div>
           <input class="inp" id="combo-prod-buscar" placeholder="🔎 Buscar por nombre..." oninput="filtrarComboProdSel()" style="margin-bottom:6px">
-          <select class="inp" id="combo-prod-sel" style="cursor:pointer">
+          <select class="inp" id="combo-prod-sel" style="cursor:pointer" onchange="onComboProdSelChange()">
             <option value="">Seleccionar...</option>
           </select>
         </div>
-        <div style="width:70px">
-          <div class="flabel">Cant.</div>
-          <input class="inp" id="combo-prod-qty" type="number" min="1" value="1">
+        <div style="width:84px">
+          <div class="flabel" id="combo-prod-qty-label">Cant.</div>
+          <input class="inp" id="combo-prod-qty" type="number" min="0" step="any" value="1">
         </div>
         <div style="display:flex;align-items:flex-end">
           <button onclick="addComboItem()"
@@ -13913,7 +13913,7 @@ async function _verificarStockDisponible(sel, qtys){
     for (const it of items) {
       const actual = data.find(d => d.id === it.id);
       const disponible = actual ? actual.stock : 0;
-      const necesario = (it.cantidad||1) * pedidoCombos;
+      const necesario = redondearKg((it.cantidad||1) * pedidoCombos);
       if (disponible < necesario) {
         throw new Error(`Stock insuficiente para armar "${c.nombre}" (falta "${it.nombre}"): disponible ${disponible}, se necesitan ${necesario}`);
       }
@@ -14304,7 +14304,7 @@ async function registerSale(){
       const comboItems = typeof p.combo_items==='string' ? JSON.parse(p.combo_items||'[]') : (p.combo_items||[]);
       for(const ci of comboItems){
         const prodReal = prods.find(x=>x.id===ci.id && !x.es_combo);
-        if(prodReal) prodReal.stock = Math.max(0, prodReal.stock - (ci.cantidad||1)*(qtys[p.id]||0));
+        if(prodReal) prodReal.stock = Math.max(0, redondearKg(prodReal.stock - (ci.cantidad||1)*(qtys[p.id]||0)));
       }
     }
     _refrescarStockCombos();
@@ -17645,6 +17645,7 @@ function abrirModalCombo(){
   document.getElementById('combo-nombre').value = '';
   document.getElementById('combo-precio').value = '';
   const qtyEl = document.getElementById('combo-prod-qty'); if(qtyEl) qtyEl.value = '1';
+  const qtyLab = document.getElementById('combo-prod-qty-label'); if(qtyLab) qtyLab.textContent = 'Cant.';
   const buscarEl = document.getElementById('combo-prod-buscar'); if(buscarEl) buscarEl.value = '';
   _poblarComboProdSel('');
   renderComboItems();
@@ -17661,7 +17662,8 @@ function _poblarComboProdSel(filtro){
   const disponibles = (prods||[]).filter(p => !p.es_combo && (!f || (p.nombre||'').toLowerCase().includes(f)))
     .slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
   sel.innerHTML = '<option value="">Seleccionar...</option>' +
-    disponibles.map(p=>`<option value="${p.id}">${esc(p.nombre)}${p.stock!=null?' (stock: '+p.stock+')':''}</option>`).join('');
+    disponibles.map(p=>`<option value="${p.id}">${esc(p.nombre)}${p.stock!=null?' (stock: '+(esPesable(p)?fmtPeso(p.stock||0):p.stock)+')':''}${esPesable(p)?' · se carga en gramos':''}</option>`).join('');
+  onComboProdSelChange();
 }
 
 function filtrarComboProdSel(){
@@ -17676,14 +17678,41 @@ async function loadCombos() {
   } catch(e) { combos = []; }
 }
 
+// Productos pesables (fiambres, quesos...): la cantidad del combo se carga
+// en GRAMOS (ej. 100 g de jamón) y se guarda en kilos (0,1), que es la
+// unidad en la que está el stock y el precio de esos productos. El resto
+// se sigue cargando en unidades enteras.
+function onComboProdSelChange() {
+  const sel = document.getElementById('combo-prod-sel');
+  const prod = (prods||[]).find(p => p.id === sel?.value);
+  const lab = document.getElementById('combo-prod-qty-label');
+  const inp = document.getElementById('combo-prod-qty');
+  if(!lab || !inp) return;
+  if(prod && esPesable(prod)) { lab.textContent = 'Gramos'; inp.value = '100'; inp.step = 'any'; }
+  else { lab.textContent = 'Cant.'; inp.value = '1'; inp.step = '1'; }
+}
+
+// Cantidad de un componente tal como se muestra: "100 g" / "1,5 kg" / "2".
+function _fmtCantCombo(i) {
+  if(!i.pesable) return String(i.cantidad);
+  const g = Math.round((i.cantidad||0) * 1000);
+  return g >= 1000 ? (g/1000).toLocaleString('es-AR') + ' kg' : g + ' g';
+}
+
 function addComboItem() {
   const sel = document.getElementById('combo-prod-sel');
-  const qty = parseInt(document.getElementById('combo-prod-qty').value) || 1;
   if(!sel.value) { showToast('Seleccioná un producto', 'err'); return; }
   const prod = prods.find(p => p.id === sel.value);
   if(!prod) return;
   if(comboItems.find(i => i.id === prod.id)) { showToast('Ya está en el combo', 'err'); return; }
-  comboItems.push({ id: prod.id, nombre: prod.nombre, cantidad: qty, precio: prod.precio });
+  const raw = parseFloat(document.getElementById('combo-prod-qty').value);
+  if(esPesable(prod)) {
+    if(!(raw > 0)) { showToast('Ingresá los gramos del producto', 'err'); return; }
+    comboItems.push({ id: prod.id, nombre: prod.nombre, cantidad: redondearKg(raw/1000), precio: prod.precio, pesable: true });
+  } else {
+    const qty = parseInt(raw) || 1;
+    comboItems.push({ id: prod.id, nombre: prod.nombre, cantidad: qty, precio: prod.precio });
+  }
   renderComboItems();
 }
 
@@ -17696,12 +17725,12 @@ function renderComboItems() {
   const el = document.getElementById('combo-items-list');
   if(!el) return;
   if(!comboItems.length) { el.innerHTML = '<div style="color:#aaa;font-size:12px;text-align:center;padding:12px">Agregá productos al combo</div>'; return; }
-  const total = comboItems.reduce((s,i) => s + i.precio * i.cantidad, 0);
+  const total = Math.round(comboItems.reduce((s,i) => s + i.precio * i.cantidad, 0) * 100) / 100;
   el.innerHTML = comboItems.map(i => `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f0f0f0">
-      <div style="font-size:12px"><b>${esc(i.nombre)}</b> × ${i.cantidad}</div>
+      <div style="font-size:12px"><b>${esc(i.nombre)}</b> × ${_fmtCantCombo(i)}</div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-family:'DM Mono',monospace;font-size:12px;color:#666">$${(i.precio*i.cantidad).toLocaleString('es-AR')}</span>
+        <span style="font-family:'DM Mono',monospace;font-size:12px;color:#666">$${(Math.round(i.precio*i.cantidad*100)/100).toLocaleString('es-AR')}</span>
         <button onclick="removeComboItem('${i.id}')" style="background:none;border:none;color:#ccc;cursor:pointer;font-size:14px">✕</button>
       </div>
     </div>`).join('') +
@@ -17749,7 +17778,7 @@ function _refrescarStockCombos(){
     p.stock = Math.max(0, Math.min(...items.map(it=>{
       const prodReal = prods.find(x=>x.id===it.id && !x.es_combo);
       const stockReal = prodReal ? (prodReal.stock||0) : 0;
-      return Math.floor(stockReal / (it.cantidad||1));
+      return Math.floor(stockReal / (it.cantidad||1) + 1e-9);   // +1e-9: evita que 0,3/0,1 dé 2,9999
     })));
   }
 }
@@ -17766,7 +17795,7 @@ async function guardarCombo() {
   // 100% falso en cualquier reporte de rentabilidad por producto.
   const costoTotal = comboItems.reduce((s,i)=>{
     const prod = prods.find(p=>p.id===i.id);
-    return s + (prod?.costo||0) * i.cantidad;
+    return s + (prod?.costo||0) * i.cantidad;   // pesables: cantidad en kg
   }, 0);
   try {
     const combo = await sbInsert('combos', {
@@ -17827,13 +17856,14 @@ function _descomponerItemsCombo(items){
     for(const ci of comboItems){
       const prodReal = prods.find(p=>p.id===ci.id && !p.es_combo);
       if(!prodReal) continue; // producto borrado del catálogo -- no debería pasar, no revienta la venta
-      const cantidadReal = (ci.cantidad||1) * cantCombos;
+      const cantidadReal = redondearKg((ci.cantidad||1) * cantCombos);   // pesables: kg con hasta 3 decimales
       const pesoComponente = catalogoTotal>0 ? ((prodReal.precio||0)*(ci.cantidad||1)) / catalogoTotal : (1/comboItems.length);
       const subtotalProrrateado = Math.round(precioRealCombo * pesoComponente * 100)/100;
       resultado.push({
         producto_id: prodReal.id, nombre: prodReal.nombre, cantidad: cantidadReal,
         precio: cantidadReal>0 ? Math.round((subtotalProrrateado/cantidadReal)*100)/100 : (prodReal.precio||0),
         subtotal: subtotalProrrateado, costo: prodReal.costo||0, emoji: getEm(prodReal.categoria),
+        pesable: !!prodReal.pesable, unidad: prodReal.pesable ? 'kg' : null,
         iva_alicuota: (prodReal.iva_alicuota==null?21:+prodReal.iva_alicuota),
         impuesto_interno_unitario: prodReal.impuesto_interno_unitario||0,
       });
