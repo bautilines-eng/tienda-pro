@@ -3778,6 +3778,29 @@ function generarLinkMP() {
 // Fallback al plan genérico si no hay datos en BD
 let PLAN_CUENTAS = [];
 
+// ── Datos de la empresa para encabezados de reportes/PDF ──
+// Antes estaba escrito "TODO PYMES S.R.L." a mano en cada reporte, y
+// cualquier tienda nueva salía con el nombre y el CUIT de TODO PYMES.
+// Ahora sale de la tienda que tiene la sesión (STORE). TODO PYMES conserva
+// su razón social completa y su CUIT.
+const _TIENDA_TODOPYMES_ID = '067ff0fb-4cbf-4bde-8307-f97659d111e0';
+function _empresaNombre(){
+  if (STORE?.id === _TIENDA_TODOPYMES_ID) return 'TODO PYMES S.R.L. — Drugstore';
+  return STORE?.name || 'Tienda';
+}
+function _empresaCuit(){
+  return STORE?.cuit || (STORE?.id === _TIENDA_TODOPYMES_ID ? '30-71140779-7' : '');
+}
+function _empresaCondIva(){
+  const c = STORE?.condicion_iva || 'RI';
+  return ({RI:'IVA Responsable Inscripto', MT:'Monotributista', M:'Monotributista', EX:'IVA Exento', CF:'Consumidor Final'})[c] || c;
+}
+// "CUIT: xx · IVA Responsable Inscripto" (sin CUIT si la tienda todavía no lo cargó)
+function _empresaSub(){
+  const cuit = _empresaCuit();
+  return (cuit ? 'CUIT: '+cuit+' · ' : '') + _empresaCondIva();
+}
+
 // Plan genérico de fallback (Comercio Minorista)
 const PLAN_CUENTAS_FALLBACK = [
   {codigo:'1.1.01',nombre:'Caja en Pesos',          tipo:'Activo',    grupo:'Caja y Bancos',    naturaleza:'D',jerarquia:'1.1.1.01'},
@@ -4249,8 +4272,8 @@ body{touch-action:manipulation}
 <div class="header">
   <div class="header-top">
     <div>
-      <div class="empresa">TODO PYMES S.R.L. — Drugstore</div>
-      <div class="sub">CUIT: 30-71140779-7 · IVA Responsable Inscripto</div>
+      <div class="empresa">${esc(_empresaNombre())}</div>
+      <div class="sub">${esc(_empresaSub())}</div>
     </div>
     <span class="nro-asiento">Asiento N° ${String(nroAsiento).padStart(5,'0')}</span>
   </div>
@@ -4350,7 +4373,7 @@ ${comprasHoy.length ? `
 </div>
 
 <div class="footer">
-  <span>TODO PYMES S.R.L. — Tienda Pro · ${new Date().toLocaleString('es-AR')}</span>
+  <span>${esc(_empresaNombre())} — Tienda Pro · ${new Date().toLocaleString('es-AR')}</span>
   <span>Generado automáticamente — No requiere firma</span>
 </div>
 
@@ -7851,7 +7874,7 @@ function exportarMayorPDF() {
     </style>
     </head><body>
     <h2>Mayor Contable — ${cuenta.codigo} ${esc(cuenta.nombre)}</h2>
-    <div class="sub">TODO PYMES S.R.L. — Drugstore · Período: ${mesDesde||'inicio'} a ${mesHasta||'hoy'} · Generado: ${new Date().toLocaleDateString('es-AR')}</div>
+    <div class="sub">${esc(_empresaNombre())} · Período: ${mesDesde||'inicio'} a ${mesHasta||'hoy'} · Generado: ${new Date().toLocaleDateString('es-AR')}</div>
     ${content}
     <script>window.print();<\/script></body></html>`);
   win.document.close();
@@ -7987,7 +8010,7 @@ function renderBalance() {
   el.innerHTML = `
     <div style="background:#1a3a5c;color:#fff;padding:12px 16px;border-radius:10px 10px 0 0;margin-bottom:0">
       <div style="font-size:14px;font-weight:700">Balance de Sumas y Saldos</div>
-      <div style="font-size:11px;opacity:.7;margin-top:2px">TODO PYMES S.R.L. — Drugstore · ${mes||'Acumulado'}</div>
+      <div style="font-size:11px;opacity:.7;margin-top:2px">${esc(_empresaNombre())} · ${mes||'Acumulado'}</div>
     </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -8026,7 +8049,7 @@ function exportarBalancePDF() {
     @media print{button{display:none!important}}</style>
     </head><body>
     <h2>Balance de Sumas y Saldos — ${mes}</h2>
-    <p style="color:#888;font-size:10px;margin-bottom:16px">TODO PYMES S.R.L. — Drugstore · ${new Date().toLocaleDateString('es-AR')}</p>
+    <p style="color:#888;font-size:10px;margin-bottom:16px">${esc(_empresaNombre())} · ${new Date().toLocaleDateString('es-AR')}</p>
     ${content}
     <script>window.print();<\/script></body></html>`);
   win.document.close();
@@ -8739,7 +8762,7 @@ function exportarLibroDiarioPDF() {
     @media print{button{display:none!important}}
   </style></head><body>
   <h2>Libro Diario — ${mes}</h2>
-  <div class="sub">TODO PYMES S.R.L. — Drugstore · CUIT: 30-71140779-7 · Generado: ${new Date().toLocaleDateString('es-AR')}</div>
+  <div class="sub">${esc(_empresaNombre())} · ${esc(_empresaCuit()?'CUIT: '+_empresaCuit()+' · ':'')}Generado: ${new Date().toLocaleDateString('es-AR')}</div>
   <table>
     <thead><tr>
       <th>Código</th><th>Cuenta</th><th>Detalle</th>
@@ -9588,9 +9611,9 @@ body{touch-action:manipulation}
 
 <div class="header">
   <div>
-    <div class="empresa">TODO PYMES S.R.L. — Drugstore</div>
-    <div class="empresa-sub">CUIT: ${STORE?.cuit||'30-71140779-7'} · IVA Responsable Inscripto</div>
-    <div class="empresa-sub">${esc(STORE?.nombre||'')} · Santiago del Estero</div>
+    <div class="empresa">${esc(_empresaNombre())}</div>
+    <div class="empresa-sub">${esc(_empresaSub())}</div>
+    <div class="empresa-sub">${esc(STORE?.name||'')}${STORE?.id===_TIENDA_TODOPYMES_ID?' · Santiago del Estero':''}</div>
   </div>
   <div class="orden-box">
     <div class="orden-title">ORDEN DE COMPRA</div>
@@ -9651,7 +9674,7 @@ ${obs?`<div class="obs-box">📝 <b>Observaciones:</b> ${esc(obs)}</div>`:''}
   <div class="firma-box">
     <div class="firma-line"></div>
     <div class="firma-label">AUTORIZADO POR</div>
-    <div style="font-size:11px;color:#888;margin-top:2px">TODO PYMES S.R.L.</div>
+    <div style="font-size:11px;color:#888;margin-top:2px">${esc(_empresaNombre())}</div>
   </div>
   <div class="firma-box">
     <div class="firma-line"></div>
@@ -9661,7 +9684,7 @@ ${obs?`<div class="obs-box">📝 <b>Observaciones:</b> ${esc(obs)}</div>`:''}
 </div>
 
 <div style="margin-top:24px;text-align:center;font-size:10px;color:#aaa;border-top:1px solid #f0f0f0;padding-top:12px">
-  Tienda Pro · TODO PYMES S.R.L. · Generado: ${new Date().toLocaleString('es-AR')} · ${nroOrden}
+  Tienda Pro · ${esc(_empresaNombre())} · Generado: ${new Date().toLocaleString('es-AR')} · ${nroOrden}
 </div>
 
 <script>window.print();<\/script>
@@ -11776,13 +11799,13 @@ async function loadStore(){
   try{
     // 1) ¿Es titular de una tienda? → dueño
     const {data:propia}=await SB.from('tiendas').select('*').eq('user_id',USER.id).maybeSingle();
-    if(propia){ STORE=propia; USER_ROL='dueño'; return; }
+    if(propia){ propia.nombre=propia.name; STORE=propia; USER_ROL='dueño'; return; }
     // 2) ¿Es miembro (empleado/administrativo) de una tienda? → carga ESA tienda
     const {data:memb}=await SB.from('usuarios_tienda').select('tienda_id,rol')
       .eq('auth_user_id',USER.id).eq('activo',true).limit(1).maybeSingle();
     if(memb && memb.tienda_id){
       const {data:t}=await SB.from('tiendas').select('*').eq('id',memb.tienda_id).maybeSingle();
-      if(t){ STORE=t; USER_ROL=(memb.rol||'empleado').toLowerCase(); return; }
+      if(t){ t.nombre=t.name; STORE=t; USER_ROL=(memb.rol||'empleado').toLowerCase(); return; }
     }
     // 3) Dueño nuevo genuino (sin tienda ni membresía) → crear su tienda
     const {data:nueva}=await SB.from('tiendas').insert({
@@ -11790,7 +11813,7 @@ async function loadStore(){
       name: USER.user_metadata?.tienda_name || USER.email?.split('@')[0] || 'Mi Tienda',
       email: USER.email
     }).select().single();
-    if(nueva){ STORE=nueva; USER_ROL='dueño'; } else STORE=null;
+    if(nueva){ nueva.nombre=nueva.name; STORE=nueva; USER_ROL='dueño'; } else STORE=null;
   }catch(e){
     console.error('loadStore error',e);
     STORE=null;
@@ -18664,7 +18687,7 @@ async function guardarConfig(){
   try{
     const {error} = await SB.from('tiendas').update({name:nombre,telefono,email,descripcion}).eq('id',STORE.id);
     if(error) throw error;
-    STORE = {...STORE, name:nombre, telefono, email, descripcion};
+    STORE = {...STORE, name:nombre, nombre, telefono, email, descripcion};
     document.getElementById('store-name').textContent = nombre;
     showToast('✅ Datos actualizados','ok');
   }catch(e){ showToast('❌ Error al guardar','err'); console.error(e); }
