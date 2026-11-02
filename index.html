@@ -3483,7 +3483,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div class="modal-title">Nueva Tienda</div>
     <div class="fgroup"><div class="flabel">Nombre de la tienda</div><input class="inp" id="nt-nombre" placeholder="Ej: Ropa de María"></div>
     <div class="fgroup"><div class="flabel">Email del dueño</div><input class="inp" id="nt-email" type="email" placeholder="dueno@mail.com"></div>
-    <div class="fgroup"><div class="flabel">Contraseña temporal</div><input class="inp" id="nt-pass" type="password" placeholder="Mínimo 6 caracteres"></div>
+    <div class="fgroup"><div class="flabel">Contraseña temporal</div><div style="display:flex;gap:8px"><input class="inp" id="nt-pass" type="password" placeholder="Mínimo 8 caracteres" autocomplete="new-password" style="flex:1"><button type="button" class="btn" onclick="generarClaveEn('nt-pass')" style="white-space:nowrap" title="Genera una clave aleatoria que Supabase siempre acepta">🎲 Generar</button></div><div style="font-size:11px;color:#888;margin-top:4px">No uses claves comunes (123456, nombre+año…): el sistema las rechaza por estar en listas de claves filtradas.</div></div>
     <div class="fgroup"><div class="flabel">Teléfono (opcional)</div><input class="inp" id="nt-tel" type="tel" placeholder="+54 9 381..."></div>
     <button class="btn btn-rust btn-full" onclick="crearTienda()">Crear tienda →</button>
   </div>
@@ -3509,7 +3509,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       </select>
     </div>
     <div class="fgroup"><div class="flabel">Contraseña temporal</div>
-      <input class="inp" id="usu-pass" type="password" placeholder="Mínimo 6 caracteres">
+      <div style="display:flex;gap:8px"><input class="inp" id="usu-pass" type="password" placeholder="Mínimo 8 caracteres" autocomplete="new-password" style="flex:1"><button type="button" class="btn" onclick="generarClaveEn('usu-pass')" style="white-space:nowrap" title="Genera una clave aleatoria que Supabase siempre acepta">🎲 Generar</button></div>
     </div>
     <button class="btn btn-ink btn-full" onclick="saveUsuario()">Crear usuario</button>
   </div>
@@ -13040,7 +13040,7 @@ async function saveUsuario(){
   const rol = document.getElementById('usu-rol').value;
   const pass = document.getElementById('usu-pass').value;
   if(!email || !pass){ showToast('Completá email y contraseña','err'); return; }
-  if(pass.length < 6){ showToast('La contraseña debe tener al menos 6 caracteres','err'); return; }
+  if(pass.length < 8){ showToast('La contraseña debe tener al menos 8 caracteres','err'); return; }
 
   const btn = document.querySelector('#ov-add-usuario .btn-ink');
   if(btn){ btn.disabled = true; btn.textContent = 'Creando usuario...'; }
@@ -13070,7 +13070,7 @@ async function saveUsuario(){
       if(signUpError.message.includes('already registered') || signUpError.message.includes('already been registered')){
         showToast('⚠️ Ese email ya tiene una cuenta. Usá otro.','err');
       } else {
-        showToast('❌ '+signUpError.message,'err');
+        showToast('❌ '+(_msgErrorClave(signUpError)||signUpError.message),'err');
       }
       if(btn){ btn.disabled=false; btn.textContent='Crear usuario'; }
       return;
@@ -13181,7 +13181,10 @@ function renderProds(){
   const el=document.getElementById('prods-el');
   if(!prods.length){el.innerHTML='<div class="empty"><div class="spin"></div>Cargando productos...</div>';return;}
   if(!filtered.length){el.innerHTML='<div class="empty">Sin productos. Agregá uno desde Stock.</div>';return;}
-  el.innerHTML=filtered.map(p=>{
+  // Primero los productos con stock; los "Sin stock" van al final.
+  // sort() es estable: dentro de cada grupo se respeta el orden original.
+  const _lista=[...filtered].sort((a,b)=>((b.stock>0)?1:0)-((a.stock>0)?1:0));
+  el.innerHTML=_lista.map(p=>{
     const q=qtys[p.id]||0,on=q>0;
     const pes=esPesable(p);
     const min=stockMin(p);
@@ -19751,12 +19754,38 @@ async function loadAdminTiendas(){
   }catch(e){ console.error('loadAdminTiendas',e); }
 }
 
+// ── Claves nuevas: generador + mensaje claro de Supabase ──
+// Supabase rechaza (HTTP 422, AuthWeakPasswordError) las claves que figuran
+// en listas de claves filtradas ("Leaked password protection"). No se puede
+// saber de antemano cuáles son; por eso: (1) botón que genera una clave
+// aleatoria que nunca está en esas listas y (2) mensaje en castellano.
+function generarClaveSegura(){
+  const A='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!#$%*+-?';
+  const buf=new Uint32Array(12); crypto.getRandomValues(buf);
+  return Array.from(buf,n=>A[n%A.length]).join('');
+}
+function generarClaveEn(inputId){
+  const el=document.getElementById(inputId); if(!el) return;
+  const k=generarClaveSegura();
+  el.value=k; el.type='text';
+  navigator.clipboard?.writeText(k).then(
+    ()=>showToast('🎲 Clave generada y copiada: '+k,'ok'),
+    ()=>showToast('🎲 Clave generada: '+k+' (copiala antes de crear)','ok'));
+}
+function _msgErrorClave(e){
+  const m=String(e?.message||'');
+  if(e?.name==='AuthWeakPasswordError' || /weak|easy to guess|leaked|pwned/i.test(m))
+    return 'Esa contraseña es muy común o ya apareció en filtraciones de datos, por seguridad no se acepta. Elegí otra o tocá 🎲 Generar.';
+  if(/at least|too short/i.test(m)) return 'La contraseña es demasiado corta (mínimo 8 caracteres).';
+  return null;
+}
+
 async function crearTienda(){
   const nombre = document.getElementById('nt-nombre').value.trim();
   const email = document.getElementById('nt-email').value.trim();
   const pass = document.getElementById('nt-pass').value;
   if(!nombre||!email||!pass){ showToast('Completá todos los campos','err'); return; }
-  if(pass.length < 6){ showToast('Contraseña mínimo 6 caracteres','err'); return; }
+  if(pass.length < 8){ showToast('Contraseña mínimo 8 caracteres','err'); return; }
   try{
     // Crear usuario en Supabase Auth
     const {data,error} = await SB.auth.signUp({email, password:pass, options:{data:{tienda_name:nombre}}});
@@ -19766,7 +19795,7 @@ async function crearTienda(){
     ['nt-nombre','nt-email','nt-pass','nt-tel'].forEach(id=>document.getElementById(id).value='');
     setTimeout(()=>loadAdminTiendas(), 2000);
   }catch(e){
-    showToast('❌ Error: '+e.message,'err');
+    showToast('❌ '+(_msgErrorClave(e)||('Error: '+e.message)),'err');
     console.error(e);
   }
 }
