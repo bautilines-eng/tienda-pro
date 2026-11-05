@@ -935,6 +935,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <button onclick="prepararCierreTurno()" style="width:100%;padding:13px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:8px">
           🔄 Cierre de Turno
         </button>
+        <div id="cierres-pendientes"></div>
         <button class="btn btn-red btn-full" onclick="prepararCierre()">🔒 Realizar Cierre del Día</button>
         <button onclick="abrirModalReimputar()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:13px;font-weight:600;cursor:pointer">🔄 Reimputar medio de pago</button>
       </div>
@@ -15606,7 +15607,32 @@ function _calcularArqueoDia(fecha, efCaja){
   };
 }
 
+// Días anteriores (hasta 3) con ventas y SIN cierre. Aparece el aviso en
+// Caja con el botón para cerrarlos — típico cuando el local trabaja pasada
+// la medianoche y el día "se corta" antes de poder cerrar.
+function _diasPendientesDeCierre(){
+  const out=[];
+  for(let i=1;i<=3;i++){
+    const d=new Date(); d.setDate(d.getDate()-i);
+    const f=fechaHoyLocal(d);
+    if((cierres||[]).some(c=>c.fecha===f)) continue;
+    const n=(sales||[]).filter(v=>v.fecha===f).length;
+    if(n) out.push({fecha:f,n});
+  }
+  return out;
+}
+function _renderCierresPendientes(){
+  const el=document.getElementById('cierres-pendientes'); if(!el) return;
+  const pend=_diasPendientesDeCierre();
+  el.innerHTML=pend.map(d=>`<div style="background:#fff7e0;border:1.5px solid #e6c36a;border-radius:12px;padding:12px;margin-bottom:10px;font-size:12px;color:#7a5a00">
+    <div style="font-weight:700;margin-bottom:4px">⚠️ Falta el cierre del ${_fmtFechaAR(d.fecha)} (${d.n} ventas)</div>
+    <div style="margin-bottom:8px">Contá el efectivo, escribilo en "Efectivo contado" y tocá el botón. Lo que se cobró en efectivo después de las 00:00 se descuenta solo.</div>
+    <button onclick="prepararCierre('${d.fecha}')" style="width:100%;padding:11px;border-radius:10px;border:none;background:#c94040;color:#fff;font-size:13px;font-weight:700;cursor:pointer">🔒 Cerrar el día ${_fmtFechaAR(d.fecha)}</button>
+  </div>`).join('');
+}
+
 function renderCaja(){
+  _renderCierresPendientes();
   const today=fechaHoyLocal();
   const todaySales=sales.filter(s=>s.fecha===today);
   const totalVentas=todaySales.reduce((s,v)=>s+(v.total||0),0);   // valor real de las ventas (para ticket promedio)
@@ -15748,17 +15774,25 @@ function calcArqueo(){
   difEl.className=`ar-val ${dif>=0?'green':'red'}`;
 }
 
-function prepararCierre(){
-  const today=fechaHoyLocal();
+// Cierre del día. Sin argumento cierra HOY. Con una fecha 'YYYY-MM-DD'
+// cierra ese día anterior: pasa cuando el local trabaja pasada la
+// medianoche y el cierre se hace después de las 00:00 — "hoy" ya es el
+// día siguiente y antes no había forma de cerrar el día que terminó.
+// El efectivo que se cobró después de las 00:00 (ventas del día siguiente)
+// está físicamente en el cajón pero NO pertenece a ese cierre: se descuenta
+// del contado para que la diferencia sea la real.
+function prepararCierre(fechaForzada){
+  const hoyReal=fechaHoyLocal();
+  const today=(typeof fechaForzada==='string' && /^\d{4}-\d{2}-\d{2}$/.test(fechaForzada) && fechaForzada<hoyReal) ? fechaForzada : hoyReal;
   // Ya existe un cierre para hoy -- esto es justo lo que generó los
   // duplicados del 14 y 15/08 (doble clic o F5 en el momento justo, sin
   // ninguna validación). No se puede cerrar dos veces el mismo día.
   if((cierres||[]).some(c => c.fecha === today)){
-    showToast('Ya existe un cierre registrado para hoy — no se puede cerrar dos veces el mismo día', 'err');
+    showToast('Ya existe un cierre registrado para '+(today===hoyReal?'hoy':'el '+_fmtFechaAR(today))+' — no se puede cerrar dos veces el mismo día', 'err');
     return;
   }
   const todaySales=sales.filter(s=>s.fecha===today);
-  if(!todaySales.length){showToast('No hay ventas hoy para cerrar','err');return;}
+  if(!todaySales.length){showToast('No hay ventas '+(today===hoyReal?'hoy':'ese día')+' para cerrar','err');return;}
   // Neto de NC del día (mismo criterio que renderCaja — un solo helper).
   const { ef, tr, td, mp, cc } = _ventasNetasDeNC(today);
   // Total del cierre = solo lo cobrado (igual criterio que renderCaja).
@@ -15770,11 +15804,20 @@ function prepararCierre(){
   // cálculo se hace UNA sola vez acá y se guarda entero — el cierre queda
   // congelado, no se recalcula distinto si después cargás algo con fecha
   // pasada (ver conversación 11/08).
-  const arqueo = _calcularArqueoDia(today, efCaja);
+  let efPosterior = 0;   // efectivo cobrado/movido DESPUÉS del día que se cierra
+  if(today < hoyReal){
+    const ctaEfP = (typeof METODO_CUENTA!=='undefined' && METODO_CUENTA['Efectivo']) || '11101001';
+    efPosterior = Math.round(_movimientosCuenta(ctaEfP, f => !!f && f > today && f <= hoyReal)
+      .reduce((s,m)=>s+(m.debe||0)-(m.haber||0),0)*100)/100;
+  }
+  const arqueo = _calcularArqueoDia(today, efCaja - efPosterior);
   const dif = arqueo.dif;
   const obsUsuario=document.getElementById('arq-obs').value;
   const _avisoSalto=_saltoTexto(arqueo.salto);
-  const obs=[obsUsuario,_avisoSalto].filter(Boolean).join('\n');
+  const _avisoPost = today < hoyReal
+    ? `Cierre del ${_fmtFechaAR(today)} registrado el ${_fmtFechaAR(hoyReal)}.` + (efPosterior ? ` Del efectivo contado se descontaron ${_moneyAR(efPosterior)} movidos después de las 00:00 (no son de este día).` : '')
+    : '';
+  const obs=[obsUsuario,_avisoPost,_avisoSalto].filter(Boolean).join('\n');
   const gastosHoyCierre = gastos.filter(g => g.fecha === today); // declarado ANTES de usarse (evita TDZ)
 
   document.getElementById('cierre-content').innerHTML=_saltoHTML(arqueo.salto)+`
@@ -15790,10 +15833,11 @@ function prepararCierre(){
       ${arqueo.salidasEfectivoDia>0?`<div class="hc-dr" style="border-top:1px solid #ddd;margin-top:6px;padding-top:6px"><span style="color:#c94040;font-weight:600">Gastos y retiros en efectivo hoy</span><span style="color:#c94040;font-weight:700">-$${Math.round(arqueo.salidasEfectivoDia).toLocaleString('es-AR')}</span></div>`:''}
       <div class="hc-dr"><span style="font-weight:600">Efectivo esperado en caja <span style="font-weight:400;opacity:.6">(acumulado)</span></span><span style="font-weight:700">$${Math.round(arqueo.efectivoEsperado).toLocaleString('es-AR')}</span></div>
       <div class="hc-dr"><span>Efectivo contado en caja</span><span>$${efCaja.toLocaleString('es-AR')}</span></div>
+      ${efPosterior?`<div class="hc-dr" style="color:#9a5b12"><span>Menos: efectivo movido después de las 00:00 (otro día)</span><span>${_moneyAR(-efPosterior)}</span></div>`:''}
       <div class="hc-dr"><span style="font-weight:600">Diferencia</span><span style="font-weight:700;color:${dif>=0?'var(--pine)':'var(--red)'}">$${Math.round(dif).toLocaleString('es-AR')}</span></div>
       ${obsUsuario?`<div style="margin-top:8px;font-size:11px;color:var(--muted)">${esc(obsUsuario)}</div>`:''}
     </div>
-    <div style="font-size:13px;color:var(--red);font-weight:500">⚠️ Esta acción registrará el cierre oficial del día. No se puede deshacer.</div>`;
+    <div style="font-size:13px;color:var(--red);font-weight:500">⚠️ Esta acción registrará el cierre oficial ${today<hoyReal?'del '+_fmtFechaAR(today):'del día'}. No se puede deshacer.</div>`;
 
   // Store cierre data for confirm — incluye el arqueo YA congelado, así
   // exportarCierrePDF nunca más tiene que recalcularlo.
