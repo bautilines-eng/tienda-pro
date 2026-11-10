@@ -11746,6 +11746,11 @@ function aplicarPermisosUI(){
     else { cbtn.removeAttribute('disabled'); cbtn.style.opacity=''; cbtn.style.cursor=''; cbtn.title=''; }
   }
   document.body.setAttribute('data-rol', rol);
+  // Solo dueño/administrativo crean clientes nuevos
+  document.querySelectorAll('[onclick*="ov-add-client"]').forEach(el=>{
+    if(el.classList.contains('modal-close')) return;
+    el.style.display = esVendedor ? 'none' : '';
+  });
 }
 
 // ── ¿La tienda tiene facturación electrónica ARCA configurada? ──
@@ -14145,6 +14150,12 @@ async function registerSale(){
 
   const sel=prods.filter(p=>(qtys[p.id]||0)>0);
   if(!sel.length)return;
+  // Cuenta corriente sin cliente = deuda que nadie puede cobrar → siempre hay que elegir cliente
+  if(method==='Cuenta Corriente' && !document.getElementById('v-cliente')?.value){
+    showToast('⚠️ Para vender en Cuenta Corriente tenés que elegir un cliente','err');
+    document.getElementById('v-cliente')?.focus();
+    return;
+  }
   const btn=document.getElementById('c-btn');
   // El anti-doble-click lo maneja withLoadingButton (deshabilita el botón
   // antes de llamar y lo re-habilita en su finally). NO repetir la guarda
@@ -16901,6 +16912,7 @@ async function deleteClient(id,nombre){
 }
 
 async function saveClient(){
+  if(!_esRolAdmin()){ showToast('Solo el dueño o un administrativo puede crear clientes nuevos','err'); return; }
   const nombre=document.getElementById('cl-name').value.trim();
   if(!nombre){showToast('Ingresá el nombre','err');return;}
   try{
