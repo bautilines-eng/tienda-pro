@@ -11748,6 +11748,40 @@ function aplicarPermisosUI(){
   document.body.setAttribute('data-rol', rol);
 }
 
+// ── ¿La tienda tiene facturación electrónica ARCA configurada? ──
+// Sin ARCA (ej. cliente nuevo que factura a mano) NO se puede emitir Factura A/B/Tique:
+// el sistema pedía el CAE igual y la venta fallaba (no se guardaba ni sumaba a la caja).
+// En ese caso el comprobante por defecto es "Sin comprob." (X) y se ocultan A/B/Tique.
+window.ARCA_ACTIVO = undefined;
+window._arcaPromise = null;
+function _cbteDefault(){ return window.ARCA_ACTIVO === false ? 'X' : 'B'; }
+function _aplicarComprobantesSegunArca(){
+  const sinArca = window.ARCA_ACTIVO === false;
+  document.querySelectorAll('.cbte-btn').forEach(b=>{
+    const t=b.dataset.cbte;
+    b.style.display = (sinArca && t!=='X') ? 'none' : '';
+    if(t==='X'){
+      b.textContent = sinArca ? 'Venta (sin factura electrónica)' : 'Sin comprob.';
+    }
+  });
+  const btn=document.querySelector('.cbte-btn[data-cbte="'+_cbteDefault()+'"]');
+  if(btn) selectCbteTipo(btn);
+}
+function _cargarArcaActivo(){
+  window._arcaPromise = (async()=>{
+    try{
+      const {data,error}=await SB.rpc('tienda_tiene_arca',{p_tienda_id:STORE.id});
+      if(error) throw error;
+      window.ARCA_ACTIVO = !!data;
+    }catch(e){
+      console.error('tienda_tiene_arca',e);
+      window.ARCA_ACTIVO = true; // ante duda, comportamiento anterior
+    }
+    _aplicarComprobantesSegunArca();
+  })();
+  return window._arcaPromise;
+}
+
 function showApp() {
   document.getElementById('login-view').style.display='none';
   document.getElementById('setup-view').style.display='none';
@@ -11755,6 +11789,7 @@ function showApp() {
   document.getElementById('store-name').textContent = STORE?.name || USER?.email || '';
   checkAdmin();
   aplicarPermisosUI();
+  _cargarArcaActivo();
   // Hide all pages, show only ventas
   document.querySelectorAll('.page').forEach(p=>{p.style.display='none';p.classList.remove('on');});
   const pv=document.getElementById('pv');
@@ -14086,7 +14121,7 @@ function cancelarVenta(){
   const razonInput=document.getElementById('razon-social-input'); if(razonInput) razonInput.value='';
   const vc=document.getElementById('v-cliente'); if(vc) vc.value='';
   setMethod('Efectivo');
-  const btnCbteDefault=document.querySelector('.cbte-btn[data-cbte="B"]');
+  const btnCbteDefault=document.querySelector('.cbte-btn[data-cbte="'+_cbteDefault()+'"]');
   if(btnCbteDefault) selectCbteTipo(btnCbteDefault);
   const opcAv=document.getElementById('opc-avanzadas'); if(opcAv) opcAv.style.display='none';
   document.getElementById('cart').classList.remove('show');
@@ -14163,7 +14198,13 @@ async function registerSale(){
     const hayCombo = items.some(it=>it.es_combo);
     const itemsReales = hayCombo ? _descomponerItemsCombo(items) : items;
 
-    const tipoCbte    = document.querySelector('.cbte-btn.active')?.dataset.cbte || 'B';
+    if(window.ARCA_ACTIVO === undefined && window._arcaPromise) await window._arcaPromise;
+    const tipoCbte    = document.querySelector('.cbte-btn.active')?.dataset.cbte || _cbteDefault();
+    if(window.ARCA_ACTIVO === false && tipoCbte !== 'X'){
+      showToast('❌ Esta tienda no tiene facturación electrónica (ARCA) configurada. Usá "Venta (sin factura electrónica)".', 'err');
+      btn.disabled=false; btn.textContent='Confirmar →';
+      return;
+    }
     const cuitCte     = document.getElementById('cuit-cte-input')?.value.trim() || null;
     const razonSocial = document.getElementById('razon-social-input')?.value.trim() || null;
     const cuitDigits  = (cuitCte || '').replace(/\D/g, '');
@@ -14356,7 +14397,7 @@ async function registerSale(){
     const razonInput = document.getElementById('razon-social-input');
     if(razonInput) razonInput.value='';
     // Reset del comprobante a Factura B (evita arrastrar Factura A + CUIT del comprador anterior)
-    const btnCbteDefault = document.querySelector('.cbte-btn[data-cbte="B"]');
+    const btnCbteDefault = document.querySelector('.cbte-btn[data-cbte="'+_cbteDefault()+'"]');
     if(btnCbteDefault) selectCbteTipo(btnCbteDefault);
     document.getElementById('cart').classList.remove('show');
     renderProds();renderHist();renderCaja();renderStock(stockFilter);checkAlertBar();
