@@ -644,7 +644,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <div></div>
     </div>
     </div>
-    <div id="np-alta-hint" style="display:none;margin-bottom:12px;padding:10px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:12px;color:#9a3412">📦 El stock y el precio de venta se cargan al registrar la <b>compra</b> del proveedor.</div>
+    <div id="np-alta-hint" style="display:none;margin-bottom:12px;padding:10px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:12px;color:#9a3412">💡 Con proveedor: si dejás el <b>precio de venta vacío</b>, se calcula solo con el margen del proveedor a partir del costo. Si lo escribís, queda ese precio fijo.</div>
     <!-- Se vende por peso: SIEMPRE visible (con o sin proveedor) -->
     <label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;background:#f0faf4;border:1.5px solid #bfe0cb;border-radius:10px;cursor:pointer;font-size:12px;line-height:1.4;color:#1a5c38">
       <input type="checkbox" id="np-pesable" onchange="onPesableToggle()" style="margin-top:2px;width:15px;height:15px;cursor:pointer">
@@ -16500,7 +16500,7 @@ function _invConstruirLibro(ExcelJS,R){
 function renderStock(f){
   _refrescarStockCombos();
   let list=[...prods].sort((a,b)=>a.stock-b.stock);
-  if(window.STOCK_SOLO_DISPONIBLES) list=list.filter(p=>(p.stock||0)>0); // vendedor: solo disponibles
+  if(window.STOCK_SOLO_DISPONIBLES) list=list.filter(p=>(p.stock||0)>0 || _prodRecienCargado(p)); // vendedor: solo disponibles (+ los que cargó hace poco, para poder corregirlos)
   if(f==='out')list=list.filter(p=>p.stock<=0);
   else if(f==='low')list=list.filter(p=>p.stock>0&&p.stock<stockMin(p));
   else if(f==='ok')list=list.filter(p=>p.stock>=stockMin(p));
@@ -16522,7 +16522,7 @@ function renderStock(f){
         <div style="display:flex;align-items:center;gap:6px">
           <div class="sc-dot ${dc}"></div>
           ${['dueño','dueno','administrativo','admin'].includes((USER_ROL||'').toLowerCase()) ? `<button class="btn btn-sm btn-outline" onclick="editProduct('${p.id}')">✏️</button>` : ''}
-          ${['dueño','dueno','administrativo','admin'].includes((USER_ROL||'').toLowerCase()) ? `<button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteProduct('${p.id}','${esc(p.nombre)}')">🗑️</button>` : ''}
+          ${(['dueño','dueno','administrativo','admin'].includes((USER_ROL||'').toLowerCase()) || _prodRecienCargado(p)) ? `<button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteProduct('${p.id}','${esc(p.nombre)}')">🗑️</button>` : ''}
         </div>
       </div>
       <div class="sc-brow"><div class="sc-bw"><div class="sc-b" style="width:${Math.round(p.stock/maxS*100)}%;background:${bc}"></div></div><div class="sc-num ${nc}">${fmtStock(p)}</div></div>
@@ -16688,22 +16688,42 @@ async function updateProduct(id){
   }
 }
 
+// Un vendedor/empleado puede corregir (eliminar) un producto que ÉL mismo acaba
+// de cargar por error (duplicado): solo si se creó hace menos de 7 días.
+// Dueño/administrativo pueden eliminar cualquiera.
+function _prodRecienCargado(p){
+  if(!p || !p.created_at) return false;
+  const t=new Date(p.created_at).getTime();
+  return isFinite(t) && (Date.now()-t) < 7*24*3600*1000;
+}
 async function deleteProduct(id,nombre){
   const rol=(USER_ROL||'').toLowerCase();
-  if(!['dueño','dueno','administrativo','admin'].includes(rol)){
+  const esAdm=['dueño','dueno','administrativo','admin'].includes(rol);
+  const p=prods.find(x=>x.id==id);
+  if(!esAdm && !_prodRecienCargado(p)){
     showToast('Solo dueño o administrativo pueden eliminar productos','err'); return;
   }
-  if(!confirm(`¿Eliminar "${esc(nombre)}"? El producto se dará de baja (podés recuperarlo desde la base si hace falta).`))return;
+  // Un producto con ventas/compras ya no es un "error de carga": no se borra
+  // a quien no es dueño/admin (sí se puede dar de baja el duplicado recién cargado).
+  if(!esAdm){
+    try{
+      const {data:movs}=await SB.from('kardex').select('id').eq('producto_id',id)
+        .not('tipo_movimiento','in','(AJUSTE_ENTRADA,AJUSTE_SALIDA,INVENTARIO_INICIAL)').limit(1);
+      if(movs && movs.length){ showToast('Este producto ya tiene ventas o compras. Pedile al dueño que lo elimine.','err'); return; }
+    }catch(_){}
+  }
+  if(!confirm(`¿Eliminar "${nombre}"?\nSe da de baja el producto (queda el historial de movimientos).`))return;
   try{
-    await SB.from('productos').update({
-    is_deleted: true,
-    deleted_at: new Date().toISOString(),
-    deleted_by: USER?.id
-  }).eq('id', id);
+    const {error}=await SB.from('productos').update({
+      is_deleted: true,
+      deleted_at: new Date().toISOString(),
+      deleted_by: USER?.id
+    }).eq('id', id);
+    if(error) throw error;
     prods=prods.filter(x=>x.id!=id);filtered=[...prods];
     renderCats();renderProds();renderStock(stockFilter);populateSelects();
     showToast('✅ Producto eliminado','ok');
-  }catch(e){showToast('❌ Error al eliminar','err');console.error(e);}
+  }catch(e){showToast('❌ Error al eliminar: '+(e?.message||''),'err');console.error(e);}
 }
 
 async function saveProduct(){
@@ -16727,14 +16747,27 @@ async function saveProduct(){
       codigo_proveedor: codigoProveedor,
       impuesto_interno_unitario: impuestoInterno,
       vence,
-      stock:(esPes?redondearKg(parseFloat(document.getElementById('np-stock').value)||0):(parseInt(document.getElementById('np-stock').value)||0)),
+      stock:0, // el stock inicial se registra abajo por Kardex (INVENTARIO_INICIAL)
       categoria:document.getElementById('np-cat').value||'General',
       stock_minimo:parseInt(document.getElementById('np-min').value)||(esPes?1:10),
       unidades_por_bulto:parseInt(document.getElementById('np-bulto').value)||1,
       proveedor_id,
       costo_incluye_iva: costoIncluyeIva,
       ...(esPes?{pesable:true}:{}),
+      ...((precio>0 && proveedor_id)?{precio_bloqueado:true}:{}),
     });
+    const stockIni=(esPes?redondearKg(parseFloat(document.getElementById('np-stock').value)||0):(parseInt(document.getElementById('np-stock').value)||0));
+    let avisoStock='';
+    if(stockIni>0){
+      const {data:kr,error:kerr}=await SB.rpc('mover_stock_con_kardex',{
+        p_tienda_id:STORE.id, p_producto_id:p.id, p_cantidad:stockIni,
+        p_tipo_mov:'INVENTARIO_INICIAL', p_doc_tipo:'INVENTARIO_INICIAL', p_doc_id:null,
+        p_doc_nro:'INICIAL-'+fechaHoyLocal(), p_costo_unit:costo||0, p_precio_unit:precio||0,
+        p_observacion:'Stock inicial al crear el producto'
+      });
+      if(kerr || (kr && kr.exito===false)){ console.error('stock inicial',kerr||kr); avisoStock=' (⚠️ el stock inicial no se pudo cargar: usá Ajuste manual)'; }
+      else p.stock=stockIni;
+    }
     if(proveedor_id && p){
       try{ const {data:fresh}=await SB.from('productos').select('precio,costo').eq('id',p.id).single();
            if(fresh){ p.precio=fresh.precio; p.costo=fresh.costo; } }catch(_){}
@@ -16742,7 +16775,7 @@ async function saveProduct(){
     prods.push(p);filtered=[...prods];
     closeModal('ov-add-prod');
     renderCats();renderProds();renderStock(stockFilter);populateSelects();
-    showToast('✅ Producto agregado','ok');
+    showToast('✅ Producto agregado'+(typeof avisoStock==='string'?avisoStock:''),'ok');
     ['np-name','np-price','np-stock','np-cat','np-min','np-barcode','np-codprov','np-imp-interno'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
     { const _chk=document.getElementById('np-costo-con-iva'); if(_chk) _chk.checked=true; }
     { const _pz=document.getElementById('np-pesable'); if(_pz) _pz.checked=false; onPesableToggle(); }
@@ -18513,7 +18546,9 @@ function toggleProvProducto(){
   const blk  = document.getElementById('np-pricing-block');
   const hint = document.getElementById('np-alta-hint');
   const conProveedor = !!prov;
-  if(blk)  blk.style.display  = conProveedor ? 'none' : '';
+  // Stock inicial, precio y costo se pueden cargar SIEMPRE (con o sin proveedor):
+  // así no hace falta entrar de nuevo al producto para ponerle precio.
+  if(blk)  blk.style.display  = '';
   if(hint) hint.style.display = conProveedor ? 'block' : 'none';
 }
 
