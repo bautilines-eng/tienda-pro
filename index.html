@@ -736,7 +736,7 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     </div>
     <div style="padding:12px 20px 0">
       <div class="flabel" style="margin-bottom:5px">Cliente (opcional)</div>
-      <select class="inp" id="v-cliente" style="cursor:pointer" onchange="autocompletarCuitCliente()"><option value="">— Sin cliente —</option></select>
+      <select class="inp" id="v-cliente" style="cursor:pointer" onchange="autocompletarCuitCliente();if(typeof updateCart==='function')updateCart()"><option value="">— Sin cliente —</option></select>
     </div>
     <div style="padding:12px 20px 0">
       <div class="flabel" style="margin-bottom:5px">Comprobante</div>
@@ -2248,6 +2248,10 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
             <input class="inp" id="pcant-precio" type="number" placeholder="1000" style="padding-left:26px;font-family:'DM Mono',monospace;font-size:16px;font-weight:700">
           </div>
         </div>
+      </div>
+      <div class="fgroup" style="margin-bottom:16px">
+        <div class="flabel">Solo para el cliente <span style="font-size:10px;color:#aaa;font-weight:400">(opcional — si lo dejás vacío vale para todos)</span></div>
+        <select class="inp" id="pcant-cliente" style="cursor:pointer"><option value="">— Para todos los clientes —</option></select>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px;margin-bottom:20px">
         <button onclick="closeModal('ov-promo-cantidad')"
@@ -13438,6 +13442,8 @@ function _calcularPromosCantidad(sel, qtys){
   const ajustes = {};
   for(const promo of (promosCantidad||[])){
     if(!promo.activo) continue;
+    // Promo exclusiva de un cliente: solo corre si ese cliente está elegido en la venta
+    if(promo.cliente_id && promo.cliente_id !== (document.getElementById('v-cliente')?.value || '')) continue;
     const promoPes = !!promo.pesable; // promo de fiambres/granel: cantidad_grupo en KILOS (ej. 0.25 = 250 g)
     const idsGrupo = new Set(promo.producto_ids||[]);
     const itemsGrupo = sel.filter(p => idsGrupo.has(p.id) && (promoPes ? esPesable(p) : !esPesable(p)) && (qtys[p.id]||0)>0);
@@ -13548,6 +13554,13 @@ function abrirPromosCantidad(){
   document.getElementById('pcant-cantidad').value = '3';
   document.getElementById('pcant-precio').value = '';
   const buscarEl = document.getElementById('pcant-buscar'); if(buscarEl) buscarEl.value = '';
+  { const cs = document.getElementById('pcant-cliente');
+    if(cs){
+      cs.innerHTML = '<option value="">— Para todos los clientes —</option>' +
+        (clients||[]).filter(c=>!c.is_deleted).slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''))
+          .map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+      cs.value = '';
+    } }
   _poblarPcantProdSel('');
   renderPcantItems();
   renderPcantLista();
@@ -13648,6 +13661,7 @@ async function guardarPromoCantidad(){
   try{
     const nueva = await sbInsert('promos_cantidad', {
       nombre, cantidad_grupo, precio_grupo, pesable,
+      cliente_id: document.getElementById('pcant-cliente')?.value || null,
       producto_ids: pcantItems.map(it=>it.id),
       activo: true, created_by: USER?.email||null,
     });
@@ -13656,6 +13670,7 @@ async function guardarPromoCantidad(){
     pcantItems = [];
     document.getElementById('pcant-nombre').value = '';
     document.getElementById('pcant-precio').value = '';
+    { const cs=document.getElementById('pcant-cliente'); if(cs) cs.value=''; }
     renderPcantItems();
     renderPcantLista();
   }catch(e){
@@ -13695,6 +13710,7 @@ function renderPcantLista(){
     return `<div class="card" style="margin-bottom:8px;opacity:${p.activo?1:.5}">
       <div style="font-weight:700;font-size:13px">${esc(p.nombre)}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px">Cada ${p.pesable ? fmtPeso(+p.cantidad_grupo) : (+p.cantidad_grupo)+' unidades'} = $${(p.precio_grupo||0).toLocaleString('es-AR')}${p.pesable?' ⚖️':''}</div>
+      ${p.cliente_id ? `<div style="font-size:11px;color:#1a5ec9;margin-top:2px">👤 Solo para: ${esc(((clients||[]).find(c=>c.id===p.cliente_id)||{}).nombre||'(cliente eliminado)')}</div>` : ''}
       <div style="font-size:11px;color:var(--muted);margin-top:4px">${esc(nombresProductos)}</div>
       <div style="font-size:10px;margin-top:4px;color:${p.activo?'#1a5c38':'#c94040'}">${p.activo?'✅ Activa':'⏸️ Desactivada'}</div>
       <button onclick="toggleActivoPcant('${p.id}')" style="width:100%;margin-top:6px;padding:6px;border-radius:7px;border:1px solid #ddd;background:#fff;font-size:11px;cursor:pointer">${p.activo?'⏸️ Desactivar':'▶️ Activar'}</button>
