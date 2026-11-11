@@ -13164,11 +13164,33 @@ async function saveUsuario(){
       });
     }
 
-    if(signUpError){
-      // Email ya registrado u otro error
-      if(signUpError.message.includes('already registered') || signUpError.message.includes('already been registered')){
-        showToast('⚠️ Ese email ya tiene una cuenta. Usá otro.','err');
+    // ¿El email ya tenía cuenta? (error explícito, o signUp "mudo": usuario sin identidades)
+    const yaExiste = (signUpError && /already (been )?registered|already exists/i.test(signUpError.message||''))
+      || (!signUpError && signUpData?.user && Array.isArray(signUpData.user.identities) && signUpData.user.identities.length===0);
+    if(yaExiste){
+      // Caso típico: se eliminó el usuario de la lista (solo se borra su ACCESO a la tienda,
+      // la cuenta de login queda) y ahora se lo quiere volver a dar de alta → se recupera.
+      const { data: rec, error: recErr } = await SB.rpc('vincular_usuario_existente', {
+        p_tienda_id: STORE.id, p_email: email, p_nombre: nombre, p_rol: rol
+      });
+      if(!recErr && rec && rec.exito){
+        try{ usuarios = await sbGet('usuarios_tienda'); }catch(_){}
+        closeModal('ov-add-usuario');
+        renderUsuarios();
+        ['usu-email','usu-nombre','usu-pass'].forEach(id=>document.getElementById(id).value='');
+        showToast(`✅ Usuario ${esc(nombre||email)} recuperado. Entra con la contraseña que ya tenía. Si no la recuerda, pedí que se la restablezcan.`,'ok');
+      } else if(rec && rec.error==='ya_vinculado'){
+        showToast('⚠️ Ese usuario ya está en la lista.','err');
+      } else if(rec && rec.error==='otra_tienda'){
+        showToast('⚠️ Ese email ya tiene una cuenta en otra tienda. Usá otro email.','err');
       } else {
+        showToast('⚠️ Ese email ya tiene una cuenta. Usá otro.','err');
+      }
+      if(btn){ btn.disabled=false; btn.textContent='Crear usuario'; }
+      return;
+    }
+    if(signUpError){
+      {
         showToast('❌ '+(_msgErrorClave(signUpError)||signUpError.message),'err');
       }
       if(btn){ btn.disabled=false; btn.textContent='Crear usuario'; }
@@ -13194,7 +13216,7 @@ async function saveUsuario(){
 }
 
 async function eliminarUsuario(id, nombre){
-  if(!confirm(`¿Eliminar acceso de ${esc(nombre)}?`)) return;
+  if(!confirm(`¿Eliminar acceso de ${nombre}?\nNo podrá entrar al sistema. Si te arrepentís, lo volvés a crear con el mismo email y se recupera.`)) return;
   try{
     await SB.from('usuarios_tienda').delete().eq('id',id);
     usuarios = usuarios.filter(x=>x.id!=id);
