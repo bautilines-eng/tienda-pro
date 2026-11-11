@@ -6580,7 +6580,24 @@ async function confirmarRemito(){
   if(btn){ btn.disabled=true; btn.textContent='Cargando...'; }
   try{
     // ID único de este remito: agrupa todas sus compras aunque no tengan factura
+    // ── Validación previa (TODO O NADA) ──
+    // Si algún producto del remito ya no existe en la base (lista desactualizada en
+    // esta pestaña), la base rechazaba esa línea DESPUÉS de haber cargado las anteriores:
+    // el remito quedaba a medias y cada reintento duplicaba el stock. Ahora se
+    // controla ANTES de escribir nada.
+    {
+      const ids=[...new Set(lineas.map(l=>l.prodId))];
+      const {data:ex, error:exErr}=await SB.from('productos').select('id').in('id', ids);
+      if(exErr) throw exErr;
+      const existen=new Set((ex||[]).map(x=>x.id));
+      const faltan=lineas.filter(l=>!existen.has(l.prodId));
+      if(faltan.length){
+        showToast('❌ No se cargó nada: estos productos ya no existen en la base: '+faltan.map(l=>l.nombre).join(', ')+'. Recargá la página (F5) y armá el remito de nuevo.','err');
+        return;
+      }
+    }
     const remitoId = 'REM-' + Date.now() + '-' + Math.floor(Math.random()*10000);
+    var lineasOk=0; // var: visible en el catch
     let netoTotal=0, primeraCompraId=null;
     for(const ln of lineas){
       const compra=await sbInsert('compras',{
@@ -6618,6 +6635,7 @@ async function confirmarRemito(){
       try{ const {data:fresh}=await SB.from('productos').select('precio,costo,stock').eq('id',ln.prodId).single();
            if(fresh&&pref){ pref.costo=fresh.costo; pref.precio=fresh.precio; pref.stock=fresh.stock; } }catch(_){}
       netoTotal+=ln.neto;
+      lineasOk++;
     }
     // El remito SOLO ingresa mercadería al stock. La factura (con su deuda o
     // gasto y su impacto contable) se carga aparte, desde el botón "Cargar
@@ -6635,7 +6653,16 @@ async function confirmarRemito(){
       : esSinFactura
         ? `✅ Compra sin factura cargada: ${lineas.length} productos al stock, contabilizado como pagado.`
         : `✅ Remito cargado: ${lineas.length} productos al stock. Ahora cargá la factura desde la lista de compras.`, 'ok');
-  }catch(e){ showToast('❌ Error al cargar el remito','err'); console.error(e); }
+  }catch(e){
+    console.error(e);
+    if(typeof lineasOk!=='undefined' && lineasOk>0){
+      // Quedó a medias: avisar claramente y NO dejar que se reintente a ciegas
+      showToast(`⚠️ El remito quedó A MEDIAS: se cargaron ${lineasOk} de ${lineas.length} líneas antes del error (${e?.message||'error'}). NO lo vuelvas a cargar entero: avisá para corregirlo.`,'err');
+      try{ closeModal('ov-remito'); if(typeof renderCompraList==='function') renderCompraList(); if(typeof renderStock==='function') renderStock(stockFilter); }catch(_){}
+    } else {
+      showToast('❌ Error al cargar el remito: '+(e?.message||'error desconocido')+'. No se cargó nada.','err');
+    }
+  }
   finally{ if(btn){ btn.disabled=false; btn.textContent=txt; } }
 }
 
