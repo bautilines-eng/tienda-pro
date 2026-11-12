@@ -2332,6 +2332,18 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 </div>
 
 <!-- MODAL REGISTRAR PAGO -->
+<div class="overlay" id="ov-cambiar-medio">
+  <div class="modal" style="padding:22px 20px 20px;max-height:85vh;overflow:auto">
+    <div class="modal-handle"></div>
+    <span class="modal-close" onclick="closeModal('ov-cambiar-medio')">✕</span>
+    <div style="font-family:'Instrument Serif',serif;font-size:21px;margin-bottom:4px">✏️ Cambiar medio de pago</div>
+    <div id="cm-info" style="font-size:12px;color:var(--muted);margin-bottom:14px"></div>
+    <div id="cm-filas"></div>
+    <div id="cm-aviso" style="display:none;font-size:11.5px;background:#fff7e6;color:#9a5b00;border:1px solid #fcd9a0;border-radius:10px;padding:9px 11px;margin:10px 0"></div>
+    <button class="btn btn-ink" id="cm-btn" style="width:100%;margin-top:10px" onclick="guardarCambioMedio()">Guardar cambio</button>
+  </div>
+</div>
+
 <div class="overlay" id="ov-registrar-pago">
   <div class="modal" style="padding:0;overflow:hidden;border-radius:20px 20px 0 0;display:flex;flex-direction:column;max-height:88vh">
     <!-- Header -->
@@ -13009,6 +13021,74 @@ function imprimirReciboPago(loteId){
 // facturas o se haya dividido en dos métodos. Los pagos de antes de esta
 // función (sin lote_id) se listan igual, cada uno con su propia tarjeta,
 // pero sin botón de recibo — no hay nada que imprimir ahí, no se inventa.
+// ── Cambiar el medio de pago de pagos ya registrados (Deudores → Pagos) ──
+// Cada fila del grupo se puede pasar a otro medio (ej. Efectivo → Transferencia).
+// Caja, Finanzas y Contabilidad se calculan en vivo desde pagos_deuda, así que se
+// corrigen solas. Solo dueño/administrativo. Queda en auditoría.
+let _cmPagoIds = [];
+function abrirCambiarMedio(idsCsv){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden cambiar el medio de pago','err'); return; }
+  _cmPagoIds = (idsCsv||'').split(',').filter(Boolean);
+  const pagos = (pagosDeuda||[]).filter(p=>_cmPagoIds.includes(p.id));
+  if(!pagos.length){ showToast('No encontré ese pago','err'); return; }
+  const deudaRef = (deudas||[]).find(d=>d.id===pagos[0].deuda_id);
+  const esCobro = !(deudaRef && (deudaRef.tipo==='proveedor' || deudaRef.tipo==='gasto'));
+  const opts = _opcionesMedioPago(esCobro);
+  document.getElementById('cm-info').textContent = (deudaRef?.nombre_cliente||'Pago') + ' · ' + (pagos[0].fecha||'');
+  document.getElementById('cm-filas').innerHTML = pagos.map(p=>{
+    const d = (deudas||[]).find(x=>x.id===p.deuda_id);
+    return `<div style="border:1px solid #eee;border-radius:12px;padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+        <span style="color:#666">${esc((d?.descripcion||'').slice(0,46)||'Pago')}</span>
+        <b style="font-family:'DM Mono',monospace">$${(Number(p.monto_abonado)||0).toLocaleString('es-AR')}</b>
+      </div>
+      <div style="font-size:10.5px;color:#999;margin-bottom:4px">Ahora: ${esc(p.medio_pago||'—')}</div>
+      <select class="inp cm-sel" data-pago="${p.id}" style="cursor:pointer">${opts}</select>
+    </div>`;
+  }).join('');
+  // preseleccionar el medio actual (por cuenta)
+  document.querySelectorAll('#cm-filas .cm-sel').forEach(sel=>{
+    const p = pagos.find(x=>x.id===sel.dataset.pago);
+    if(p && [...sel.options].some(o=>o.value===p.cuenta_medio)) sel.value = p.cuenta_medio;
+  });
+  // Aviso si el día ya tiene cierre de caja
+  const fechas = [...new Set(pagos.map(p=>p.fecha).filter(Boolean))];
+  const cerrados = fechas.filter(f=>(cierres||[]).some(c=>c.fecha===f));
+  const av = document.getElementById('cm-aviso');
+  if(cerrados.length){ av.style.display='block'; av.textContent='⚠️ El '+cerrados.join(', ')+' ya tiene cierre de caja. El cierre guardado no se recalcula: revisá que el arqueo siga cuadrando.'; }
+  else av.style.display='none';
+  openModal('ov-cambiar-medio');
+}
+
+async function guardarCambioMedio(){
+  if(!_esRolAdmin()) return;
+  const btn = document.getElementById('cm-btn');
+  const cambios = [];
+  document.querySelectorAll('#cm-filas .cm-sel').forEach(sel=>{
+    const p = (pagosDeuda||[]).find(x=>x.id===sel.dataset.pago); if(!p) return;
+    const nuevaCuenta = sel.value;
+    const nuevoTexto = sel.options[sel.selectedIndex]?.text || '';
+    if(nuevaCuenta === p.cuenta_medio) return; // mismo medio: no se toca
+    cambios.push({ p, nuevaCuenta, nuevoTexto });
+  });
+  if(!cambios.length){ showToast('No cambiaste ningún medio','ok'); closeModal('ov-cambiar-medio'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='Guardando...'; }
+  try{
+    for(const c of cambios){
+      const old = { medio_pago:c.p.medio_pago, cuenta_medio:c.p.cuenta_medio };
+      const upd = { medio_pago:c.nuevoTexto, cuenta_medio:c.nuevaCuenta };
+      await sbUpdate('pagos_deuda', c.p.id, upd);
+      Object.assign(c.p, upd);
+      await auditLog('CAMBIO_MEDIO_PAGO','pagos_deuda', c.p.id, {monto:c.p.monto_abonado, fecha:c.p.fecha}, old, upd);
+    }
+    closeModal('ov-cambiar-medio');
+    renderPagosRealizados(deBuscarNombre);
+    if(typeof renderCaja==='function') try{ renderCaja(); }catch(_){}
+    showToast('✅ Medio de pago actualizado ('+cambios.length+')','ok');
+  }catch(e){ console.error(e); showToast('❌ No se pudo cambiar: '+(e?.message||''),'err'); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='Guardar cambio'; } }
+}
+
 function renderPagosRealizados(filtroNombre){
   const el = document.getElementById('de-pagos');
   if(!el) return;
@@ -13035,7 +13115,7 @@ function renderPagosRealizados(filtroNombre){
     // Cantidad de FACTURAS distintas cubiertas — no de filas de pago (una
     // factura partida entre dos métodos cuenta una sola vez acá).
     const facturasUnicas = new Set(pagos.map(p=>p.deuda_id)).size;
-    return { total, fecha, creadoEn, nombre, tipo, medios, facturasUnicas, loteId: pagos[0].lote_id || null };
+    return { total, fecha, creadoEn, nombre, tipo, medios, facturasUnicas, loteId: pagos[0].lote_id || null, pagoIds: pagos.map(p=>p.id) };
   });
 
   const q = (filtroNombre||'').trim().toLowerCase();
@@ -13066,7 +13146,8 @@ function renderPagosRealizados(filtroNombre){
           <div style="font-family:DM Mono,monospace;font-size:17px;font-weight:700;color:var(--pine)">$${t.total.toLocaleString('es-AR')}</div>
         </div>
       </div>
-      <div style="margin-top:8px;text-align:right">
+      <div style="margin-top:8px;text-align:right;display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
+        ${_esRolAdmin() ? `<button onclick="abrirCambiarMedio('${t.pagoIds.join(',')}')" style="padding:5px 12px;border-radius:7px;border:1px solid #b45309;background:#fff7e6;color:#b45309;font-size:11px;font-weight:600;cursor:pointer">✏️ Medio de pago</button>` : ''}
         ${t.loteId
           ? `<button onclick="imprimirReciboPago('${t.loteId}')" style="padding:5px 12px;border-radius:7px;border:1px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:11px;font-weight:600;cursor:pointer">🖨️ Recibo</button>`
           : `<span style="font-size:10px;color:var(--muted)">Sin recibo (pago anterior a esta función)</span>`}
@@ -17419,6 +17500,51 @@ function _cajaTextoCompra(co, tt, f){
   return `${desglose}<br><b style="color:#334155">${estado}</b>`;
 }
 
+// ── Corregir a mano el N° de comprobante de una compra YA facturada ──
+// Actualiza la compra (todas las líneas de su remito), la factura del proveedor
+// asociada y el texto de la deuda. Solo dueño/administrativo. Queda en auditoría.
+function _normalizarNroComprobante(txt){
+  const t=(txt||'').trim();
+  const solo=t.replace(/\D/g,'');
+  // 4 dígitos de punto de venta + 8 de número (con o sin guion) → 0003-00113281
+  if(/^\d{4}[\s-]?\d{8}$/.test(t)) return solo.slice(0,4)+'-'+solo.slice(4);
+  return t; // otros formatos (remitos informales, etc.) se respetan tal cual
+}
+async function corregirNumeroComprobante(compraId){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden corregir el número','err'); return; }
+  const co=compras.find(c=>c.id===compraId); if(!co) return;
+  const grupo = co.remito_id ? compras.filter(c=>c.remito_id===co.remito_id) : [co];
+  const ids = grupo.map(c=>c.id);
+  const actual = co.numero_factura || '';
+  const entrada = prompt('N° de comprobante / remito del proveedor\n(ej: 0003-00113281)'+(actual?'\n\nActual: '+actual:'\n\nHoy no tiene número cargado.'), actual);
+  if(entrada===null) return;
+  const nuevo = _normalizarNroComprobante(entrada);
+  if(!nuevo){ showToast('Ingresá un número','err'); return; }
+  if(nuevo===actual){ showToast('Ese ya es el número cargado','ok'); return; }
+  // Mismo proveedor + mismo número en OTRA compra = posible duplicado
+  const dup = compras.find(c=>!ids.includes(c.id) && !c.anulada && c.proveedor_id && c.proveedor_id===co.proveedor_id && c.numero_factura===nuevo);
+  if(dup && !confirm('⚠️ Ya hay otra compra de este proveedor con el número '+nuevo+'.\n¿Querés usarlo igual?')) return;
+  try{
+    const old={numero_factura:actual};
+    for(const c of grupo){ await sbUpdate('compras', c.id, {numero_factura:nuevo}); c.numero_factura=nuevo; }
+    // Factura del proveedor asociada
+    for(const fa of (facturas||[]).filter(x=>ids.includes(x.compra_id))){
+      await sbUpdate('facturas_proveedor', fa.id, {numero:nuevo}); fa.numero=nuevo;
+    }
+    // Deuda asociada: el texto "Factura FA <número> · ..." se actualiza
+    for(const d of (deudas||[]).filter(x=>x.tipo==='proveedor' && ids.includes(x.compra_id))){
+      if(actual && (d.descripcion||'').includes(actual)){
+        const nd=d.descripcion.split(actual).join(nuevo);
+        await sbUpdate('deudas', d.id, {descripcion:nd}); d.descripcion=nd;
+      }
+    }
+    await auditLog('CORRECCION_NRO_COMPROBANTE','compras', co.remito_id||co.id, {lineas:grupo.length}, old, {numero_factura:nuevo});
+    renderCompraList();
+    if(typeof renderDeudas==='function') renderDeudas();
+    showToast('✅ N° de comprobante actualizado: '+nuevo,'ok');
+  }catch(e){ console.error(e); showToast('❌ No se pudo actualizar el número: '+(e?.message||''),'err'); }
+}
+
 function renderCompraList(){
   const el=document.getElementById('colist');
   if(!compras.length){el.innerHTML='<div class="empty">Sin compras aún</div>';return;}
@@ -17512,6 +17638,12 @@ function renderCompraList(){
       ? `<button onclick="abrirEditarCompra('${co.id}');event.stopPropagation()" style="font-size:10px;background:#eef6ff;color:#1565c0;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #cfe2f7;cursor:pointer" title="Editar compra">✏️ Editar</button>`
       : '';
 
+    // Compra con factura YA cargada: no se edita entero (hay que anular), pero el
+    // N° de comprobante sí se puede corregir a mano (typos, N° faltante, etc.)
+    const btnNroComp = (_esRolAdmin() && co.factura_cargada && !co.anulada && !esTraspaso)
+      ? `<button onclick="corregirNumeroComprobante('${co.id}');event.stopPropagation()" title="Corregir el N° de comprobante" style="font-size:10px;background:#fff7e6;color:#b45309;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #fcd9a0;cursor:pointer">🔢 N°</button>`
+      : '';
+
     const btnEditarRemito = (_esRolAdmin() && !co.factura_cargada && g.esRemito && !esTraspaso)
       ? `<button onclick="abrirEditarRemito('${co.id}');event.stopPropagation()" style="font-size:10px;background:#eafaf0;color:#1a5c38;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #b8e6c9;cursor:pointer" title="Editar proveedor, pago, vencimiento o sin factura de todo el remito">✏️ Editar remito</button>`
       : '';
@@ -17544,6 +17676,7 @@ function renderCompraList(){
           ${facBadge}
           ${btnEditar}
           ${btnEditarRemito}
+          ${btnNroComp}
           ${btnAnular}
         </div>
       </div>
