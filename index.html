@@ -14491,6 +14491,12 @@ async function registerSale(){
     showToast('⚠️ Tu rol no tiene permitido registrar ventas', 'err');
     return;
   }
+  // Sesión perdida (token vencido / otra pestaña cerró sesión): STORE queda en null y la
+  // venta fallaba con un error críptico recién al pedir el CAE. Se frena ANTES de tocar nada.
+  if (!STORE || !STORE.id || !USER) {
+    showToast('⚠️ Se perdió la sesión de la tienda. Actualizá la página (F5) e ingresá de nuevo antes de vender.', 'err');
+    return;
+  }
   // Rate limiting — previene ventas accidentales múltiples
   if (!rateLimitCheck('registerSale', 20)) return;
   if (!ConnectionMonitor.online) {
