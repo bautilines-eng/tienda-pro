@@ -2332,6 +2332,34 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
 </div>
 
 <!-- MODAL REGISTRAR PAGO -->
+<div class="overlay" id="ov-cambiar-prod">
+  <div class="modal" style="padding:22px 20px 20px;max-height:88vh;overflow:auto">
+    <div class="modal-handle"></div>
+    <span class="modal-close" onclick="closeModal('ov-cambiar-prod')">✕</span>
+    <div style="font-family:'Instrument Serif',serif;font-size:21px;margin-bottom:4px">🔁 Corregir producto cargado</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.45">Si una línea se cargó con el producto equivocado, elegí el correcto. El <b>stock</b> pasa de uno a otro (queda en el Kardex), el <b>costo</b> se corrige y <b>no cambian importes, IVA, deuda ni contabilidad</b>.</div>
+    <datalist id="cp-prods"></datalist>
+    <div id="cp-filas"></div>
+    <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin:10px 0 4px">Motivo (queda en la auditoría)</label>
+    <input id="cp-motivo" class="inp" value="Producto mal cargado">
+    <button class="btn btn-ink" id="cp-btn" style="width:100%;margin-top:14px" onclick="guardarCambioProductoCompra()">Corregir producto</button>
+  </div>
+</div>
+
+<div class="overlay" id="ov-revertir-pago">
+  <div class="modal" style="padding:22px 20px 20px;max-height:85vh;overflow:auto">
+    <div class="modal-handle"></div>
+    <span class="modal-close" onclick="closeModal('ov-revertir-pago')">✕</span>
+    <div style="font-family:'Instrument Serif',serif;font-size:21px;margin-bottom:4px">↩️ Revertir pago</div>
+    <div id="rp-info" style="font-size:13px;line-height:1.5;margin-bottom:10px"></div>
+    <div style="font-size:11.5px;color:var(--muted);line-height:1.45;margin-bottom:10px">Se borra este cobro: sale de Caja y Finanzas y la factura vuelve a quedar <b>pendiente</b> (salvo que otro pago ya la cubra). Queda registrado en Auditoría.</div>
+    <div id="rp-aviso" style="display:none;font-size:11.5px;background:#fff7e6;color:#9a5b00;border:1px solid #fcd9a0;border-radius:10px;padding:9px 11px;margin-bottom:10px"></div>
+    <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin:6px 0 4px">Motivo</label>
+    <input id="rp-motivo" class="inp" value="Pago registrado por error">
+    <button class="btn" id="rp-btn" style="width:100%;margin-top:14px;background:#c94040;color:#fff" onclick="confirmarRevertirPago()">Revertir pago</button>
+  </div>
+</div>
+
 <div class="overlay" id="ov-cambiar-medio">
   <div class="modal" style="padding:22px 20px 20px;max-height:85vh;overflow:auto">
     <div class="modal-handle"></div>
@@ -7503,6 +7531,73 @@ function _erResumen(){
   el.innerHTML = txt;
 }
 
+// ── Corregir el producto de una línea de compra (aunque tenga factura cargada) ──
+// Server: RPC cambiar_producto_compra (atómica): stock out/in con Kardex, costo de ambos
+// productos y auditoría. No toca importes, IVA, deuda ni asientos.
+let _cpGrupo = [];
+function abrirCambiarProductoCompra(compraId){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden corregir el producto','err'); return; }
+  const co = compras.find(c=>c.id===compraId);
+  if(!co || co.anulada){ showToast('Compra no encontrada o anulada','err'); return; }
+  if(co.es_traspaso_interno){ showToast('Los traspasos internos no se corrigen así','err'); return; }
+  const grupo = _comprasDelMismoRemito(co);
+  _cpGrupo = grupo.map(c=>c.id);
+  document.getElementById('cp-prods').innerHTML = (prods||[]).filter(p=>!p.is_deleted)
+    .map(p=>`<option value="${esc(p.nombre)}"></option>`).join('');
+  document.getElementById('cp-filas').innerHTML = grupo.map(c=>`
+    <div style="border:1px solid #eee;border-radius:12px;padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:6px">
+        <b>${esc(c.producto_nombre||'')}</b>
+        <span style="font-family:'DM Mono',monospace;color:#666;white-space:nowrap">×${c.cantidad}</span>
+      </div>
+      <input class="inp cp-inp" data-compra="${c.id}" list="cp-prods" placeholder="Producto correcto (dejá vacío si está bien)" autocomplete="off">
+    </div>`).join('');
+  document.getElementById('cp-motivo').value = 'Producto mal cargado';
+  openModal('ov-cambiar-prod');
+}
+
+async function guardarCambioProductoCompra(){
+  if(!_esRolAdmin()) return;
+  const motivo = (document.getElementById('cp-motivo').value||'').trim();
+  if(!motivo){ showToast('Indicá el motivo','err'); return; }
+  const cambios = [];
+  for(const inp of document.querySelectorAll('#cp-filas .cp-inp')){
+    const txt = (inp.value||'').trim(); if(!txt) continue;
+    const co = compras.find(c=>c.id===inp.dataset.compra); if(!co) continue;
+    const pn = (prods||[]).find(p=>!p.is_deleted && (p.nombre||'').trim().toLowerCase()===txt.toLowerCase());
+    if(!pn){ showToast('No encontré el producto "'+txt+'". Elegilo de la lista.','err'); return; }
+    if(pn.id===co.producto_id) continue;
+    cambios.push({co, pn});
+  }
+  if(!cambios.length){ showToast('No elegiste ningún producto nuevo','ok'); closeModal('ov-cambiar-prod'); return; }
+  const btn = document.getElementById('cp-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Corrigiendo...'; }
+  let hechos = 0;
+  try{
+    for(const {co, pn} of cambios){
+      const viejoId = co.producto_id;
+      const { data, error } = await SB.rpc('cambiar_producto_compra', {
+        p_tienda_id: STORE.id, p_compra_id: co.id, p_producto_nuevo_id: pn.id, p_motivo: motivo
+      });
+      if(error) throw new Error(error.message || 'No se pudo corregir');
+      if(data && data.exito===false) throw new Error(data.error || 'No se pudo corregir');
+      co.producto_id = pn.id; co.producto_nombre = pn.nombre; hechos++;
+      try{
+        const { data: fr } = await SB.from('productos').select('id,stock,costo,precio,iva_alicuota,impuesto_interno_unitario,costo_incluye_iva').in('id',[viejoId,pn.id]);
+        (fr||[]).forEach(r=>{ const p=(prods||[]).find(x=>x.id===r.id); if(p) Object.assign(p,r); });
+      }catch(_){}
+    }
+    closeModal('ov-cambiar-prod');
+    renderCompraList();
+    try{ if(typeof renderStock==='function') renderStock(); }catch(_){}
+    showToast('✅ Producto corregido ('+hechos+'). Stock y costo actualizados.','ok');
+  }catch(e){
+    console.error(e);
+    if(hechos){ renderCompraList(); }
+    showToast((hechos?'⚠️ Se corrigieron '+hechos+' y falló otra: ':'❌ ')+(e?.message||''),'err');
+  }finally{ if(btn){ btn.disabled=false; btn.textContent='Corregir producto'; } }
+}
+
 function abrirEditarRemito(compraId){
   if (!_esRolAdmin()) { showToast('Solo dueños o administrativos pueden editar remitos','err'); return; }
   const co = compras.find(c => c.id === compraId);
@@ -7724,7 +7819,7 @@ async function guardarEdicionCompra() {
       const prodViejo = prods.find(p => p.id === co.producto_id);
       const { data: kOut, error: eOut } = await SB.rpc('mover_stock_con_kardex', {
         p_tienda_id: STORE.id, p_producto_id: co.producto_id, p_cantidad: -co.cantidad,
-        p_tipo_mov: 'EDICION_COMPRA', p_doc_tipo: 'EDICION_COMPRA', p_doc_id: co.id,
+        p_tipo_mov: 'AJUSTE_SALIDA', p_doc_tipo: 'EDICION_COMPRA', p_doc_id: co.id,
         p_doc_nro: docNro, p_costo_unit: co.precio_unitario || 0,
         p_observacion: 'Corrección de carga (cambio de producto) — ' + motivo
       });
@@ -7736,7 +7831,7 @@ async function guardarEdicionCompra() {
       // 2. Ingresar el stock al producto nuevo (entrada)
       const { data: kIn, error: eIn } = await SB.rpc('mover_stock_con_kardex', {
         p_tienda_id: STORE.id, p_producto_id: nuevoProdId, p_cantidad: nuevaCantidad,
-        p_tipo_mov: 'EDICION_COMPRA', p_doc_tipo: 'EDICION_COMPRA', p_doc_id: co.id,
+        p_tipo_mov: 'AJUSTE_ENTRADA', p_doc_tipo: 'EDICION_COMPRA', p_doc_id: co.id,
         p_doc_nro: docNro, p_costo_unit: nuevoCosto || 0,
         p_observacion: 'Corrección de carga (cambio de producto) — ' + motivo
       });
@@ -7750,7 +7845,7 @@ async function guardarEdicionCompra() {
       const delta = nuevaCantidad - co.cantidad;
       const { data: kResult, error: kErr } = await SB.rpc('mover_stock_con_kardex', {
         p_tienda_id: STORE.id, p_producto_id: nuevoProdId, p_cantidad: delta,
-        p_tipo_mov: 'EDICION_COMPRA', p_doc_tipo: 'EDICION_COMPRA', p_doc_id: co.id,
+        p_tipo_mov: delta > 0 ? 'AJUSTE_ENTRADA' : 'AJUSTE_SALIDA', p_doc_tipo: 'EDICION_COMPRA', p_doc_id: co.id,
         p_doc_nro: docNro, p_costo_unit: nuevoCosto || 0,
         p_observacion: 'Corrección de cantidad — ' + motivo
       });
@@ -12777,7 +12872,17 @@ async function _guardarPagoTotalCliente(){
   return await _guardarPagoLote(items.map(d=>d.id), `las ${items.length} deudas de ${nombreCliente}`);
 }
 
+let _pagoGuardando = false;
 async function guardarPago(){
+  // Freno contra el doble clic: dos clics seguidos registraban el cobro dos veces.
+  if(_pagoGuardando) return;
+  _pagoGuardando = true;
+  const _b = document.querySelector('#ov-registrar-pago .btn-ink, #ov-registrar-pago button[onclick*="guardarPago"]');
+  if(_b) _b.disabled = true;
+  try{ return await _guardarPagoImpl(); }
+  finally{ _pagoGuardando = false; if(_b) _b.disabled = false; }
+}
+async function _guardarPagoImpl(){
   if(pagoLoteIds && pagoLoteIds.length){ return await _guardarPagoLote(pagoLoteIds); }
   if(pagoTotalCliente){ return await _guardarPagoTotalCliente(); }
   if(pagoSplitActivo){
@@ -13089,6 +13194,56 @@ async function guardarCambioMedio(){
   finally{ if(btn){ btn.disabled=false; btn.textContent='Guardar cambio'; } }
 }
 
+// ── Revertir un pago (Deudores → Pagos): borra los cobros del grupo y reabre las deudas
+// que queden sin cubrir. Server: RPC revertir_pagos (atómica, solo dueño/administrativo, auditada).
+let _rpPagoIds = [];
+function abrirRevertirPago(idsCsv){
+  if(!_esRolAdmin()){ showToast('Solo dueños o administrativos pueden revertir pagos','err'); return; }
+  _rpPagoIds = (idsCsv||'').split(',').filter(Boolean);
+  const pagos = (pagosDeuda||[]).filter(p=>_rpPagoIds.includes(p.id));
+  if(!pagos.length){ showToast('No encontré ese pago','err'); return; }
+  const deuda0 = (deudas||[]).find(d=>d.id===pagos[0].deuda_id);
+  const total = pagos.reduce((s,p)=>s+(Number(p.monto_abonado)||0),0);
+  const nDeudas = new Set(pagos.map(p=>p.deuda_id)).size;
+  const medios = [...new Set(pagos.map(p=>p.medio_pago).filter(Boolean))].join(' + ');
+  document.getElementById('rp-info').innerHTML =
+    `<b>${esc(deuda0?.nombre_cliente||'Pago')}</b> · ${esc(pagos[0].fecha||'')}<br>`+
+    `$${total.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})} · ${nDeudas} factura${nDeudas!==1?'s':''} · ${esc(medios||'—')}`;
+  const fechas = [...new Set(pagos.map(p=>p.fecha).filter(Boolean))];
+  const cerrados = fechas.filter(f=>(cierres||[]).some(c=>c.fecha===f));
+  const av = document.getElementById('rp-aviso');
+  if(cerrados.length){ av.style.display='block'; av.textContent='⚠️ El '+cerrados.join(', ')+' ya tiene cierre de caja. El cierre guardado NO se recalcula: reabrilo y volvelo a cerrar para que cuadre el arqueo.'; }
+  else av.style.display='none';
+  document.getElementById('rp-motivo').value = 'Pago registrado por error';
+  openModal('ov-revertir-pago');
+}
+
+async function confirmarRevertirPago(){
+  if(!_esRolAdmin() || !_rpPagoIds.length) return;
+  const motivo = (document.getElementById('rp-motivo').value||'').trim();
+  if(!motivo){ showToast('Indicá el motivo','err'); return; }
+  const btn = document.getElementById('rp-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Revirtiendo...'; }
+  try{
+    const deudaIds = [...new Set((pagosDeuda||[]).filter(p=>_rpPagoIds.includes(p.id)).map(p=>p.deuda_id))];
+    const { data, error } = await SB.rpc('revertir_pagos', { p_tienda_id: STORE.id, p_pago_ids: _rpPagoIds, p_motivo: motivo });
+    if(error) throw new Error(error.message || 'No se pudo revertir');
+    if(data && data.exito===false) throw new Error(data.error || 'No se pudo revertir');
+    pagosDeuda = (pagosDeuda||[]).filter(p=>!_rpPagoIds.includes(p.id));
+    try{
+      const { data: fr } = await SB.from('deudas').select('id,monto,monto_original,estado').in('id', deudaIds);
+      (fr||[]).forEach(r=>{ const d=(deudas||[]).find(x=>x.id===r.id); if(d) Object.assign(d,r); });
+    }catch(_){}
+    _rpPagoIds = [];
+    closeModal('ov-revertir-pago');
+    renderDeudas();
+    try{ if(typeof renderCaja==='function') renderCaja(); }catch(_){}
+    const reab = data?.deudas_reabiertas||0;
+    showToast('✅ Pago revertido'+(reab?(' — '+reab+' factura'+(reab!==1?'s':'')+' vuelve'+(reab!==1?'n':'')+' a pendiente'):''),'ok');
+  }catch(e){ console.error(e); showToast('❌ '+(e?.message||'No se pudo revertir'),'err'); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='Revertir pago'; } }
+}
+
 function renderPagosRealizados(filtroNombre){
   const el = document.getElementById('de-pagos');
   if(!el) return;
@@ -13148,6 +13303,7 @@ function renderPagosRealizados(filtroNombre){
       </div>
       <div style="margin-top:8px;text-align:right;display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
         ${_esRolAdmin() ? `<button onclick="abrirCambiarMedio('${t.pagoIds.join(',')}')" style="padding:5px 12px;border-radius:7px;border:1px solid #b45309;background:#fff7e6;color:#b45309;font-size:11px;font-weight:600;cursor:pointer">✏️ Medio de pago</button>` : ''}
+        ${_esRolAdmin() ? `<button onclick="abrirRevertirPago('${t.pagoIds.join(',')}')" style="padding:5px 12px;border-radius:7px;border:1px solid #c94040;background:#fef2f2;color:#c94040;font-size:11px;font-weight:600;cursor:pointer">↩️ Revertir</button>` : ''}
         ${t.loteId
           ? `<button onclick="imprimirReciboPago('${t.loteId}')" style="padding:5px 12px;border-radius:7px;border:1px solid #1a3a5c;background:#e8f0fe;color:#1a3a5c;font-size:11px;font-weight:600;cursor:pointer">🖨️ Recibo</button>`
           : `<span style="font-size:10px;color:var(--muted)">Sin recibo (pago anterior a esta función)</span>`}
@@ -17644,6 +17800,12 @@ function renderCompraList(){
       ? `<button onclick="corregirNumeroComprobante('${co.id}');event.stopPropagation()" title="Corregir el N° de comprobante" style="font-size:10px;background:#fff7e6;color:#b45309;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #fcd9a0;cursor:pointer">🔢 N°</button>`
       : '';
 
+    // Corregir el producto de una línea mal cargada (sirve también con factura ya cargada:
+    // no toca importes/IVA/deuda, solo producto, stock y costo)
+    const btnCambiarProd = (_esRolAdmin() && !co.anulada && !esTraspaso)
+      ? `<button onclick="abrirCambiarProductoCompra('${co.id}');event.stopPropagation()" title="Corregir el producto de una línea" style="font-size:10px;background:#f3f0ff;color:#5b3fc4;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #d9d0fb;cursor:pointer">🔁 Producto</button>`
+      : '';
+
     const btnEditarRemito = (_esRolAdmin() && !co.factura_cargada && g.esRemito && !esTraspaso)
       ? `<button onclick="abrirEditarRemito('${co.id}');event.stopPropagation()" style="font-size:10px;background:#eafaf0;color:#1a5c38;padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #b8e6c9;cursor:pointer" title="Editar proveedor, pago, vencimiento o sin factura de todo el remito">✏️ Editar remito</button>`
       : '';
@@ -17677,6 +17839,7 @@ function renderCompraList(){
           ${btnEditar}
           ${btnEditarRemito}
           ${btnNroComp}
+          ${btnCambiarProd}
           ${btnAnular}
         </div>
       </div>
