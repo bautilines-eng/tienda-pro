@@ -995,8 +995,8 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <div style="padding:22px 20px 0">
       <div class="chart-t">📅 Reporte de ventas diarias</div>
       <div style="display:flex;gap:8px;margin:10px 0;align-items:end;flex-wrap:wrap">
-        <div style="flex:1;min-width:120px"><div class="flabel">Desde</div><input type="date" id="vd-desde" class="inp" onchange="renderVentasDiarias();renderVentasProducto()"></div>
-        <div style="flex:1;min-width:120px"><div class="flabel">Hasta</div><input type="date" id="vd-hasta" class="inp" onchange="renderVentasDiarias();renderVentasProducto()"></div>
+        <div style="flex:1;min-width:120px"><div class="flabel">Desde</div><input type="date" id="vd-desde" class="inp" onchange="renderVentasDiarias();renderVentasProducto();renderComprasL2()"></div>
+        <div style="flex:1;min-width:120px"><div class="flabel">Hasta</div><input type="date" id="vd-hasta" class="inp" onchange="renderVentasDiarias();renderVentasProducto();renderComprasL2()"></div>
       </div>
       <div id="vd-content"></div>
       <button onclick="exportarVentasDiariasExcel()" style="width:100%;margin-top:10px;padding:11px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:700;cursor:pointer">📊 Exportar resumen diario a Excel</button>
@@ -1012,6 +1012,17 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:#555;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="vp-solo-fiscal" onchange="renderVentasProducto()"> Solo ventas con comprobante (excluir "Sin comprobante")</label>
         <div id="vp-content"></div>
         <button onclick="exportarVentasProductoExcel()" id="vp-btn" style="width:100%;margin-top:10px;padding:12px;border-radius:10px;border:1.5px solid #b45309;background:#fff7e6;color:#b45309;font-size:13px;font-weight:700;cursor:pointer">📊 Descargar Excel: ventas por producto (formato contadora)</button>
+      </div>
+      <!-- COMPRAS SIN FACTURA (L2) para la contadora -->
+      <div style="margin-top:22px;padding-top:16px;border-top:1.5px dashed #ddd">
+        <div class="chart-t">🧾 Compras sin factura (L2)</div>
+        <div style="font-size:11.5px;color:#777;margin:4px 0 8px;line-height:1.45">Usa el mismo rango Desde/Hasta de arriba. Excel con las compras que no figuran contablemente (sin factura), un renglón por producto por mes, con la columna &quot;clasificacion&quot; vacía para que la contadora la complete.</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          <span onclick="vpAtajoPeriodo('mes')" style="cursor:pointer;font-size:12px;font-weight:600;padding:6px 12px;border-radius:16px;background:#f0f0f0">Este mes</span>
+          <span onclick="vpAtajoPeriodo('mes_ant')" style="cursor:pointer;font-size:12px;font-weight:600;padding:6px 12px;border-radius:16px;background:#f0f0f0">Mes anterior</span>
+        </div>
+        <div id="cl2-content"></div>
+        <button onclick="exportarComprasL2Excel()" id="cl2-btn" style="width:100%;margin-top:10px;padding:12px;border-radius:10px;border:1.5px solid #475569;background:#f1f5f9;color:#334155;font-size:13px;font-weight:700;cursor:pointer">📊 Descargar Excel: compras sin factura L2 (.xlsx)</button>
       </div>
       <button onclick="exportarCuentaCorrienteClientes()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:600;cursor:pointer">👥 Exportar Cuenta Corriente por Cliente (agrupado)</button>
     </div>
@@ -4910,7 +4921,7 @@ function vpAtajoPeriodo(que){
   const iso = d=>d.toISOString().split('T')[0];
   const a=document.getElementById('vd-desde'), b=document.getElementById('vd-hasta');
   if(a) a.value=iso(d1); if(b) b.value=iso(d2);
-  renderVentasDiarias(); renderVentasProducto();
+  renderVentasDiarias(); renderVentasProducto(); renderComprasL2();
 }
 
 let _vpSeq = 0;
@@ -5052,6 +5063,113 @@ async function exportarVentasProductoExcel(){
     XLSX.writeFile(wb, 'ventas_por_producto_'+(desde||'inicio')+'_'+(hasta||'hoy')+'.xlsx');
     showToast('✅ Excel de ventas por producto generado','ok');
   }catch(e){ console.error('exportarVentasProductoExcel', e); showToast('❌ No se pudo generar el Excel: '+(e?.message||''),'err'); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=txt0; } }
+}
+
+// ══════════════════════════════════════════════════════════════
+// COMPRAS SIN FACTURA (L2) — para que la contadora las clasifique
+// "L2" = compras que no figuran contablemente (es_sin_factura). Mismo estilo que
+// el Excel de ventas por producto: un renglón por producto por mes y la columna
+// "clasificacion" VACÍA para completarla con su plan de cuentas.
+// Excluye anuladas y traspasos internos (no son compras reales a terceros).
+// El importe es lo efectivamente pagado: sin IVA discriminado (igual que _ivaCompra).
+// ══════════════════════════════════════════════════════════════
+async function _cl2Construir(desde, hasta){
+  const rows = (compras||[]).filter(c => !c.is_deleted && !c.anulada && !c.es_traspaso_interno && c.es_sin_factura
+    && (!desde || c.fecha >= desde) && (!hasta || c.fecha <= hasta));
+  const cat = {};
+  (prods||[]).forEach(p=>{ cat[p.id]=p; });
+  const faltan = [...new Set(rows.map(c=>c.producto_id).filter(id=>id && !cat[id]))];
+  for(let i=0;i<faltan.length;i+=150){
+    try{
+      const { data } = await SB.from('productos').select('id,nombre,barcode,pesable').eq('tienda_id', STORE.id).in('id', faltan.slice(i,i+150));
+      (data||[]).forEach(p=>{ cat[p.id]=p; });
+    }catch(e){ console.warn('catálogo compras L2', e); }
+  }
+  const lineas = rows.map(c=>{
+    const pr = cat[c.producto_id] || {};
+    const cant = +c.cantidad||0, pu = +c.precio_unitario||0;
+    return {
+      fecha: c.fecha, pid: c.producto_id || ('n:'+(c.producto_nombre||'')),
+      nombre: _vpNombre(pr.nombre || c.producto_nombre), barcode: pr.barcode || '',
+      unidad: pr.pesable ? 'kg' : 'u',
+      proveedor: (String(c.proveedor||'').trim().length>1 ? String(c.proveedor).trim() : '(sin proveedor)'), cbte: String(c.numero_factura||'').trim(),
+      pago: c.forma_pago || 'Contado', cant, pu, importe: _vpR2(pu*cant), cid: c.compra_id || c.remito_id || c.id
+    };
+  }).sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha))||a.nombre.localeCompare(b.nombre));
+  const anuladas = (compras||[]).filter(c=>c.es_sin_factura && c.anulada && (!desde||c.fecha>=desde) && (!hasta||c.fecha<=hasta)).length;
+  return { lineas, anuladas };
+}
+
+async function renderComprasL2(){
+  const el = document.getElementById('cl2-content'); if(!el) return;
+  const desde = document.getElementById('vd-desde')?.value || '';
+  const hasta = document.getElementById('vd-hasta')?.value || '';
+  try{
+    const { lineas } = await _cl2Construir(desde, hasta);
+    if(!lineas.length){ el.innerHTML='<div class="empty" style="padding:12px;text-align:center;color:#aaa;font-size:12px">Sin compras sin factura en el período seleccionado</div>'; return; }
+    const tot = lineas.reduce((a,x)=>a+x.importe,0);
+    const nProd = new Set(lineas.map(x=>x.pid)).size;
+    el.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">PRODUCTOS COMPRADOS</div><div style="font-size:18px;font-weight:700">${nProd}</div></div>
+      <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">TOTAL PAGADO</div><div style="font-size:18px;font-weight:700;color:#b45309">${_ar(tot)}</div></div></div>`;
+  }catch(e){ console.error('renderComprasL2', e); el.innerHTML=''; }
+}
+
+async function exportarComprasL2Excel(){
+  if(typeof XLSX==='undefined'){ showToast('El generador de Excel se está cargando, probá de nuevo','err'); return; }
+  const desde = document.getElementById('vd-desde')?.value || '';
+  const hasta = document.getElementById('vd-hasta')?.value || '';
+  const btn = document.getElementById('cl2-btn'); const txt0 = btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Armando el Excel…'; }
+  try{
+    const { lineas, anuladas } = await _cl2Construir(desde, hasta);
+    if(!lineas.length){ showToast('Sin compras sin factura en el período','err'); return; }
+    const tienda = (STORE && (STORE.nombre||STORE.name)) || 'Tienda';
+    const tiendaUp = String(tienda).toUpperCase();
+    const periodo = (desde||'inicio') + ' al ' + (hasta||'hoy');
+    const wb = XLSX.utils.book_new();
+
+    // 1) Hoja principal: un renglón por producto por mes, "clasificacion" vacía
+    const m = {};
+    lineas.forEach(x=>{
+      const ym = String(x.fecha).slice(0,7), k = ym+'|'+x.pid;
+      const p = m[k] || (m[k]={ym,nombre:x.nombre,barcode:x.barcode,unidad:x.unidad,cant:0,importe:0,n:0});
+      p.cant+=x.cant; p.importe+=x.importe; p.n++;
+    });
+    const pmes = Object.values(m).sort((a,b)=>a.ym.localeCompare(b.ym)||a.nombre.localeCompare(b.nombre));
+    let aoa = [['Periodos','Código','Descripción','Código','Descripción','clasificacion','Cantidad','Unidad','Costo unitario promedio','Importe Total']];
+    pmes.forEach(p=>aoa.push([_vpPeriodo(p.ym),1,tiendaUp,_vpCod(p.barcode),p.nombre,'',Math.round(p.cant*1000)/1000,p.unidad,p.cant?_vpR2(p.importe/p.cant):0,_vpR2(p.importe)]));
+    XLSX.utils.book_append_sheet(wb, _vpHoja(aoa,[15,8,22,16,46,16,10,7,16,16],[8,9],[6],0), 'Compras L2');
+
+    // 2) Detalle compra por compra (para ver proveedor / comprobante / forma de pago)
+    aoa = [['Compras sin factura (L2) — '+tienda],['Período: '+periodo],[],
+           ['Fecha','Proveedor','N° comprobante / remito','Forma de pago','Código','Producto','Cantidad','Costo unitario','Importe']];
+    lineas.forEach(x=>aoa.push([x.fecha,x.proveedor,x.cbte,x.pago,_vpCod(x.barcode),x.nombre,Math.round(x.cant*1000)/1000,_vpR2(x.pu),x.importe]));
+    XLSX.utils.book_append_sheet(wb, _vpHoja(aoa,[12,26,22,18,16,46,10,15,15],[7,8],[6],3), 'Detalle por compra');
+
+    // 3) Control
+    const T = lineas.reduce((a,x)=>a+x.importe,0);
+    const porMes = {}; lineas.forEach(x=>{ const ym=String(x.fecha).slice(0,7); porMes[ym]=(porMes[ym]||0)+x.importe; });
+    aoa = [['Control y notas — Compras sin factura (L2) — '+tienda],['Período: '+periodo],[],['Mes','Importe Total','Líneas de compra']];
+    Object.keys(porMes).sort().forEach(ym=>aoa.push([_vpPeriodo(ym),_vpR2(porMes[ym]),lineas.filter(x=>String(x.fecha).slice(0,7)===ym).length]));
+    aoa.push(['TOTAL',_vpR2(T),lineas.length]);
+    aoa.push([]);
+    aoa.push(['Compras sin factura anuladas (excluidas)',anuladas]);
+    aoa.push([]);
+    aoa.push(['Notas']);
+    aoa.push(['• Incluye solo compras marcadas "Sin factura" (L2). No incluye compras con factura, anuladas ni traspasos internos.']);
+    aoa.push(['• El importe es lo pagado (o a pagar) sin factura: no tiene IVA discriminado, por lo tanto no hay IVA crédito fiscal.']);
+    aoa.push(['• La hoja "Compras L2" tiene un renglón por producto por mes; la columna "clasificacion" va vacía para completarla con el plan de cuentas.']);
+    aoa.push(['• Los nombres de producto se muestran en mayúsculas y sin espacios de más.']);
+    const wsC = XLSX.utils.aoa_to_sheet(aoa);
+    wsC['!cols']=[{wch:44},{wch:18},{wch:18}];
+    for(let r=4;r<aoa.length;r++){ const cell=wsC[XLSX.utils.encode_cell({r,c:1})]; if(cell&&typeof cell.v==='number'&&r<=4+Object.keys(porMes).length) cell.z='#,##0.00'; }
+    XLSX.utils.book_append_sheet(wb, wsC, 'Control');
+
+    XLSX.writeFile(wb, 'compras_L2_'+(desde||'inicio')+'_'+(hasta||'hoy')+'.xlsx');
+    showToast('✅ Excel de compras sin factura (L2) generado','ok');
+  }catch(e){ console.error('exportarComprasL2Excel', e); showToast('❌ No se pudo generar el Excel: '+(e?.message||''),'err'); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=txt0; } }
 }
 
@@ -19455,7 +19573,7 @@ function gp(id,el){
   if(id==='pcont'){ initContabilidad(); agregarBtnLibroDiario(); }
   if(id==='pcfg') cargarConfigFiscal();
   document.getElementById('cart').classList.remove('show');
-  if(id==='pr'){renderReportes();renderVentasDiarias();renderVentasProducto();}
+  if(id==='pr'){renderReportes();renderVentasDiarias();renderVentasProducto();renderComprasL2();}
   if(id==='pcc')renderCaja();
   if(id==='pde')renderDeudas();
   if(id==='pprec')renderPreciosPage();
