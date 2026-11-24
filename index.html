@@ -1004,14 +1004,14 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
       <!-- VENTAS POR PRODUCTO Y POR DÍA (para la contadora) -->
       <div style="margin-top:22px;padding-top:16px;border-top:1.5px dashed #ddd">
         <div class="chart-t">📦 Ventas por producto y por día</div>
-        <div style="font-size:11.5px;color:#777;margin:4px 0 8px;line-height:1.45">Usa el mismo rango Desde/Hasta de arriba. Resumen por categoría, detalle por producto, por día y producto por día, con neto, IVA y total.</div>
+        <div style="font-size:11.5px;color:#777;margin:4px 0 8px;line-height:1.45">Usa el mismo rango Desde/Hasta de arriba. El Excel trae un renglón por producto por mes, con la columna &quot;clasificacion&quot; vacía para que la contadora la complete con su plan de cuentas.</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
           <span onclick="vpAtajoPeriodo('mes')" style="cursor:pointer;font-size:12px;font-weight:600;padding:6px 12px;border-radius:16px;background:#f0f0f0">Este mes</span>
           <span onclick="vpAtajoPeriodo('mes_ant')" style="cursor:pointer;font-size:12px;font-weight:600;padding:6px 12px;border-radius:16px;background:#f0f0f0">Mes anterior</span>
         </div>
         <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:#555;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="vp-solo-fiscal" onchange="renderVentasProducto()"> Solo ventas con comprobante (excluir "Sin comprobante")</label>
         <div id="vp-content"></div>
-        <button onclick="exportarVentasProductoExcel()" id="vp-btn" style="width:100%;margin-top:10px;padding:12px;border-radius:10px;border:1.5px solid #b45309;background:#fff7e6;color:#b45309;font-size:13px;font-weight:700;cursor:pointer">📊 Descargar Excel: ventas por producto y por día (.xlsx)</button>
+        <button onclick="exportarVentasProductoExcel()" id="vp-btn" style="width:100%;margin-top:10px;padding:12px;border-radius:10px;border:1.5px solid #b45309;background:#fff7e6;color:#b45309;font-size:13px;font-weight:700;cursor:pointer">📊 Descargar Excel: ventas por producto (formato contadora)</button>
       </div>
       <button onclick="exportarCuentaCorrienteClientes()" style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:1.5px solid #1a5c38;background:#eaf5ee;color:#1a5c38;font-size:13px;font-weight:600;cursor:pointer">👥 Exportar Cuenta Corriente por Cliente (agrupado)</button>
     </div>
@@ -4784,20 +4784,25 @@ function exportarVentasDiariasExcel(){
 
 // ══════════════════════════════════════════════════════════════
 // VENTAS POR PRODUCTO Y POR DÍA (para la contadora)
-// Equivalente al "vtas L1" que se bajaba de otro sistema: por producto y
-// categoría, con Importe Neto, IVA, Imp. internos e Importe Final, más el
-// corte por día. Se calcula línea por línea desde ventas.items:
-//   bruto de la línea (repartiendo cualquier descuento) ÷ (1 + alícuota) = neto
+// Formato del "vtas L1" que se bajaba de otro sistema: UN RENGLÓN POR PRODUCTO
+// POR MES, con la columna "clasificacion" VACÍA para que la contadora clasifique
+// con su propio plan de cuentas (TiendaPro NO impone categorías). Columnas:
+//   Periodos | Código | Descripción | Código | Descripción | clasificacion |
+//   Importe Neto | I.V.A. | IVA Per 5329 | IVA Per 3337 | IVA Per 212 |
+//   Per.II.BB. | I.Internos | Importe Final   (+ Cantidad y Unidad al final)
+// Importe Final = Neto + IVA + I.Internos (como en el otro sistema: los
+// impuestos internos van en columna aparte, fuera del Neto).
+// Se calcula línea por línea desde ventas.items:
+//   bruto de la línea (repartiendo cualquier descuento) ÷ (1 + alícuota) = neto c/internos
 // y se ajusta el redondeo para que cada comprobante cierre al centavo contra
 // su neto/IVA ya guardados (los de ARCA). Excluye anuladas (tienen NC).
 // ══════════════════════════════════════════════════════════════
-function _vpNormCat(c){
-  const t = String(c==null?'':c).trim().replace(/\s+/g,' ');
-  if(!t) return 'Sin categoría';
-  if(t===t.toUpperCase() || t===t.toLowerCase()) return t.charAt(0).toUpperCase()+t.slice(1).toLowerCase();
-  return t;
-}
 function _vpR2(n){ return Math.round((+n||0)*100)/100; }
+function _vpNombre(n){ return String(n==null?'':n).trim().replace(/\s+/g,' ').toUpperCase() || '(SIN NOMBRE)'; }
+const _VP_MESES = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+function _vpPeriodo(ym){ const p=String(ym).split('-'); return '(001) '+_VP_MESES[(+p[1]||1)-1]+' '+p[0]; }
+// Código de barras: número si es corto y sin ceros a la izquierda; texto si no (evita notación científica)
+function _vpCod(c){ const s=String(c==null?'':c).trim(); return (/^[1-9]\d{0,8}$/.test(s)) ? +s : s; }
 
 async function _vpCatalogo(vs){
   const cat = {};
@@ -4811,7 +4816,7 @@ async function _vpCatalogo(vs){
   const ids=[...faltan];
   for(let i=0;i<ids.length;i+=150){
     try{
-      const { data } = await SB.from('productos').select('id,nombre,categoria,barcode,codigo_proveedor,pesable')
+      const { data } = await SB.from('productos').select('id,nombre,barcode,codigo_proveedor,pesable')
         .eq('tienda_id', STORE.id).in('id', ids.slice(i,i+150));
       (data||[]).forEach(p=>{ cat[p.id]=p; });
     }catch(e){ console.warn('catálogo ventas por producto', e); }
@@ -4856,11 +4861,10 @@ async function _vpConstruir(desde, hasta, soloFiscal){
       return {
         fecha: v.fecha, cbte: v.nro_comprobante||'', tipo: v.tipo_cbte||'', vid: v.id,
         pid: it.producto_id || ('n:'+(it.nombre||'')),
-        nombre: pr.nombre || it.nombre || '(sin nombre)',
-        categoria: _vpNormCat(pr.categoria),
+        nombre: _vpNombre(pr.nombre || it.nombre),
         barcode: pr.barcode || '', codProv: pr.codigo_proveedor || '',
         unidad: (it.pesable || pr.pesable || it.unidad==='kg') ? 'kg' : 'u',
-        cant, neto, iva, alic: r,
+        cant, neto, iva, alic: r,                 // neto INCLUYE los internos (como el comprobante)
         internos: _vpR2((+it.impuesto_interno_unitario||0)*cant),
         _g: g
       };
@@ -4874,23 +4878,28 @@ async function _vpConstruir(desde, hasta, soloFiscal){
         rows[k].neto = _vpR2(rows[k].neto + rN); rows[k].iva = _vpR2(rows[k].iva + rI);
       } else ctl.sinAjuste++;
     }
-    rows.forEach(x=>{ x.total = _vpR2(x.neto + x.iva); delete x._g; lineas.push(x); });
+    rows.forEach(x=>{ x.total = _vpR2(x.neto + x.iva); x.netoSin = _vpR2(x.neto - x.internos); delete x._g; lineas.push(x); });
   });
   return { lineas, ctl };
 }
 
+// netoSin = neto sin impuestos internos (columna "Importe Neto" del Excel).
+// neto = neto con internos (el del comprobante, para el control).
 function _vpSumar(lineas){
-  const T = {cant:0, neto:0, iva:0, internos:0, total:0};
-  lineas.forEach(x=>{ T.cant+=x.cant; T.neto+=x.neto; T.iva+=x.iva; T.internos+=x.internos; T.total+=x.total; });
+  const T = {cant:0, neto:0, netoSin:0, iva:0, internos:0, total:0};
+  lineas.forEach(x=>{ T.cant+=x.cant; T.neto+=x.neto; T.netoSin+=x.netoSin; T.iva+=x.iva; T.internos+=x.internos; T.total+=x.total; });
   return T;
 }
-function _vpPorCategoria(lineas){
+// Un renglón por producto por mes (la hoja principal, igual al otro sistema)
+function _vpPorProductoMes(lineas){
   const m = {};
   lineas.forEach(x=>{
-    const c = m[x.categoria] || (m[x.categoria]={categoria:x.categoria, neto:0, iva:0, internos:0, total:0, cant:0});
-    c.neto+=x.neto; c.iva+=x.iva; c.internos+=x.internos; c.total+=x.total; c.cant+=x.cant;
+    const ym = String(x.fecha).slice(0,7);
+    const k = ym+'|'+x.pid;
+    const p = m[k] || (m[k]={ym, nombre:x.nombre, barcode:x.barcode, unidad:x.unidad, cant:0, netoSin:0, iva:0, internos:0, total:0});
+    p.cant+=x.cant; p.netoSin+=x.netoSin; p.iva+=x.iva; p.internos+=x.internos; p.total+=x.total;
   });
-  return Object.values(m).sort((a,b)=>b.total-a.total);
+  return Object.values(m).sort((a,b)=>a.ym.localeCompare(b.ym)||a.nombre.localeCompare(b.nombre));
 }
 
 function vpAtajoPeriodo(que){
@@ -4917,25 +4926,27 @@ async function renderVentasProducto(){
     if(mi!==_vpSeq) return;
     if(!lineas.length){ el.innerHTML='<div class="empty" style="padding:14px;text-align:center;color:#aaa">Sin ventas en el período seleccionado</div>'; return; }
     const T = _vpSumar(lineas);
-    const cats = _vpPorCategoria(lineas);
-    const nProd = new Set(lineas.map(x=>x.pid)).size;
+    const pm = {};
+    lineas.forEach(x=>{ const p=pm[x.pid]||(pm[x.pid]={nombre:x.nombre,unidad:x.unidad,cant:0,total:0}); p.cant+=x.cant; p.total+=x.total; });
+    const prodsArr = Object.values(pm);
+    const top = prodsArr.sort((a,b)=>b.total-a.total).slice(0,10);
     const dif = Math.abs(T.total - ctl.hdrTotal);
     const th = (t,al)=>`<th style="padding:6px 8px;text-align:${al||'right'};font-size:11px;color:#666">${t}</th>`;
-    const filas = cats.map(c=>`<tr>
-      <td style="padding:6px 8px;font-size:12px">${esc(c.categoria)}</td>
-      <td style="padding:6px 8px;text-align:right;font-size:12px">${_ar(c.neto)}</td>
-      <td style="padding:6px 8px;text-align:right;font-size:12px">${_ar(c.iva)}</td>
-      <td style="padding:6px 8px;text-align:right;font-size:12px;font-weight:700">${_ar(c.total)}</td>
-      <td style="padding:6px 8px;text-align:right;font-size:11px;color:#888">${T.total>0?(c.total/T.total*100).toFixed(1):'0'}%</td></tr>`).join('');
+    const filas = top.map(p=>`<tr>
+      <td style="padding:6px 8px;font-size:12px">${esc(p.nombre)}</td>
+      <td style="padding:6px 8px;text-align:right;font-size:12px">${Math.round(p.cant*1000)/1000} ${p.unidad}</td>
+      <td style="padding:6px 8px;text-align:right;font-size:12px;font-weight:700">${_ar(p.total)}</td></tr>`).join('');
     el.innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-        <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">PRODUCTOS VENDIDOS</div><div style="font-size:18px;font-weight:700">${nProd}</div></div>
+        <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">PRODUCTOS VENDIDOS</div><div style="font-size:18px;font-weight:700">${prodsArr.length}</div></div>
         <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">TOTAL</div><div style="font-size:18px;font-weight:700;color:#1a5c38">${_ar(T.total)}</div></div>
-        <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">NETO</div><div style="font-size:15px;font-weight:700">${_ar(T.neto)}</div></div>
+        <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">NETO (sin internos)</div><div style="font-size:15px;font-weight:700">${_ar(T.netoSin)}</div></div>
         <div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#999">IVA</div><div style="font-size:15px;font-weight:700">${_ar(T.iva)}</div></div>
       </div>
+      <div style="font-size:11px;color:#888;margin:0 0 6px">Imp. internos: ${_ar(T.internos)} (columna aparte en el Excel)</div>
+      <div style="font-size:11px;color:#888;margin:8px 0 4px;font-weight:600">Los 10 productos que más vendieron</div>
       <div style="overflow-x:auto;border:1px solid #eee;border-radius:10px">
-        <table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f8f8f8">${th('Categoría','left')}${th('Neto')}${th('IVA')}${th('Total')}${th('%')}</tr></thead><tbody>${filas}</tbody></table>
+        <table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f8f8f8">${th('Producto','left')}${th('Cant.')}${th('Total')}</tr></thead><tbody>${filas}</tbody></table>
       </div>
       ${dif>1 ? `<div style="margin-top:8px;font-size:11.5px;background:#fff7e6;color:#9a5b00;border:1px solid #fcd9a0;border-radius:10px;padding:8px 10px">⚠️ El total por producto (${_ar(T.total)}) difiere del total de comprobantes (${_ar(ctl.hdrTotal)}) en ${_ar(dif)}. Revisá la hoja "Control" del Excel.</div>` : ''}`;
   }catch(e){ console.error('renderVentasProducto', e); if(mi===_vpSeq) el.innerHTML='<div style="padding:10px;color:#c94040;font-size:12px">No se pudo calcular el reporte</div>'; }
@@ -4969,77 +4980,51 @@ async function exportarVentasProductoExcel(){
     const wb = XLSX.utils.book_new();
     const T = _vpSumar(lineas);
 
-    // 1) Resumen por categoría
-    const cats = _vpPorCategoria(lineas);
-    let aoa = encab('Resumen de ventas por categoría');
-    aoa.push(['Categoría','Importe Neto','I.V.A.','Importe Final','% del total','Imp. internos (incluidos en el neto)']);
-    cats.forEach(c=>aoa.push([c.categoria,_vpR2(c.neto),_vpR2(c.iva),_vpR2(c.total),T.total>0?_vpR2(c.total/T.total*100):0,_vpR2(c.internos)]));
-    aoa.push(['Total general',_vpR2(T.neto),_vpR2(T.iva),_vpR2(T.total),100,_vpR2(T.internos)]);
-    XLSX.utils.book_append_sheet(wb, _vpHoja(aoa,[30,16,16,16,11,26],[1,2,3,4,5],[],3), 'Resumen por categoría');
+    // 1) Hoja principal: mismo formato que el otro sistema. Un renglón por producto por mes.
+    //    Encabezado en la fila 1 y sin filas de totales (para poder copiar/pegar o usar tabla dinámica).
+    //    La columna "clasificacion" queda VACÍA: la completa la contadora con su plan de cuentas.
+    const pmes = _vpPorProductoMes(lineas);
+    const tiendaUp = String(tienda).toUpperCase();
+    let aoa = [['Periodos','Código','Descripción','Código','Descripción','clasificacion','Importe Neto','I.V.A.','IVA Per 5329','IVA Per 3337','IVA Per 212','Per.II.BB.','I.Internos','Importe Final','Cantidad','Unidad']];
+    pmes.forEach(p=>aoa.push([_vpPeriodo(p.ym),1,tiendaUp,_vpCod(p.barcode),p.nombre,'',_vpR2(p.netoSin),_vpR2(p.iva),0,0,0,0,_vpR2(p.internos),_vpR2(p.total),Math.round(p.cant*1000)/1000,p.unidad]));
+    XLSX.utils.book_append_sheet(wb, _vpHoja(aoa,[15,8,22,16,46,16,15,13,12,12,12,12,13,15,10,7],[6,7,8,9,10,11,12,13],[14],0), 'Ventas por producto');
 
-    // 2) Por producto
-    const pm = {};
-    lineas.forEach(x=>{
-      const p = pm[x.pid] || (pm[x.pid]={nombre:x.nombre,categoria:x.categoria,barcode:x.barcode,codProv:x.codProv,unidad:x.unidad,cant:0,neto:0,iva:0,internos:0,total:0});
-      p.cant+=x.cant; p.neto+=x.neto; p.iva+=x.iva; p.internos+=x.internos; p.total+=x.total;
-    });
-    const prodsArr = Object.values(pm).sort((a,b)=>a.categoria.localeCompare(b.categoria)||b.total-a.total);
-    aoa = encab('Ventas por producto');
-    aoa.push(['Categoría','Código de barras','Cód. proveedor','Producto','Unidad','Cantidad','Importe Neto','I.V.A.','Importe Final','Imp. internos (incluidos en el neto)']);
-    prodsArr.forEach(p=>aoa.push([p.categoria,p.barcode,p.codProv,p.nombre,p.unidad,Math.round(p.cant*1000)/1000,_vpR2(p.neto),_vpR2(p.iva),_vpR2(p.total),_vpR2(p.internos)]));
-    aoa.push(['TOTAL GENERAL','','','','',Math.round(T.cant*1000)/1000,_vpR2(T.neto),_vpR2(T.iva),_vpR2(T.total),_vpR2(T.internos)]);
-    XLSX.utils.book_append_sheet(wb, _vpHoja(aoa,[24,18,14,46,8,11,16,16,16,22],[6,7,8,9],[5],3), 'Por producto');
-
-    // 3) Por día
+    // 2) Por día (totales)
     const dm = {};
     lineas.forEach(x=>{
-      const d = dm[x.fecha] || (dm[x.fecha]={ventas:new Set(),neto:0,iva:0,internos:0,total:0});
-      d.ventas.add(x.vid); d.neto+=x.neto; d.iva+=x.iva; d.internos+=x.internos; d.total+=x.total;
+      const d = dm[x.fecha] || (dm[x.fecha]={ventas:new Set(),netoSin:0,iva:0,internos:0,total:0});
+      d.ventas.add(x.vid); d.netoSin+=x.netoSin; d.iva+=x.iva; d.internos+=x.internos; d.total+=x.total;
     });
     const dias = Object.keys(dm).sort();
     const nomDia = f=>new Date(f+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long'});
     aoa = encab('Ventas por día');
-    aoa.push(['Fecha','Día','Comprobantes','Importe Neto','I.V.A.','Importe Final','Imp. internos (incluidos en el neto)']);
+    aoa.push(['Fecha','Día','Comprobantes','Importe Neto','I.V.A.','I.Internos','Importe Final']);
     let nCb=0;
-    dias.forEach(f=>{ const d=dm[f]; nCb+=d.ventas.size; aoa.push([f,nomDia(f),d.ventas.size,_vpR2(d.neto),_vpR2(d.iva),_vpR2(d.total),_vpR2(d.internos)]); });
-    aoa.push(['TOTAL','',nCb,_vpR2(T.neto),_vpR2(T.iva),_vpR2(T.total),_vpR2(T.internos)]);
-    XLSX.utils.book_append_sheet(wb, _vpHoja(aoa,[12,12,13,16,16,16,22],[3,4,5,6],[],3), 'Por día');
+    dias.forEach(f=>{ const d=dm[f]; nCb+=d.ventas.size; aoa.push([f,nomDia(f),d.ventas.size,_vpR2(d.netoSin),_vpR2(d.iva),_vpR2(d.internos),_vpR2(d.total)]); });
+    aoa.push(['TOTAL','',nCb,_vpR2(T.netoSin),_vpR2(T.iva),_vpR2(T.internos),_vpR2(T.total)]);
+    XLSX.utils.book_append_sheet(wb, _vpHoja(aoa,[12,12,13,16,16,14,16],[3,4,5,6],[],3), 'Por día');
 
-    // 4) Día x categoría (neto)
-    const catNames = cats.map(c=>c.categoria);
-    const mx = {};
-    lineas.forEach(x=>{ (mx[x.fecha]=mx[x.fecha]||{})[x.categoria]=((mx[x.fecha]||{})[x.categoria]||0)+x.neto; });
-    aoa = encab('Importe NETO por día y categoría');
-    aoa.push(['Fecha',...catNames,'Total neto']);
-    const totCol = catNames.map(()=>0); let totAll=0;
-    dias.forEach(f=>{
-      let sumDia=0; const fila=[f];
-      catNames.forEach((c,i)=>{ const v=_vpR2((mx[f]||{})[c]||0); fila.push(v||''); sumDia+=v; totCol[i]+=v; });
-      fila.push(_vpR2(sumDia)); totAll+=sumDia; aoa.push(fila);
-    });
-    aoa.push(['TOTAL',...totCol.map(_vpR2),_vpR2(totAll)]);
-    XLSX.utils.book_append_sheet(wb, _vpHoja(aoa,[12,...catNames.map(()=>15),16],catNames.map((_,i)=>i+1).concat([catNames.length+1]),[],3), 'Día x categoría (neto)');
-
-    // 5) Producto por día (formato lista, para filtrar / tabla dinámica)
+    // 3) Producto por día (lista para filtrar / tabla dinámica)
     const pd = {};
     lineas.forEach(x=>{
       const k = x.fecha+'|'+x.pid;
-      const r = pd[k] || (pd[k]={fecha:x.fecha,nombre:x.nombre,categoria:x.categoria,barcode:x.barcode,unidad:x.unidad,cant:0,neto:0,iva:0,total:0});
-      r.cant+=x.cant; r.neto+=x.neto; r.iva+=x.iva; r.total+=x.total;
+      const r = pd[k] || (pd[k]={fecha:x.fecha,nombre:x.nombre,barcode:x.barcode,unidad:x.unidad,cant:0,netoSin:0,iva:0,internos:0,total:0});
+      r.cant+=x.cant; r.netoSin+=x.netoSin; r.iva+=x.iva; r.internos+=x.internos; r.total+=x.total;
     });
-    const pdArr = Object.values(pd).sort((a,b)=>a.fecha.localeCompare(b.fecha)||a.categoria.localeCompare(b.categoria)||a.nombre.localeCompare(b.nombre));
+    const pdArr = Object.values(pd).sort((a,b)=>a.fecha.localeCompare(b.fecha)||a.nombre.localeCompare(b.nombre));
     aoa = encab('Producto por día');
-    aoa.push(['Fecha','Categoría','Código de barras','Producto','Unidad','Cantidad','Importe Neto','I.V.A.','Importe Final']);
-    pdArr.forEach(r=>aoa.push([r.fecha,r.categoria,r.barcode,r.nombre,r.unidad,Math.round(r.cant*1000)/1000,_vpR2(r.neto),_vpR2(r.iva),_vpR2(r.total)]));
-    XLSX.utils.book_append_sheet(wb, _vpHoja(aoa,[12,24,18,46,8,11,16,16,16],[6,7,8],[5],3), 'Producto por día');
+    aoa.push(['Fecha','Código','Producto','Unidad','Cantidad','Importe Neto','I.V.A.','I.Internos','Importe Final']);
+    pdArr.forEach(r=>aoa.push([r.fecha,_vpCod(r.barcode),r.nombre,r.unidad,Math.round(r.cant*1000)/1000,_vpR2(r.netoSin),_vpR2(r.iva),_vpR2(r.internos),_vpR2(r.total)]));
+    XLSX.utils.book_append_sheet(wb, _vpHoja(aoa,[12,16,46,8,11,15,13,13,15],[5,6,7,8],[4],3), 'Producto por día');
 
-    // 6) Control
+    // 4) Control
     const dTot=_vpR2(T.total-ctl.hdrTotal), dNeto=_vpR2(T.neto-ctl.hdrNeto), dIva=_vpR2(T.iva-ctl.hdrIva);
     aoa = encab('Control y notas');
     aoa.push(['Concepto','Este reporte','Según comprobantes','Diferencia']);
-    aoa.push(['Importe Neto',_vpR2(T.neto),_vpR2(ctl.hdrNeto),dNeto]);
+    aoa.push(['Importe Neto + I.Internos',_vpR2(T.neto),_vpR2(ctl.hdrNeto),dNeto]);
     aoa.push(['I.V.A.',_vpR2(T.iva),_vpR2(ctl.hdrIva),dIva]);
     aoa.push(['Importe Final',_vpR2(T.total),_vpR2(ctl.hdrTotal),dTot]);
+    aoa.push(['  I.Internos (informativo)',_vpR2(T.internos),_vpR2(ctl.hdrInternos),_vpR2(T.internos-ctl.hdrInternos)]);
     aoa.push([]);
     aoa.push(['Ventas incluidas',ctl.ventas]);
     aoa.push(['  de las cuales "Sin comprobante"',ctl.ventasX]);
@@ -5049,20 +5034,23 @@ async function exportarVentasProductoExcel(){
     aoa.push(['Importe no gravado en los comprobantes',_vpR2(ctl.hdrNoGrav)]);
     aoa.push([]);
     aoa.push(['Notas']);
+    aoa.push(['• La hoja "Ventas por producto" tiene el mismo formato que la del otro sistema; la columna "clasificacion" va vacía para completarla con el plan de cuentas.']);
+    aoa.push(['• Importe Final = Importe Neto + I.V.A. + I.Internos. Los impuestos internos van en columna aparte (fuera del Neto), como en el otro sistema.']);
+    aoa.push(['• Las columnas IVA Per 5329 / 3337 / 212 y Per.II.BB. salen en 0: TiendaPro no guarda percepciones por producto.']);
+    aoa.push(['• Cantidad y Unidad están al final (el otro sistema no las traía). Los nombres de producto se muestran en mayúsculas y sin espacios de más.']);
     aoa.push(['• Neto e IVA se calculan por producto: precio de venta ÷ (1 + alícuota del producto). Cualquier descuento se reparte proporcionalmente.']);
     aoa.push(['• El redondeo se ajusta para que cada comprobante coincida al centavo con el neto e IVA declarados.']);
-    aoa.push(['• Los impuestos internos son informativos: ya están incluidos dentro del Importe Neto (igual que en el comprobante emitido).']);
     aoa.push(['• Las ventas anuladas se excluyen porque su nota de crédito las compensa (efecto neto cero).']);
     aoa.push(['• Las ventas "Sin comprobante" no tienen IVA discriminado: figuran con IVA 0 y neto igual al total.']);
     if(ctl.sinItems) aoa.push(['• '+ctl.sinItems+' venta(s) sin detalle de productos no figuran en las hojas por producto (revisar contra "Según comprobantes").']);
     if(ctl.sinAjuste) aoa.push(['• '+ctl.sinAjuste+' venta(s) no pudieron ajustarse al centavo (diferencia mayor a $1 entre el detalle y el comprobante).']);
     const wsC = XLSX.utils.aoa_to_sheet(aoa);
     wsC['!cols']=[{wch:52},{wch:18},{wch:20},{wch:14}];
-    for(let r=4;r<=6;r++) for(let c=1;c<=3;c++){ const cell=wsC[XLSX.utils.encode_cell({r,c})]; if(cell&&typeof cell.v==='number') cell.z='#,##0.00'; }
+    for(let r=4;r<=7;r++) for(let c=1;c<=3;c++){ const cell=wsC[XLSX.utils.encode_cell({r,c})]; if(cell&&typeof cell.v==='number') cell.z='#,##0.00'; }
     XLSX.utils.book_append_sheet(wb, wsC, 'Control');
 
     XLSX.writeFile(wb, 'ventas_por_producto_'+(desde||'inicio')+'_'+(hasta||'hoy')+'.xlsx');
-    showToast('✅ Excel de ventas por producto y por día generado','ok');
+    showToast('✅ Excel de ventas por producto generado','ok');
   }catch(e){ console.error('exportarVentasProductoExcel', e); showToast('❌ No se pudo generar el Excel: '+(e?.message||''),'err'); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=txt0; } }
 }
