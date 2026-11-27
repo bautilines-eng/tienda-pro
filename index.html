@@ -10724,6 +10724,9 @@ async function guardarFactura() {
         descripcion: `Factura ${tipo} ${numero} · ${esc(proveedor || '')}`,
         fecha:       fecha,
         factura_id:  factura?.id || null,
+        // Antes no se mandaba el medio de pago y la base lo dejaba en 'Efectivo':
+        // una factura pagada por transferencia descontaba de la caja física.
+        medio_pago:  (facPagoActual === 'Transferencia' ? 'Transferencia' : 'Efectivo'),
       });
       if (gasto) { gastos.unshift(gasto); }
       showToast(`✅ Factura ${numero} guardada correctamente`, 'ok');
