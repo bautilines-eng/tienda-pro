@@ -781,6 +781,11 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
         style="padding:10px 14px;border-radius:10px;border:1.5px solid #c5cae9;background:#f8f8ff;font-size:20px;cursor:pointer;flex-shrink:0"
         title="Escanear con cámara" id="cam-scan-btn">📷</button>
     </div>
+    <div id="scan-nf" style="display:none;margin:-2px 0 10px;padding:9px 12px;border-radius:10px;background:#fff7e6;border:1px solid #fcd9a0;font-size:12px;color:#9a5b00;align-items:center;gap:8px;flex-wrap:wrap">
+      <span id="scan-nf-txt" style="flex:1;min-width:140px"></span>
+      <button onclick="abAsignarEscaneado()" style="padding:6px 10px;border-radius:8px;border:1.5px solid #b45309;background:#fff;color:#b45309;font-size:12px;font-weight:700;cursor:pointer">🏷️ Asignarlo a un producto</button>
+      <span onclick="abOcultarNoEncontrado()" style="cursor:pointer;font-weight:700;padding:2px 6px">✕</span>
+    </div>
     <!-- Vista de cámara (oculta por defecto) -->
     <div id="cam-scanner-wrap" style="display:none;margin-bottom:12px;border-radius:12px;overflow:hidden;position:relative;background:#000">
       <video id="cam-preview" style="width:100%;max-height:200px;object-fit:cover" autoplay muted playsinline></video>
@@ -2380,6 +2385,30 @@ body{background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;m
     <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin:6px 0 4px">Motivo</label>
     <input id="rp-motivo" class="inp" value="Pago registrado por error">
     <button class="btn" id="rp-btn" style="width:100%;margin-top:14px;background:#c94040;color:#fff" onclick="confirmarRevertirPago()">Revertir pago</button>
+  </div>
+</div>
+
+<div class="overlay" id="ov-asignar-barcode">
+  <div class="modal" style="padding:22px 20px 20px;max-height:85vh;overflow:auto">
+    <div class="modal-handle"></div>
+    <span class="modal-close" onclick="cerrarAsignarBarcode()">✕</span>
+    <div style="font-family:'Instrument Serif',serif;font-size:21px;margin-bottom:4px">🏷️ Cargar código de barras</div>
+    <div style="font-size:11.5px;color:var(--muted);line-height:1.45;margin-bottom:12px">Solo se agrega el código a productos que todavía no lo tienen. Escaneá con el lector o la cámara, o escribilo.</div>
+    <div id="ab-prod-fijo" style="display:none;font-size:14px;font-weight:600;margin-bottom:10px"></div>
+    <div id="ab-buscar-wrap" style="display:none">
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin:6px 0 4px">Producto (sin código de barras)</label>
+      <input id="ab-q" class="inp" placeholder="Buscar por nombre..." oninput="abBuscar()" autocomplete="off">
+      <div id="ab-res" style="margin:6px 0 10px;max-height:190px;overflow:auto"></div>
+    </div>
+    <div class="fgroup">
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin:6px 0 4px">Código de barras</label>
+      <div style="display:flex;gap:8px">
+        <input id="ab-code" class="inp" inputmode="numeric" placeholder="Ej: 7790123456789" style="flex:1;font-family:'DM Mono',monospace" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();guardarAsignarBarcode();}">
+        <button type="button" onclick="escanearBarcode('ab-code')" style="padding:10px 14px;border-radius:10px;border:1.5px solid #c5cae9;background:#f8f8ff;font-size:18px;cursor:pointer;flex-shrink:0" title="Escanear con cámara">📷</button>
+      </div>
+    </div>
+    <div id="ab-aviso" style="display:none;font-size:11.5px;background:#fef2f2;color:#c94040;border:1px solid #f5c2c2;border-radius:10px;padding:9px 11px;margin-top:10px"></div>
+    <button class="btn btn-ink" id="ab-btn" style="width:100%;margin-top:14px" onclick="guardarAsignarBarcode()">Guardar código</button>
   </div>
 </div>
 
@@ -17333,6 +17362,7 @@ function renderStock(f){
         <div style="display:flex;align-items:center;gap:6px">
           <div class="sc-dot ${dc}"></div>
           ${['dueño','dueno','administrativo','admin'].includes((USER_ROL||'').toLowerCase()) ? `<button class="btn btn-sm btn-outline" onclick="editProduct('${p.id}')">✏️</button>` : ''}
+          ${(!['dueño','dueno','administrativo','admin'].includes((USER_ROL||'').toLowerCase()) && !(p.barcode && String(p.barcode).trim())) ? `<button class="btn btn-sm btn-outline" title="Cargar código de barras" onclick="abrirAsignarBarcode('${p.id}')">🏷️ Código</button>` : ''}
           ${(['dueño','dueno','administrativo','admin'].includes((USER_ROL||'').toLowerCase()) || _prodRecienCargado(p)) ? `<button class="btn btn-sm" style="background:var(--red-l);color:var(--red);border:1.5px solid var(--red)" onclick="deleteProduct('${p.id}','${esc(p.nombre)}')">🗑️</button>` : ''}
         </div>
       </div>
@@ -19204,7 +19234,92 @@ function onScannerKeydown(e) {
   }
 }
 
+// ══ CARGAR CÓDIGO DE BARRAS (también para vendedores) ══
+// La base solo deja AGREGAR el código a productos que no lo tienen (RPC
+// asignar_barcode_producto); cambiar uno existente sigue siendo de administrativos/dueño.
+let _abProdId = null, _abGuardando = false, _abDesdeScan = false, _abUltimoNoEnc = '';
+
+function abMostrarNoEncontrado(code){
+  _abUltimoNoEnc = code;
+  const bar = document.getElementById('scan-nf'), t = document.getElementById('scan-nf-txt');
+  if(!bar || !t) return;
+  t.textContent = 'El código ' + code + ' no está cargado en ningún producto.';
+  bar.style.display = 'flex';
+}
+function abOcultarNoEncontrado(){
+  const bar = document.getElementById('scan-nf'); if(bar) bar.style.display = 'none';
+}
+function abAsignarEscaneado(){ abrirAsignarBarcode(null, _abUltimoNoEnc, true); }
+
+function abrirAsignarBarcode(prodId, codigo, desdeScan){
+  _abProdId = prodId || null; _abDesdeScan = !!desdeScan;
+  document.getElementById('ab-code').value = codigo || '';
+  document.getElementById('ab-aviso').style.display = 'none';
+  document.getElementById('ab-q').value = ''; document.getElementById('ab-res').innerHTML = '';
+  const fijo = document.getElementById('ab-prod-fijo'), bus = document.getElementById('ab-buscar-wrap');
+  if(prodId){
+    const p = prods.find(x=>x.id==prodId);
+    fijo.textContent = p ? p.nombre : ''; fijo.style.display = ''; bus.style.display = 'none';
+  } else { fijo.style.display = 'none'; bus.style.display = ''; abBuscar(); }
+  openModal('ov-asignar-barcode');
+  setTimeout(()=>document.getElementById(prodId ? 'ab-code' : 'ab-q')?.focus(), 150);
+}
+function cerrarAsignarBarcode(){
+  try{ if(modalScanReader){ modalScanReader.reset(); modalScanReader = null; } }catch(_){}
+  document.getElementById('modal-cam-preview-wrap')?.remove();
+  closeModal('ov-asignar-barcode');
+}
+function abBuscar(){
+  const res = document.getElementById('ab-res'); if(!res) return;
+  const q = (document.getElementById('ab-q').value || '').trim().toLowerCase();
+  if(q.length < 2){ res.innerHTML = '<div style="font-size:11.5px;color:#999;padding:6px 2px">Escribí al menos 2 letras del nombre.</div>'; return; }
+  const list = (prods||[]).filter(p=>!(p.barcode && String(p.barcode).trim()) && ((p.nombre||'').toLowerCase().includes(q) || (p.codigo_proveedor||'').toLowerCase().includes(q)))
+    .sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'')).slice(0,8);
+  res.innerHTML = list.length ? list.map(p=>`<div onclick="abElegir('${p.id}')" style="padding:9px 10px;border:1px solid #eee;border-radius:9px;margin-bottom:5px;font-size:13px;cursor:pointer;background:#fff">${esc(p.nombre)}</div>`).join('')
+    : '<div style="font-size:11.5px;color:#999;padding:6px 2px">No hay productos sin código con ese nombre.</div>';
+}
+function abElegir(id){
+  _abProdId = id;
+  const p = prods.find(x=>x.id==id);
+  const fijo = document.getElementById('ab-prod-fijo');
+  fijo.innerHTML = esc(p ? p.nombre : '') + ' <span onclick="abCambiarProducto()" style="font-size:11px;font-weight:600;color:#b45309;cursor:pointer;margin-left:6px">cambiar</span>';
+  fijo.style.display = ''; document.getElementById('ab-buscar-wrap').style.display = 'none';
+  document.getElementById('ab-code').focus();
+}
+function abCambiarProducto(){
+  _abProdId = null;
+  document.getElementById('ab-prod-fijo').style.display = 'none';
+  document.getElementById('ab-buscar-wrap').style.display = '';
+  abBuscar(); document.getElementById('ab-q').focus();
+}
+async function guardarAsignarBarcode(){
+  if(_abGuardando) return;
+  const aviso = document.getElementById('ab-aviso'); aviso.style.display = 'none';
+  const err = m=>{ aviso.textContent = m; aviso.style.display = ''; };
+  if(!STORE || !STORE.id || !USER){ err('Se perdió la sesión. Actualizá la página (F5) e ingresá de nuevo.'); return; }
+  if(!_abProdId){ err('Elegí primero el producto.'); return; }
+  const cod = (document.getElementById('ab-code').value || '').replace(/\s+/g,'');
+  if(!cod){ err('Escaneá o escribí el código de barras.'); return; }
+  const otro = prods.find(x=>x.id!=_abProdId && x.barcode && String(x.barcode).replace(/\s+/g,'') === cod);
+  if(otro){ err('Ese código ya lo tiene "' + otro.nombre + '".'); return; }
+  const btn = document.getElementById('ab-btn'); const t0 = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Guardando…'; _abGuardando = true;
+  try{
+    const { data, error } = await SB.rpc('asignar_barcode_producto', { p_tienda_id: STORE.id, p_producto_id: _abProdId, p_barcode: cod });
+    if(error){ err(error.message || 'No se pudo guardar el código.'); return; }
+    const p = prods.find(x=>x.id==_abProdId); if(p) p.barcode = (data && data.barcode) || cod;
+    const desdeScan = _abDesdeScan;
+    cerrarAsignarBarcode(); abOcultarNoEncontrado();
+    try{ renderStock(stockFilter); }catch(_){}
+    try{ if(typeof renderProds === 'function') renderProds(); }catch(_){}
+    showToast('✅ Código cargado en ' + ((data && data.producto) || (p && p.nombre) || 'el producto'), 'ok');
+    if(desdeScan) buscarPorBarcode(cod);   // lo suma a la venta en curso
+  }catch(e){ console.error('guardarAsignarBarcode', e); err('No se pudo guardar. Probá de nuevo.'); }
+  finally{ _abGuardando = false; btn.disabled = false; btn.textContent = t0; }
+}
+
 function buscarPorBarcode(code) {
+  abOcultarNoEncontrado();
   const prod = prods.find(p => p.barcode && p.barcode.trim() === code.trim());
   if (prod && esPesable(prod)) {
     // Producto por peso: no se suma de a 1, se abre la ventana para pesar
@@ -19227,6 +19342,7 @@ function buscarPorBarcode(code) {
     setTimeout(() => document.getElementById('scan-input')?.focus(), 100);
   } else {
     showToast(`⚠️ Código ${code} no encontrado`, 'err');
+    abMostrarNoEncontrado(code);
     document.getElementById('scan-input')?.select();
   }
 }
